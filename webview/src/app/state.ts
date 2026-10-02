@@ -11,13 +11,16 @@
 import { syncCollapsed } from './documents.js';
 import { composerViewState } from '../workflow.js';
 import { renderChrome, renderRail } from './surfaces.js';
+import { sanitizeRailTab } from '../ui/commands.js';
 import type { App } from '../app.js';
 import type { HostBridge, ViewState } from '../types.js';
 
 export function applyState(app: App, state: ViewState, rerender: boolean): void {
   if (!state || typeof state !== 'object') return;
   if (state.filters) app.filters.restore(state.filters);
-  if (state.railTab) app.railTab = state.railTab;
+  // Viewer M2: a tab this viewer does not have (a hand-edited or future state) is ignored.
+  const tab = sanitizeRailTab(state.railTab);
+  if (tab) app.railTab = tab;
   if (Array.isArray(state.collapsed)) {
     app.collapsedState = state.collapsed.slice();
     const index = app.index;

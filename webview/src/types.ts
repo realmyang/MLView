@@ -71,7 +71,7 @@ export interface MLNode {
   evidenceLocs?: Loc[];
   /**
    * Viewer M1: the authored `detail`, verbatim, or absent when the author wrote
-   * none. Read by the Inspector and the card's accessible name; the card draws
+   * none. Read by the Selection pane and the card's accessible name; the card draws
    * `sublabel`, one ellipsised line, so layout does not depend on it.
    */
   detail?: string;
@@ -109,7 +109,7 @@ export interface Issue {
   code: string;
   /**
    * Viewer M2: the short label `F1`…`Fn`, numbered in document order. Badges show it; it can
-   * renumber between revisions, so tooltips, the Inspector and Refine keep the real `id`.
+   * renumber between revisions, so tooltips, the Selection pane and Refine keep the real `id`.
    */
   short: string;
   severity: string;
@@ -216,13 +216,21 @@ export interface Filters {
   query: string;
 }
 
-export type RailTab = 'issues' | 'inspector' | 'outline';
+/**
+ * The rail's tabs, in strip order since viewer M2: About · Findings · Selection · Outline. The
+ * Selection tab keeps its older id, `inspector`, so a saved state and the panel ids stay readable.
+ */
+export type RailTab = 'about' | 'issues' | 'inspector' | 'outline';
 
 export interface ViewState {
   viewport: Viewport;
   selection: Sel | null;
   collapsed: string[];
   filters: Filters;
+  /**
+   * The reader's tab, for `workflowRevision` (viewer M2): a remount of the same revision restores
+   * it, and a new revision opens on About.
+   */
   railTab: RailTab;
   /** Optional: the minimap's collapsed tab survives a reload the way `collapsed` does. */
   minimapCollapsed?: boolean;

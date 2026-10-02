@@ -10,7 +10,6 @@
 
 import { emptyCounts, normalizeSeverity } from '../markers.js';
 import { freshnessStatus } from '../freshness.js';
-import { detailsOpen } from '../workflow.js';
 import type { App } from '../app.js';
 import type { NotObservedCounts } from '../ui/chrome.js';
 import type { IssueCounts, Severity } from '../types.js';
@@ -59,19 +58,19 @@ export function renderChrome(app: App): void {
     checking: app.freshness.checking,
     notObserved,
     exceptionsOn: app.exceptionsOn,
-    detailsOpen: detailsOpen(app),
+    railMode: app.railMode,
   });
 }
 
 export function renderRail(app: App): void {
   const sel = app.selection;
-  // An issue selection resolves to its primary node, so the Inspector is never
-  // empty just because the user clicked the issue row instead of the card
-  // (MLV-R1-006).
+  // An issue selection resolves to its primary node (MLV-R1-006): the Outline marks it. The
+  // Selection pane shows the finding itself.
   const nodeId = app.selectedNodeId();
   const selectedNode = nodeId && app.index ? app.index.nodeById.get(nodeId) || null : null;
   const selectedEdge = sel && sel.kind === 'edge' && app.index ? app.index.edgeById.get(sel.id) || null : null;
   const selectedIssue = sel && sel.kind === 'issue' && app.index ? app.index.issueById.get(sel.id) || null : null;
+  app.paneColumns = app.selectionColumns();
   app.rail.update({
     index: app.index,
     tab: app.railTab,
@@ -83,5 +82,7 @@ export function renderRail(app: App): void {
     collapsed: app.view.collapsed,
     keep: app.filters.keep,
     staleReason: (file) => app.freshness.reasonOf(file),
+    document: app.graph ? app.workflowDocument : null,
+    columns: app.paneColumns,
   });
 }

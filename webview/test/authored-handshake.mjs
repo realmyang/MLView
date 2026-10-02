@@ -206,12 +206,13 @@ export async function authoredHandshake() {
     assert.equal($(page, '#mlview-authored-error'), null, 'no banner for a fresh revision');
 
     // ── Evidence citation opens the cited source through the host. ──
-    // Viewer M1: a click on the card only selects it; the Inspector's Open link opens the source.
+    // Viewer M1: a click on the card only selects it; the Selection pane's Open link opens the source.
+    // Viewer M2: the link says Open; its accessible name says what.
     $(page, '[data-node-id="loss"]').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
     await sleep(20);
     assert.equal(page.outgoing.some((m) => m.type === 'openLocation'), false, 'a card click selects without opening');
-    const open = [...page.window.document.querySelectorAll('button')].find((button) => button.textContent === 'Open source.py:1');
-    assert.ok(open, 'the inspector offers the evidence link');
+    const open = [...page.window.document.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Open source.py:1');
+    assert.ok(open, 'the Selection pane offers the evidence link');
     open.click();
     await waitFor(() => vscode.__recorded.shownDocuments.length >= 1,
       () => 'source click lost canOpenSource or evidence identity: ' + JSON.stringify(page.outgoing));
@@ -220,8 +221,10 @@ export async function authoredHandshake() {
     assert.equal(page.outgoing.find((m) => m.type === 'openLocation').focus, undefined, 'an Open link keeps focus in the diagram');
     assert.equal(vscode.__recorded.shownDocuments[0].options.preserveFocus, true, 'the host opens beside without taking focus');
 
-    assert.match($(page, '.mlv-workflow__meta').textContent, /Entrypoints: source.py/);
-    assert.match($(page, '.mlv-workflow__meta').textContent, /Configuration: training mode/);
+    // Viewer M2: the request's scope and configuration are in About.
+    $(page, '.mlv-rail__tab[data-tab="about"]').click();
+    assert.match($(page, '.mlv-about [data-about="scope"]').textContent, /Entrypoints: source.py/);
+    assert.match($(page, '.mlv-about [data-about="config"]').textContent, /training mode/);
 
     // ── Refine a node (explain): the §1f header and fenced data block. ──
     $(page, '.mlv-workflow__refine').click();
@@ -286,6 +289,9 @@ export async function authoredHandshake() {
     assert.equal(edgeData.selected.source.id, 'loss');
     assert.equal(edgeData.selected.target.label, 'Update weights');
 
+    // The remount restored the Selection tab saved with r1; the finding is picked from Findings.
+    assert.equal(page.app.getState().railTab, 'inspector', 'the remount restores the reader\'s tab for the same revision');
+    $(page, '.mlv-rail__tab[data-tab="issues"]').click();
     $(page, '.mlv-issue[data-issue-id="risk"]').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
     $(page, '.mlv-workflow__refine').click();
     assert.equal($(page, '.mlv-workflow__selection').textContent, 'Finding: F1 · Update risk');

@@ -37,7 +37,7 @@ export interface KeyCommands {
   /** 0 = high, 1 = medium, 2 = low. */
   toggleSeverity(index: number): void;
   toggleRail(): void;
-  /** 0 = Issues, 1 = Inspector, 2 = Outline. */
+  /** Viewer M2: 0 = About, 1 = Findings, 2 = Selection, 3 = Outline. */
   selectRailTab(index: number): void;
   toggleShortcuts(): void;
   /** `e` / `Shift+E`: walk the selection's connections. */
@@ -75,12 +75,12 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['Shift+A'], action: 'replayFlow', description: 'Play the connection flow again (it stops after two passes)' },
   { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },
   { keys: ['1', '2', '3'], action: 'toggleSeverity', description: 'Toggle the high / medium / low filters' },
-  { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side rail' },
-  { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3'], action: 'railTab', description: 'Findings / Inspector / Outline' },
+  { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side panel; open or collapse the bottom panel' },
+  { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4'], action: 'railTab', description: 'About / Findings / Selection / Outline' },
   { keys: ['?'], action: 'shortcuts', description: 'Show this shortcut sheet' },
   // The rungs, in the order `dismissTopmost` runs them (CONTRACTS 11.13). The
   // sheet is the only place the cascade is described to the user (MLV-R1-F2-06).
-  { keys: ['Escape'], action: 'escape', description: 'Close the menu, sheet, details, Refine popover or legend, exit focus mode, clear the selection, leave the canvas' },
+  { keys: ['Escape'], action: 'escape', description: 'Close the menu, this sheet, the Refine popover or the legend, collapse the bottom panel, exit focus mode, clear the selection, leave the canvas' },
   { keys: ['Tab', 'Shift+Tab'], action: 'browser', description: 'Move focus out of the diagram (never intercepted)' },
 ];
 
@@ -106,7 +106,7 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
       cmd.toggleRail();
       return consume();
     }
-    if (key === '1' || key === '2' || key === '3') {
+    if (key === '1' || key === '2' || key === '3' || key === '4') {
       cmd.selectRailTab(Number(key) - 1);
       return consume();
     }

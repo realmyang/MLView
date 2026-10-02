@@ -31,8 +31,9 @@ const THEMES = { 'dark-modern': 'dark', 'light-modern': 'light', 'hc-dark': 'hc'
 const NARROW = [900, 800];
 
 const STATES = {
-  'initial': 'as opened',
+  'initial': 'as opened (viewer M2: a new revision opens on the About tab)',
   'select-node': 'clicked a step card',
+  'select-connection': 'clicked a connection',
   'hover-node': 'pointer resting on a step card',
   'hover-connection': 'pointer resting on a connection',
   'focus-mode': 'clicked a step card, then pressed F',
@@ -44,6 +45,7 @@ const STATES = {
   'filter': 'turned off the lowest severity that has findings (a phase chip in a viewer older than M2)',
   'search': 'opened the search (the field, its icon or the ... menu) and typed a word from a step label',
   'finding': 'clicked a finding with a suggestion in the Findings list',
+  'finding-pane': 'clicked a finding in the Findings list, then the Selection tab (its claim-first pane)',
   'stale': 'opened with a stale frame for one cited file',
   'stale-selected': 'opened with a stale frame, then clicked a step that cites that file',
   'narrow-selected': `${NARROW[0]}x${NARROW[1]} panel, clicked a step card`,
@@ -403,6 +405,22 @@ function pageHelpers() {
         selected: [...document.querySelectorAll('.is-selected[data-node-id], .is-selected[data-edge-id], .mlv-issue.is-selected')]
           .map((e) => e.getAttribute('data-node-id') || e.getAttribute('data-edge-id') || e.getAttribute('data-issue-id')),
         railOpen: shown(rail) && rail.offsetWidth > 0,
+        // Viewer M2: docked beside the canvas or a bottom sheet under it; its box, and the Selection
+        // pane's columns.
+        rail: rail ? {
+          mode: rail.getAttribute('data-mode'),
+          expanded: rail.getAttribute('data-mode') === 'sheet' ? rail.getAttribute('data-expanded') === 'true' : null,
+          box: shown(rail) ? (() => { const r = rect(rail); return `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}`; })() : null,
+          columns: (() => { const p = document.querySelector('.mlv-rail__panel:not([hidden]) .mlv-sel'); return p ? Number(p.getAttribute('data-columns')) : null; })(),
+        } : null,
+        // Viewer M2: the selected card or connection is wholly inside the canvas (so above an open sheet).
+        selectedInCanvas: (() => {
+          const sel = document.querySelector('.mlv-node.is-selected, .mlv-group.is-selected, .mlv-edge.is-selected .mlv-edge__path');
+          const canvas = document.querySelector('.mlv-canvas');
+          if (!sel || !canvas) return null;
+          const r = sel.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+          return r.width > 0 && r.left >= c.left - 1 && r.top >= c.top - 1 && r.right <= c.right + 1 && r.bottom <= c.bottom + 1;
+        })(),
         railTab: tab ? txt(tab) : null,
         railText: panel ? txt(panel).slice(0, 500) : null,
         suggestionShown: !!fix,
@@ -583,6 +601,15 @@ try {
       if (!node) return { skip: 'no step card visible to click' };
       return { frames, did: `clicked ${node.id}`, target: { node: node.id, preferred: node.preferred } };
     },
+    async 'select-connection'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const edge = await evaluate(`window.__shots.pickEdge(${JSON.stringify(input.edgeOrder)})`);
+      if (!edge) return { skip: 'no connection visible to click' };
+      await click(edge.x, edge.y);
+      await sleep(700);
+      await rest();
+      return { frames, did: `clicked connection ${edge.id}`, target: { edge: edge.id } };
+    },
     async 'hover-node'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
       const node = await evaluate(`window.__shots.pickNode(${JSON.stringify(input.nodeOrder)})`);
@@ -627,7 +654,7 @@ try {
     async 'compact'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
       // Focus the canvas without clicking: a click could select a card and, beside the code, open
-      // the rail drawer over the cards being measured.
+      // the bottom sheet under the cards being measured.
       await evaluate(`(document.querySelector('.mlv-canvas') || document.body).focus()`);
       let presses = 0;
       while (presses < 12 && (parseFloat(await evaluate(`(document.querySelector('.mlv-zoom__level') || {}).textContent || '100'`)) || 100) >= 62) {
@@ -740,6 +767,24 @@ try {
       await sleep(300);
       await rest();
       return { frames, did: `clicked finding ${id} in the Findings list${scrolled ? ', scrolled its expanded row into view' : ''}`, target: { finding: id } };
+    },
+    async 'finding-pane'(input, theme, size) {
+      if (!input.findingOrder.length) return { skip: 'the document has no findings' };
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const id = input.findingOrder[0];
+      const selector = `.mlv-rail .mlv-issue[data-issue-id="${id.replace(/["\\]/g, '\\$&')}"]`;
+      const tab = await evaluate(`window.__shots.pointOf('.mlv-rail__tab[id$="-tab-issues"]')`);
+      if (tab) { await click(tab.x, tab.y); await sleep(500); }
+      const row = await evaluate(`window.__shots.pointOf(${JSON.stringify(selector)})`);
+      if (!row) return { skip: `finding ${id} is not in a visible Findings list` };
+      await click(row.x, row.y);
+      await sleep(900);
+      const selection = await evaluate(`window.__shots.pointOf('.mlv-rail__tab[id$="-tab-inspector"]')`);
+      if (!selection) return { skip: 'no Selection tab (the viewer predates it)' };
+      await click(selection.x, selection.y);
+      await sleep(500);
+      await rest();
+      return { frames, did: `clicked finding ${id} in the Findings list, then the Selection tab`, target: { finding: id } };
     },
     async 'stale'(input, theme, size) {
       await ensureStale(input, theme, size);

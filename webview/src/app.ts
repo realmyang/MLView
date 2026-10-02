@@ -33,7 +33,7 @@ import { Legend } from './ui/legend.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
 import { ThemeController } from './ui/theme.js';
 import { SearchController } from './ui/searchcontroller.js';
-import { closeComposer, composerOpen, decorateWorkflow, detailsOpen, normalizeWorkflow, sanitizeComposer, setDetailsOpen } from './workflow.js';
+import { closeComposer, composerOpen, decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
 import { FreshnessState } from './freshness.js';
 import { HostNotice } from './ui/hostnotice.js';
 import { DoubleClickOpener } from './ui/doubleclick.js';
@@ -44,6 +44,9 @@ import { openLocation } from './app/actions.js';
 import { onCanvasKey } from './app/keys.js';
 import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
+import { sanitizeRailTab } from './ui/commands.js';
+import { screenReaderActive } from './motion.js';
+import { selectionAnnouncement } from './ui/selection.js';
 import type { SearchHit } from './search.js';
 import type {
   ActionResult,
@@ -70,12 +73,31 @@ import type {
 const MAX_PENDING_REQUESTS = 32;
 
 /**
- * Campaign 3, issue 6. The rail docks only when the canvas beside it keeps at
- * least this width; below the 900 px breakpoint it is an overlay over 86 % of
- * the canvas. Until the reader toggles it, it starts closed when either would
- * leave a diagram narrower than this.
+ * Campaign 3, issue 6; viewer M2. The rail docks beside the canvas only when the canvas keeps at
+ * least this width (with the default 360 px rail: panels 1260 px wide and up). Narrower, the rail
+ * is a bottom sheet under the canvas instead of the drawer that covered it: a 32 px tab strip when
+ * collapsed, about 47 % of the height when open.
  */
 export const RAIL_MIN_CANVAS_W = 900;
+
+/** Viewer M2: where the rail is. `docked` beside the canvas, `sheet` under it. */
+export type RailMode = 'docked' | 'sheet';
+
+/** Viewer M2: below this panel width the Selection pane in the sheet is one column, above it two. */
+export const SHEET_TWO_COLUMNS_W = 620;
+
+/** The open sheet's share of the body height: the default, and the drag handle's bounds. */
+export const SHEET_FRACTION = 0.47;
+export const SHEET_FRACTION_MIN = 0.25;
+export const SHEET_FRACTION_MAX = 0.75;
+
+/** Where `showAbout` lands the reader. */
+export interface ShowAboutOptions {
+  /** Open at the coverage limitations (the Selection pane's "limitations apply" link). */
+  at?: 'limitations';
+  /** Move the keyboard focus into About (a keyboard activation, or the limitations link). */
+  focus?: boolean;
+}
 
 type RequestFrame = UiToHost & { requestId?: string };
 
@@ -85,8 +107,9 @@ export interface SelectOptions {
   /** With `open`: move focus to the editor (Alt+Enter). */
   focusEditor?: boolean;
   /**
-   * A gesture on the canvas (viewer M1): the claim is shown, so a rail that the width rule closed
-   * opens on the Inspector, unless the reader closed it; the target stays in view.
+   * A gesture on the canvas (viewer M1): the claim is shown. A docked rail the width rule closed
+   * opens, unless the reader closed it; a collapsed bottom sheet opens (viewer M2). The target stays
+   * in view above the sheet.
    */
   showClaim?: boolean;
   center?: boolean;
@@ -116,13 +139,15 @@ export class App implements MLViewApp {
   viewportState: Viewport = { x: 0, y: 0, zoom: 1 };
   selection: Sel | null = null;
   collapsedState: string[] = [];
-  railTab: RailTab = 'issues';
+  /** Viewer M2: a new revision opens on About; afterwards the reader's tab is kept (and saved). */
+  railTab: RailTab = 'about';
   legendOpen = false;
 
   /** Viewer M1: the displayed revision's stale files, from the host's `stale` frame. */
   freshness = new FreshnessState();
   /** Whether this viewer has said once where an opened source goes. */
   openHintShown = false;
+  /** Docked: whether the rail is shown. Sheet (viewer M2): whether the sheet is open, not just its tab strip. */
   railOpen = true;
   /**
    * The reader has shown or hidden the rail themselves, selected a finding
@@ -130,7 +155,18 @@ export class App implements MLViewApp {
    * longer decides.
    */
   railChosen = false;
+  /**
+   * Viewer M2: the reader hid the DOCKED rail (Ctrl+B or the ... menu). Collapsing the bottom sheet
+   * is not hiding the rail: a panel widened back to docking width shows it again unless this is set.
+   */
+  dockedHidden = false;
   railWidth = 360;
+  /** Viewer M2: docked beside the canvas, or a bottom sheet under it (`autoRail`). */
+  railMode: RailMode = 'docked';
+  /** Viewer M2: the open sheet's share of the body height (the drag handle changes it). */
+  sheetFraction = SHEET_FRACTION;
+  /** Viewer M2: the columns the Selection pane was last built with (`renderRail`). */
+  paneColumns: 1 | 2 = 1;
   /** The authored document last applied, as the very object that arrived. */
   workflowDocument: WorkflowDocument | null = null;
   /** Its revision id, which decides whether a new frame may keep the viewport. */
@@ -142,6 +178,8 @@ export class App implements MLViewApp {
   private restoredView: { revision: string; viewport: Viewport } | null = null;
   /** The composer a remount restores, under the same rule as `restoredView` (VIEWUI-4). */
   private restoredComposer: { revision: string; composer: ComposerState } | null = null;
+  /** Viewer M2: the rail tab a remount restores, only for the revision it was saved with. */
+  private restoredTab: { revision: string; tab: RailTab } | null = null;
   /**
    * Requests waiting for the host's `actionResult`, oldest first (§1e). No
    * timeout: a save dialog may stay open for as long as the user likes.
@@ -156,7 +194,6 @@ export class App implements MLViewApp {
   rail!: Rail;
   sheet!: ShortcutSheet;
   legend!: Legend;
-  scrim!: HTMLElement;
   releasePage: () => void = () => undefined;
   themes!: ThemeController;
   search!: SearchController;
@@ -182,6 +219,8 @@ export class App implements MLViewApp {
     }
     const composer = restored && typeof restored.workflowRevision === 'string' ? sanitizeComposer(restored.composer) : null;
     if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
+    const tab = restored && typeof restored.workflowRevision === 'string' ? sanitizeRailTab(restored.railTab) : null;
+    if (restored && tab) this.restoredTab = { revision: restored.workflowRevision as string, tab };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.onResize()));
     // Viewer M2: Ctrl/Cmd+F and Ctrl/Cmd+K focus the search from anywhere in the viewer, not only
@@ -211,6 +250,18 @@ export class App implements MLViewApp {
     const before = this.chrome.headerLayout;
     if (this.chrome.setWidth(this.rootWidth()) !== before) renderChrome(this);
     this.autoRail();
+    // The sheet's Selection pane changes between one and two columns at 620 px.
+    if (this.paneColumns !== this.selectionColumns()) renderRail(this);
+  }
+
+  /** Viewer M2: the Selection pane's columns: two in a sheet at least 620 px wide, else one. */
+  selectionColumns(): 1 | 2 {
+    return this.railMode === 'sheet' && this.rootWidth() >= SHEET_TWO_COLUMNS_W ? 2 : 1;
+  }
+
+  /** Viewer M2: the rail's content is on screen (docked and shown, or the sheet open). */
+  railShown(): boolean {
+    return this.railOpen;
   }
 
   /** Repaint the header and the status bar (for modules that change what they show). */
@@ -227,25 +278,39 @@ export class App implements MLViewApp {
     this.search.focus();
   }
 
-  /** The provenance chip and the status bar's coverage item: open or close the details. */
-  toggleDetails(): void {
-    setDetailsOpen(this, !detailsOpen(this), detailsOpen(this));
+  /**
+   * Viewer M2: the About tab: the request, the model's own summary, coverage with the limitations,
+   * scope, run configuration, the cited files and provenance. The provenance chip, the status bar's
+   * coverage item, the ... menu and the Selection pane's limitations link open it; it replaces the
+   * details panel that opened over the diagram. A docked rail the reader closed opens, and so does
+   * a collapsed sheet. `focus` moves the keyboard focus into it.
+   */
+  showAbout(opts: ShowAboutOptions = {}): void {
+    this.railTab = 'about';
+    if (!this.railOpen) {
+      this.railChosen = true;
+      this.setRailOpen(true);
+    }
+    renderRail(this);
+    this.saveSoon();
+    const target = opts.at === 'limitations' ? this.rail.revealLimitations() : opts.focus ? this.rail.activePanel() : null;
+    if (opts.focus && target) {
+      try {
+        target.focus();
+      } catch (_e) {
+        /* a host may have detached the rail already */
+      }
+    }
+    this.announce(opts.at === 'limitations' ? 'About: the coverage limitations.' : 'About this revision shown.');
   }
 
-  /**
-   * Escape's rung for the panels that open over the diagram from the header: the request and
-   * coverage details, then the Refine… popover. True when one was closed.
-   */
+  /** Escape's rung for the Refine… popover, the one panel left that opens from the header. */
   closeHeaderPanels(): boolean {
-    if (detailsOpen(this)) {
-      setDetailsOpen(this, false);
-      return true;
-    }
-    return closeComposer(this);
+    return closeComposer(this, true);
   }
 
   headerPanelOpen(): boolean {
-    return detailsOpen(this) || composerOpen(this);
+    return composerOpen(this);
   }
 
   /**
@@ -269,6 +334,13 @@ export class App implements MLViewApp {
     this.restoredView = null;
     const composer = this.restoredComposer && this.restoredComposer.revision === document.revision.id ? this.restoredComposer.composer : null;
     this.restoredComposer = null;
+    // Viewer M2: a new revision opens on About. The same revision keeps the reader's tab, and so
+    // does a remount of the revision the tab was saved with.
+    if (this.workflowRevision !== document.revision.id) {
+      const restoredTab = !this.graph && this.restoredTab && this.restoredTab.revision === document.revision.id ? this.restoredTab.tab : null;
+      this.railTab = restoredTab || 'about';
+    }
+    this.restoredTab = null;
     this.workflowDocument = document;
     this.workflowRevision = document.revision.id;
     // Before the first fit, so the fit sees the canvas the rail leaves (issue 6).
@@ -361,34 +433,99 @@ export class App implements MLViewApp {
     this.saveSoon();
   }
 
+  /**
+   * A tab chosen in the strip. A collapsed bottom sheet opens on it (the tab strip is all of it
+   * that shows); the docked rail is always on screen when its strip is.
+   */
   setRailTab(tab: RailTab): void {
     this.railTab = tab;
+    if (this.railMode === 'sheet' && !this.railOpen) {
+      this.railChosen = true;
+      this.setRailOpen(true);
+    }
     renderRail(this);
     this.saveSoon();
   }
 
+  /**
+   * Viewer M2: Ctrl+1 to Ctrl+4. A rail that is not on screen (a collapsed sheet, a hidden docked
+   * rail) opens on the tab asked for. In the bottom sheet the focus moves to the tab, so the reader
+   * lands in the panel they asked for; the docked rail leaves the focus where it was.
+   */
+  showRailTab(tab: RailTab): void {
+    this.railTab = tab;
+    if (!this.railOpen) {
+      this.railChosen = true;
+      this.setRailOpen(true);
+    }
+    renderRail(this);
+    this.saveSoon();
+    if (this.railMode === 'sheet') this.rail.focusTab(tab);
+  }
+
   toggleRail(): void {
     this.railChosen = true;
+    if (this.railMode === 'docked') this.dockedHidden = this.railOpen;
     this.setRailOpen(!this.railOpen);
   }
 
   /**
-   * Campaign 3, issue 6. MEASURED live: the docked rail took 360 of a 1086 or
-   * 1382 px panel, and below the 900 px breakpoint the open overlay covered
-   * 86 % of the canvas at the default 541 px. Until the reader chooses, the
-   * rail is open only when the canvas beside it keeps RAIL_MIN_CANVAS_W, and
-   * follows the panel width as it changes. An unmeasurable root (jsdom, a
-   * detached mount) leaves it as it is.
+   * Viewer M2: Escape's rung for the open sheet, and the sheet's own Escape. The sheet collapses to
+   * its tab strip; with `restoreFocus` (the sheet's own Escape, pressed inside it) the canvas takes
+   * the focus back. False when there was no open sheet.
+   */
+  collapseSheet(restoreFocus = false): boolean {
+    if (this.railMode !== 'sheet' || !this.railOpen) return false;
+    this.railChosen = true;
+    this.setRailOpen(false);
+    this.announce('Bottom panel collapsed.');
+    if (restoreFocus) {
+      try {
+        this.view.canvasEl.focus();
+      } catch (_e) {
+        /* the canvas may already be torn down */
+      }
+    }
+    return true;
+  }
+
+  /** Viewer M2: the drag handle (or its arrow keys) sets the open sheet's height. */
+  setSheetFraction(fraction: number): void {
+    const next = Math.max(SHEET_FRACTION_MIN, Math.min(SHEET_FRACTION_MAX, fraction));
+    if (Math.abs(next - this.sheetFraction) < 0.001) return;
+    this.sheetFraction = next;
+    this.rail.setSheetFraction(next);
+    if (this.railMode === 'sheet' && this.railOpen && this.graph) this.view.afterSheetToggle();
+  }
+
+  /**
+   * Campaign 3, issue 6; viewer M2. MEASURED live: the docked rail took 360 of a 1086 or 1382 px
+   * panel, and the drawer that replaced it below 900 px covered 86 % of the canvas at the default
+   * 541 px. The rail docks only when the canvas beside it keeps RAIL_MIN_CANVAS_W; narrower, it is
+   * a bottom sheet under the canvas. Docked, it is shown until the reader hides it. The sheet starts
+   * as its tab strip and opens on a selection; a rail the reader was using stays open when the panel
+   * narrows into a sheet. An unmeasurable root (jsdom, a detached mount) leaves it docked and shown.
    */
   autoRail(): void {
-    if (this.railChosen) return;
     const width = this.root.getBoundingClientRect().width;
     if (!(width > 0)) return;
-    const open = width - this.railWidth >= RAIL_MIN_CANVAS_W;
-    if (open === this.railOpen) return;
-    this.setRailOpen(open);
-    // A docked rail changes the canvas width; refit a viewport nobody moved
-    // now rather than waiting for the host's ResizeObserver (none in jsdom).
+    const mode: RailMode = width - this.railWidth >= RAIL_MIN_CANVAS_W ? 'docked' : 'sheet';
+    let open = this.railOpen;
+    if (mode !== this.railMode) open = mode === 'sheet' ? this.railOpen && this.railChosen : !this.dockedHidden;
+    else if (mode === 'docked' && !this.railChosen) open = true;
+    if (mode === this.railMode && open === this.railOpen) return;
+    const modeChanged = mode !== this.railMode;
+    this.railMode = mode;
+    this.rail.setMode(mode, this.sheetFraction);
+    this.setRailOpen(open, true);
+    if (modeChanged) {
+      // Back beside the canvas the rail takes its docked width again; the menu names the mode.
+      if (mode === 'docked') this.setRailWidth(this.railWidth);
+      renderRail(this);
+      renderChrome(this);
+    }
+    // The canvas changed size; a viewport nobody moved refits now rather than waiting for the
+    // host's ResizeObserver (none in jsdom), and a selected target in view stays in view.
     if (this.graph) this.view.handleResize();
   }
 
@@ -415,39 +552,56 @@ export class App implements MLViewApp {
    * stays open — the reader is now reading it, and a later resize (the split a
    * followed evidence link opens) must not take it away.
    */
-  private showRailForFinding(): void {
+  private showRailForFinding(): boolean {
     this.railChosen = true;
-    if (!this.railOpen) this.setRailOpen(true);
+    if (this.railOpen) return false;
+    this.setRailOpen(true);
+    return true;
   }
 
-  setRailOpen(open: boolean): void {
+  /**
+   * Show or hide the docked rail, or open or collapse the sheet. A sheet toggle changes the canvas
+   * height, which must not refit the diagram (the reader is reading a card); the canvas keeps a
+   * selected target in view above the sheet instead (`CanvasView.afterSheetToggle`). `quiet` is the
+   * width rule's own call, which re-lays the canvas itself.
+   */
+  setRailOpen(open: boolean, quiet = false): void {
     const changed = this.railOpen !== open;
     this.railOpen = open;
-    this.rail.root.hidden = !open;
-    // The scrim only paints below the 900 px breakpoint (see chrome.css), but its
-    // hidden state must track the drawer at every width.
-    this.scrim.hidden = !open;
-    // The ... menu's "Side rail" item says whether it is shown.
-    if (changed && this.chrome) renderChrome(this);
+    // A docked rail shown again, by any route, is no longer one the reader hid.
+    if (open && this.railMode === 'docked') this.dockedHidden = false;
+    this.rail.setOpen(open);
+    if (!changed) return;
+    // The ... menu's rail item says whether it is shown.
+    if (this.chrome) renderChrome(this);
+    // Only the visible tab is built: one that opens now is built for the first time.
+    if (open && this.rail) renderRail(this);
+    if (!quiet && this.railMode === 'sheet' && this.graph) this.view.afterSheetToggle();
   }
 
+  /**
+   * The `?` shortcut sheet, a modal dialog (viewer M2: it keeps Tab inside itself). Closing gives
+   * the focus back to whatever had it when the sheet opened, or to the canvas.
+   */
   toggleShortcuts(next?: boolean): void {
     const show = typeof next === 'boolean' ? next : !this.sheet.open;
     if (show) {
       this.sheet.show();
       return;
     }
-    this.sheet.hide();
-    try {
-      this.view.canvasEl.focus();
-    } catch (_e) {
-      /* the canvas may already be torn down */
-    }
+    this.sheet.hide(this.view.canvasEl);
   }
 
   setRailWidth(width: number): void {
-    this.railWidth = Math.max(280, Math.min(560, Math.round(width)));
-    this.rail.root.style.width = this.railWidth + 'px';
+    // Viewer M2: docked, the rail never leaves the canvas under RAIL_MIN_CANVAS_W; it would turn
+    // into the sheet under the pointer that is dragging it.
+    // A panel too narrow to dock the rail at all (the sheet, or before the first width rule) does
+    // not clamp the width it will dock at.
+    const panel = this.rootWidth();
+    const room = this.railMode === 'docked' && panel - RAIL_MIN_CANVAS_W >= 280 ? panel - RAIL_MIN_CANVAS_W : 560;
+    this.railWidth = Math.max(280, Math.min(560, room, Math.round(width)));
+    // The sheet spans the panel; the width waits for the rail to dock again.
+    if (this.railMode === 'docked') this.rail.root.style.width = this.railWidth + 'px';
   }
 
   /**
@@ -475,9 +629,12 @@ export class App implements MLViewApp {
   select(sel: Sel, opts?: SelectOptions): void {
     if (sel.kind !== 'edge') this.edgeAnchor = null;
     this.selection = sel;
-    if (opts && opts.tab) this.railTab = opts.tab;
-    if (sel.kind === 'issue') this.showRailForFinding();
-    const openedRail = !!(opts && opts.showClaim) && this.showRailForClaim();
+    // Viewer M2: a selection shows its claim in the Selection tab, unless the reader is working in
+    // the Findings list or the Outline (a list they are walking keeps its place).
+    this.railTab = opts && opts.tab ? opts.tab : this.selectionTab();
+    let openedRail = false;
+    if (sel.kind === 'issue') openedRail = this.showRailForFinding();
+    if (opts && opts.showClaim) openedRail = this.showRailForClaim() || openedRail;
     this.view.applySelection(sel);
     renderRail(this);
     if (opts && opts.reveal && sel.kind === 'edge') this.view.revealEdge(sel.id);
@@ -493,14 +650,26 @@ export class App implements MLViewApp {
   }
 
   /**
-   * Viewer M1: a click shows the claim, which lives in the rail. A rail the width rule closed
-   * opens (true); one the reader closed stays closed (they have the hover card and Ctrl+B).
+   * Viewer M1: a click shows the claim, which lives in the rail. A docked rail the width rule
+   * closed opens (true); one the reader closed stays closed (they have the hover card and Ctrl+B).
+   * Viewer M2: a collapsed bottom sheet opens on every such selection; Escape collapses it again.
    */
   private showRailForClaim(): boolean {
-    if (this.railOpen || this.railChosen) return false;
+    if (this.railOpen) return false;
+    if (this.railMode === 'docked' && this.railChosen) return false;
     this.railChosen = true;
     this.setRailOpen(true);
     return true;
+  }
+
+  /**
+   * Viewer M2: the tab a new selection shows. The Selection tab, unless the reader is in the
+   * Findings list or the Outline with the rail on screen: selecting from (or beside) a list they are
+   * walking keeps that list, where the selection is marked.
+   */
+  private selectionTab(): RailTab {
+    const inList = this.railTab === 'issues' || this.railTab === 'outline';
+    return inList && this.railShown() ? this.railTab : 'inspector';
   }
 
   clearSelection(): void {
@@ -538,6 +707,14 @@ export class App implements MLViewApp {
   private announceSelection(): void {
     const sel = this.selection;
     if (!sel || !this.index) return;
+    // Viewer M2: with VS Code's screen-reader optimisation on (the `vscode-using-screen-reader`
+    // body class) the announcement leads with the claim: its title, its basis when it is not
+    // observed, and the first sentence of what the author wrote.
+    if (screenReaderActive()) {
+      const text = selectionAnnouncement(this.index, sel);
+      if (text) this.announce(text);
+      return;
+    }
     if (sel.kind === 'node') {
       const label = this.view.labelOf(sel.id);
       if (label) this.announce('Selected ' + label);
@@ -610,7 +787,7 @@ export class App implements MLViewApp {
     this.view.expandAncestors(id);
     this.select(
       { kind: 'node', id },
-      { center: opts ? opts.center !== false : true, tab: 'inspector', pulse: opts ? !!opts.pulse : false },
+      { center: opts ? opts.center !== false : true, pulse: opts ? !!opts.pulse : false },
     );
   }
 
@@ -618,15 +795,12 @@ export class App implements MLViewApp {
     if (!this.index) return;
     const issue = this.index.issueById.get(id);
     if (!issue) return;
-    const primary = issue.nodeIds[0];
-    if (primary) this.view.expandAncestors(primary);
-    this.railTab = 'issues';
-    this.select({ kind: 'issue', id }, { tab: 'issues' });
-    // Issue 6: at 15-45 % a centred card is an unreadable shape, so below the
-    // detail threshold the canvas zooms to the finding's target. A finding on
-    // connections only reveals its first connection.
-    if (primary) this.view.revealNode(primary, true);
-    else if (issue.edgeIds.length) this.view.revealEdge(issue.edgeIds[0]);
+    for (const nodeId of issue.nodeIds) this.view.expandAncestors(nodeId);
+    this.select({ kind: 'issue', id });
+    // Issue 6; viewer M2: the canvas frames EVERY step the finding cites (and the ends of the
+    // connections it cites), zooming to READABLE_ZOOM below the detail threshold, so a finding on
+    // three steps no longer shows only the first.
+    this.view.frameIssue(id);
   }
 
   /** Viewer M1: Enter (or a double-click) on a finding row selects it and opens its first cited range. */

@@ -84,7 +84,7 @@ test('a click on a card, connection, finding or outline row selects it and opens
     mouse(ctx, card(ctx, 'loss'), 'click');
     assert.ok(card(ctx, 'loss').classList.contains('is-selected'), 'the clicked card is selected');
     assert.equal(ctx.app.getState().selection.id, 'loss');
-    assert.ok(sourceButtons(ctx).some((li) => /Open train\.py:10/.test(li.textContent)), 'the Inspector shows the claim and its evidence');
+    assert.ok(sourceButtons(ctx).some((li) => /^Open train\.py:10/.test(li.querySelector('.mlv-quote__open').getAttribute('aria-label'))), 'the Selection pane shows the claim and its evidence');
 
     mouse(ctx, edgeHit(ctx, 'load-loss'), 'click');
     assert.equal(ctx.app.getState().selection.kind, 'edge');
@@ -182,11 +182,13 @@ test('the second click of a double-click opens the card even when the rail now l
     assert.equal(composer.hidden, true, 'the Inspector control under the second click was not pressed');
     assert.equal(d.secondDownDefault, false, 'its mousedown is cancelled, so focus does not move to it');
 
-    // UX-1: in a narrow panel the second click hits the drawer's scrim; the drawer stays open.
+    // UX-1; viewer M2: the second click lands on the rail's tab strip (a bottom sheet that just
+    // opened under the pointer). It switches no tab, and the claim stays shown.
     ctx.app.railChosen = false;
     ctx.app.setRailOpen(false);
-    realDoubleClick(ctx, () => card(ctx, 'step'), () => $(ctx, '.mlv-scrim'));
-    assert.equal(ctx.app.railOpen, true, 'the scrim did not close the drawer');
+    realDoubleClick(ctx, () => card(ctx, 'step'), () => $(ctx, '.mlv-rail__tab[data-tab="about"]'));
+    assert.equal(ctx.app.railOpen, true, 'the claim is still shown');
+    assert.equal(ctx.app.getState().railTab, 'inspector', 'the tab under the second click was not pressed');
     assert.equal(opens(ctx).length, 2);
     assert.equal(opens(ctx)[1].evidenceId, 'e3');
 

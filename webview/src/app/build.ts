@@ -21,7 +21,6 @@ import { buildShell, claimPage } from '../ui/shell.js';
 import { ShortcutSheet } from '../ui/shortcuts.js';
 import { SearchController } from '../ui/searchcontroller.js';
 import { HostNotice } from '../ui/hostnotice.js';
-import { detailsOpen, revealWorkflowLimitations, setDetailsOpen } from '../workflow.js';
 import { runExport } from './exporting.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import { syncCollapsed } from './documents.js';
@@ -33,8 +32,6 @@ export function buildAppUi(app: App): void {
   const shell = buildShell(app.root, app.themes.kind);
   app.releasePage = claimPage(app.root);
   app.liveEl = shell.live;
-  app.scrim = shell.scrim;
-  on(app.scrim, 'click', () => app.toggleRail());
   app.view = new CanvasView(shell, canvasHost(app));
 
   // Viewer M2: ONE header row (title, provenance, search, severity, not observed, ..., Refine…)
@@ -45,7 +42,9 @@ export function buildAppUi(app: App): void {
     onSearchOpen: () => app.focusSearch(),
     onSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
     onToggleExceptions: (next) => app.setExceptions(next),
-    onDetails: () => app.toggleDetails(),
+    // Viewer M2: the provenance chip, the status bar's coverage item and the ... menu open About. A
+    // keyboard activation (a click with no pointer detail) also moves the focus into it.
+    onAbout: (byKeyboard) => app.showAbout({ focus: byKeyboard }),
     onZoom: (dir) => app.view.zoomStep(dir),
     onToggleLegend: (next) => app.setLegend(next),
     onToggleFlow: (next) => app.setFlow(next),
@@ -68,19 +67,6 @@ export function buildAppUi(app: App): void {
   app.root.appendChild(app.notice.root);
   app.root.appendChild(shell.body);
   shell.body.appendChild(shell.main);
-
-  // The request and coverage details open over the diagram; a press anywhere else closes them,
-  // except on the controls that open them (they toggle).
-  if (typeof document !== 'undefined') {
-    const openers = '.mlv-workflow__details, .mlv-header__prov, .mlv-status__coverage, .mlv-moremenu, .mlv-insp__limits-show';
-    const off = on(document, 'pointerdown', (ev: PointerEvent) => {
-      if (!detailsOpen(app)) return;
-      const target = ev.target as HTMLElement | null;
-      if (target && typeof target.closest === 'function' && target.closest(openers)) return;
-      setDetailsOpen(app, false);
-    });
-    app.releasePage = chain(app.releasePage, off);
-  }
 
   app.search = new SearchController(app.chrome.searchInput, app.chrome.results, {
     index: () => app.index,
@@ -108,27 +94,28 @@ export function buildAppUi(app: App): void {
       app.doubleClick.arm(ev, () => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true }));
     },
     onOpenNode: (id, focusEditor) => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, focusEditor }),
-    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
-    onChallenge: () => {
-      const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
-      const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
-      const intent = app.root.querySelector<HTMLSelectElement>('.mlv-workflow__intent');
-      if (!refine || !composer || !intent) return;
-      // Reopen to capture this selection even if an older composer is visible.
-      if (!composer.hidden) refine.click();
-      refine.click();
-      intent.value = 'challenge';
-      intent.dispatchEvent(new Event('change', { bubbles: true }));
-    },
+    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { reveal: true }),
+    // Viewer M2: the Selection pane's links to a cited step, a connection's ends, a finding.
+    onShowNode: (id) => app.focusNode(id, { center: true, pulse: true }),
+    onShowEdge: (id) => app.select({ kind: 'edge', id }, { reveal: true }),
+    onShowIssue: (id) => app.focusIssue(id),
+    onChallenge: () => openComposer(app, 'challenge'),
+    onRefine: () => openComposer(app, null),
     onOpen: (loc, focusEditor) => app.openLocation(loc, focusEditor),
     onResize: (w) => app.setRailWidth(w),
-    onToggleRail: () => app.toggleRail(),
     onSelectLane: (laneId) => app.selectLane(laneId),
     onToggleCollapse: (id) => {
       if (app.index && app.index.isGroup(id)) app.view.toggleCollapse(id);
     },
-    onShowLimitations: () => { revealWorkflowLimitations(app); },
+    onShowLimitations: () => app.showAbout({ at: 'limitations', focus: true }),
+    onSheetToggle: () => app.toggleRail(),
+    onSheetCollapse: () => app.collapseSheet(true),
+    onSheetResize: (fraction) => app.setSheetFraction(fraction),
+    sheetFraction: () => app.sheetFraction,
+    bodyHeight: () => shell.body.getBoundingClientRect().height,
   });
+  // Viewer M2: after the canvas in the document, so the canvas stays within the header's tab
+  // stops and the sheet comes after it.
   shell.body.appendChild(app.rail.root);
   // Campaign 3, issue 6: a reader working IN the rail has chosen it. Following
   // an evidence link opens the source in a split that narrows this panel, and
@@ -154,22 +141,22 @@ export function buildAppUi(app: App): void {
 /** What the canvas is allowed to ask of the application. */
 export function canvasHost(app: App): CanvasHost {
   const openNode = (id: string, focusEditor: boolean) =>
-    app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor });
+    app.select({ kind: 'node', id }, { showClaim: true, open: true, focusEditor });
   const openEdge = (id: string, focusEditor: boolean) =>
-    app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor });
+    app.select({ kind: 'edge', id }, { showClaim: true, open: true, focusEditor });
   return {
     keep: app.filters.keep,
     isFilteredOut: (node) => app.filters.hidesNode(node),
     // Viewer M1: a click selects and shows the claim; Enter and a double-click open the cited
     // source beside the panel with focus kept here; Alt+Enter moves focus to the editor. The
     // click arms the double-click opener, so the second click opens even when the first one
-    // moved the card (a rail opening, a refit) or put the drawer under the pointer.
+    // moved the card (a rail opening, a refit) or put the bottom sheet under the pointer.
     activateNode: (id, ev) => {
-      app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true });
+      app.select({ kind: 'node', id }, { showClaim: true });
       app.doubleClick.arm(ev, () => openNode(id, false));
     },
     activateEdge: (id, ev) => {
-      app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true });
+      app.select({ kind: 'edge', id }, { showClaim: true });
       app.doubleClick.arm(ev, () => openEdge(id, false));
     },
     openNode,
@@ -194,7 +181,6 @@ export function canvasHost(app: App): CanvasHost {
     },
     onKeyDown: (ev) => app.onKeyDown(ev),
     onBackgroundClick: () => app.clearSelection(),
-    coveredRight: () => railOverlap(app),
     keptTarget: () => {
       const sel = app.selection;
       if (!sel) return null;
@@ -208,23 +194,18 @@ export function canvasHost(app: App): CanvasHost {
 }
 
 /**
- * How many pixels of the canvas's right side the open rail covers (Campaign 3 review, VL-1).
- * Measured rather than inferred from the 900 px breakpoint: docked, the rail's left edge is the
- * canvas's right edge; as the narrow-window drawer it lies over the canvas.
+ * Open the Refine… popover for the current selection: Challenge (the Selection pane's "Challenge
+ * this claim") or the intent it last had (its Refine… button). An open popover is closed and
+ * opened again, so it captures this selection rather than an older one.
  */
-function railOverlap(app: App): number {
-  if (!app.railOpen || !app.view || !app.rail || app.rail.root.hidden) return 0;
-  const canvas = app.view.canvasEl.getBoundingClientRect();
-  const rail = app.rail.root.getBoundingClientRect();
-  if (!(rail.width > 0) || !(canvas.width > 0)) return 0;
-  if (rail.left >= canvas.right - 1 || rail.right <= canvas.left || rail.bottom <= canvas.top || rail.top >= canvas.bottom) return 0;
-  return Math.max(0, canvas.right - Math.max(canvas.left, rail.left));
-}
-
-/** Two disposers as one. */
-function chain(first: () => void, second: () => void): () => void {
-  return () => {
-    first();
-    second();
-  };
+function openComposer(app: App, intent: 'challenge' | null): void {
+  const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
+  const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
+  const select = app.root.querySelector<HTMLSelectElement>('.mlv-workflow__intent');
+  if (!refine || !composer || !select) return;
+  if (!composer.hidden) refine.click();
+  refine.click();
+  if (!intent) return;
+  select.value = intent;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
 }

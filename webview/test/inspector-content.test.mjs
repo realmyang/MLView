@@ -1,16 +1,18 @@
-// Viewer M1, step 2: what the Inspector shows, checked by VISIBILITY where it matters.
+// Viewer M1, step 2; viewer M2, step 5: what the Selection pane (the Inspector until M2) shows,
+// checked by VISIBILITY where it matters.
 //
 // The shipped stylesheet is injected into the jsdom page, so `getComputedStyle` applies the real
 // rules: a `display: none` rule hides an element from these checks exactly as it hides it from a
 // reader. (Before this, workflow.test.mjs asserted the authored suggestion on textContent, which
 // includes text an analyzer-era rule kept hidden.) None of this is a live VS Code check.
 //
-// Covered: the authored detail as a paragraph after the title and the phase label; no repeated
+// Covered: the claim-first order (eyebrow with the phase number and label, kind and parent group;
+// title; basis sentence; the authored detail; findings; quotes; connections; actions); no repeated
 // title line; basis once, with a sentence only for inferred and unresolved; "What to change"
-// visible in the Inspector and the Findings list, and absent when there is no suggestion;
-// document-wide limitations listed once, in the header Details, with one line and a Show link in
-// the Inspector; the evidence caption; the claim in the card's accessible name; notebook cells
-// counted from 0 as the artifact records them; a finding's title once in its Inspector; the connection hover.
+// visible in the pane and the Findings list, and absent when there is no suggestion;
+// document-wide limitations listed once, in About, with one line and a link in the pane; the
+// evidence caption; the claim in the card's accessible name; notebook cells counted from 0 as the
+// artifact records them; a finding's title once in its pane; the connection hover.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -71,6 +73,8 @@ async function mount(document = doc()) {
 const $ = (ctx, selector) => ctx.document.querySelector(selector);
 const $$ = (ctx, selector) => Array.from(ctx.document.querySelectorAll(selector));
 const inspector = (ctx) => $(ctx, '.mlv-rail__panel[id$="-panel-inspector"]');
+/** A section heading's words, without the count beside them ("Source evidence", not "Source evidence2 quotes"). */
+const headings = (panel) => Array.from(panel.querySelectorAll('h5'), (h) => (h.querySelector('.mlv-rail__headtext') || h).textContent);
 const mouse = (ctx, target, type, init = {}) => target.dispatchEvent(new ctx.window.MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
 const card = (ctx, id) => $(ctx, `.mlv-node[data-node-id="${id}"]`);
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -101,32 +105,42 @@ function hidingRules(className) {
 function clickCard(ctx, id) {
   mouse(ctx, card(ctx, id), 'click');
   assert.equal(ctx.app.getState().selection.id, id, 'precondition: the click selected ' + id);
-  assert.ok(visible(ctx, inspector(ctx)), 'precondition: the Inspector is shown');
+  assert.ok(visible(ctx, inspector(ctx)), 'precondition: the Selection tab is shown');
 }
 
-test('a step Inspector shows the authored detail as a paragraph after the title and the phase label, with the kind', async () => {
+test('a step\'s Selection pane reads eyebrow, title, detail, findings, quotes, connections, actions, limitations', async () => {
   const ctx = await mount();
   try {
     clickCard(ctx, 'load');
     const panel = inspector(ctx);
-    const children = Array.from(panel.children);
-    const title = panel.querySelector('.mlv-insp__title');
-    const meta = panel.querySelector('.mlv-insp__meta');
-    const detail = panel.querySelector('.mlv-insp__detail');
+    const pane = panel.querySelector('.mlv-sel');
+    assert.equal(pane.getAttribute('data-kind'), 'step');
+    assert.equal(pane.getAttribute('data-columns'), '1', 'one column in the docked rail');
+    const children = Array.from(pane.children);
+    const eyebrow = pane.querySelector('.mlv-insp__eyebrow');
+    const title = pane.querySelector('.mlv-insp__title');
+    const detail = pane.querySelector('.mlv-insp__detail');
+    const section = (name) => pane.querySelector(`[data-section="${name}"]`);
     assert.equal(title.textContent, 'Load CIFAR-10 batches');
     assert.ok(detail, 'the detail paragraph exists');
     assert.equal(detail.tagName, 'P');
     assert.equal(detail.textContent, LOAD_DETAIL, 'the whole detail, verbatim');
     assert.ok(visible(ctx, detail), 'the detail is visible');
-    assert.ok(children.indexOf(title) < children.indexOf(meta) && children.indexOf(meta) < children.indexOf(detail),
-      'title, then the phase and kind, then the detail');
-    const firstSection = panel.querySelector('h5');
-    assert.ok(children.indexOf(detail) < children.indexOf(firstSection), 'the detail comes before every section');
-    const chips = Array.from(meta.querySelectorAll('.mlv-chip'), (chip) => chip.textContent);
-    assert.equal(chips[0], 'Data preparation', 'the phase label, first');
-    assert.ok(chips.includes('dataset'), 'the kind');
+    const order = [eyebrow, title, detail, section('findings'), section('quotes'), section('connections'),
+      pane.querySelector('.mlv-insp__actions'), pane.querySelector('.mlv-insp__limits')];
+    assert.ok(order.every(Boolean), 'every part is drawn');
+    assert.deepEqual(order.map((part) => children.indexOf(part)), order.map((part) => children.indexOf(part)).slice().sort((a, b) => a - b),
+      'eyebrow, title, detail, findings, quotes, connections, actions, limitations');
+    // The eyebrow: the phase's number and authored label, the kind; never the phase id.
+    assert.equal(eyebrow.textContent, '1 · Data preparation · dataset');
     assert.doesNotMatch(panel.textContent, /ph-data-x/, 'never the phase id');
-    assert.equal(meta.querySelector('.mlv-chip--stage').getAttribute('data-stage'), 'ph-data-x', 'the id stays on the attribute');
+    assert.equal(eyebrow.querySelector('.mlv-insp__phase').getAttribute('data-stage'), 'ph-data-x', 'the id stays on the attribute');
+    assert.equal(eyebrow.querySelector('.mlv-insp__phase').getAttribute('data-phase-index'), '0');
+    // The connections as sentences, each end a link.
+    assert.deepEqual(Array.from(section('connections').querySelectorAll('li'), (li) => li.textContent), ['Feeds Adam optimizer: image batches (inferred, not observed).']);
+    assert.equal(section('connections').querySelector('[data-node-id="opt"]').textContent, 'Adam optimizer');
+    assert.equal(section('connections').querySelector('[data-edge-id="feeds"]').textContent, 'image batches');
+    assert.deepEqual(Array.from(pane.querySelectorAll('.mlv-insp__actions button'), (b) => b.textContent), ['Challenge this claim', 'Refine…']);
 
     // A multi-line detail keeps its line break.
     clickCard(ctx, 'opt');
@@ -159,19 +173,25 @@ test('basis is shown once; inferred and unresolved get one plain sentence, obser
   try {
     clickCard(ctx, 'load');
     let panel = inspector(ctx);
-    assert.deepEqual(Array.from(panel.querySelectorAll('.mlv-insp__basis-chip'), (c) => c.textContent), ['basis · observed']);
+    // Viewer M2: observed is the common case and carries no mark at all.
+    assert.equal(panel.querySelector('.mlv-insp__basis-chip'), null, 'no basis chip');
     assert.equal(panel.querySelector('.mlv-insp__basis'), null, 'observed needs no explanation');
+    for (const part of ['.mlv-insp__eyebrow', '.mlv-insp__title', '.mlv-insp__detail']) {
+      assert.doesNotMatch(panel.querySelector(part).textContent, /observed/, part + ' says nothing about an observed basis');
+    }
     assert.equal(panel.querySelector('table.mlv-table'), null, 'no Attributes table repeating the basis');
     assert.doesNotMatch(panel.textContent, /Attributes/);
 
     clickCard(ctx, 'opt');
     panel = inspector(ctx);
-    assert.equal(panel.querySelectorAll('.mlv-insp__basis-chip').length, 1);
+    assert.equal(panel.querySelectorAll('.mlv-insp__basis').length, 1);
     let note = panel.querySelector('.mlv-insp__basis');
     assert.ok(visible(ctx, note));
     assert.equal(note.getAttribute('data-basis'), 'inferred');
-    assert.match(note.textContent, /^Reasoned from the cited code/);
-    const children = Array.from(panel.children);
+    // The tag word the card carries, then what it means.
+    assert.equal(note.querySelector('.mlv-basis-tag').textContent, 'inferred');
+    assert.match(note.textContent, /^inferred Reasoned from the cited code/);
+    const children = Array.from(panel.querySelector('.mlv-sel').children);
     assert.ok(children.indexOf(note) < children.indexOf(panel.querySelector('.mlv-insp__detail')), 'the sentence sits above the claim');
 
     clickCard(ctx, 'sched');
@@ -182,10 +202,12 @@ test('basis is shown once; inferred and unresolved get one plain sentence, obser
     ctx.app.select({ kind: 'edge', id: 'feeds' }, { tab: 'inspector' });
     panel = inspector(ctx);
     assert.equal(panel.querySelector('.mlv-insp__title').textContent, 'image batches');
-    assert.deepEqual(Array.from(panel.querySelectorAll('.mlv-insp__basis-chip'), (c) => c.textContent), ['basis · inferred']);
+    assert.equal(panel.querySelector('.mlv-insp__basis-chip'), null);
     assert.equal((panel.textContent.match(/inferred/g) || []).length, 1,
-      'the word appears once, in the chip; the sentence explains without repeating it');
-    assert.match(panel.querySelector('.mlv-insp__basis').textContent, /^Reasoned from the cited code/);
+      'the word appears once, in the tag; the sentence explains without repeating it');
+    assert.match(panel.querySelector('.mlv-insp__basis').textContent, /^inferred Reasoned from the cited code/);
+    // Viewer M2: the kind in words, since the line no longer shows it.
+    assert.equal(panel.querySelector('.mlv-insp__eyebrow').textContent, 'Connection · data');
     assert.match(panel.querySelector('.mlv-insp__ends').textContent, /^Load CIFAR-10 batches → Adam optimizer$/);
     ctx.app.select({ kind: 'edge', id: 'handle' }, { tab: 'inspector' });
     assert.equal(inspector(ctx).querySelector('.mlv-insp__title').textContent, 'optimizer handle');
@@ -215,8 +237,11 @@ test('a suggestion is visible as "What to change" in the Inspector and in the Fi
     const text = block.querySelector('.mlv-insp__fix-text');
     assert.equal(text.textContent, 'Call scheduler.step() once per epoch.');
     assert.ok(visible(ctx, text), 'the suggestion text is visible in the Inspector');
-    const sections = Array.from(panel.querySelectorAll('h5'), (h) => h.textContent);
-    assert.ok(sections.indexOf('Findings') < sections.indexOf('Source evidence'), 'findings on this step come before its evidence');
+    const sections = headings(panel);
+    assert.ok(sections.indexOf('Findings on this step') >= 0, sections.join(' | '));
+    assert.ok(sections.indexOf('Findings on this step') < sections.indexOf('Source evidence'), 'findings on this step come before its evidence');
+    // Every count names its unit.
+    assert.equal(panel.querySelector('[data-section="findings"] .mlv-rail__count').textContent, '1 finding');
     assert.equal(sections.includes('Suggested check'), false);
 
     // The finding's own Inspector.
@@ -253,7 +278,9 @@ test('a finding without a suggestion shows no "What to change" label and no empt
       assert.ok(detail);
       assert.equal(detail.querySelector('.mlv-insp__fix'), null, id + ': no suggestion block in the list');
     }
-    // A step whose two findings have no suggestion.
+    // A step whose two findings have no suggestion. (From the Findings tab a click keeps the list;
+    // the reader goes back to Selection first.)
+    ctx.app.setRailTab('inspector');
     clickCard(ctx, 'load');
     assert.doesNotMatch(inspector(ctx).textContent, /What to change|Suggested check/);
   } finally {
@@ -261,10 +288,13 @@ test('a finding without a suggestion shows no "What to change" label and no empt
   }
 });
 
-test('document-wide limitations are listed once, in the header Details; the Inspector links to them', async () => {
+test('document-wide limitations are listed once, in About; the Selection pane links to them', async () => {
   const ctx = await mount();
   try {
     const listed = () => $$(ctx, 'li').filter((li) => li.textContent === 'Distributed launch was not inspected.');
+    // A new revision opens on About, where they are listed once.
+    assert.equal(listed().length, 1, 'About lists the limitation once');
+    assert.ok($(ctx, '.mlv-about__limitations').contains(listed()[0]));
     for (const select of [
       () => clickCard(ctx, 'load'),
       () => ctx.app.select({ kind: 'edge', id: 'feeds' }, { tab: 'inspector' }),
@@ -272,26 +302,22 @@ test('document-wide limitations are listed once, in the header Details; the Insp
     ]) {
       select();
       const panel = inspector(ctx);
-      assert.equal(listed().length, 1, 'the limitation is listed once in the whole page');
-      assert.ok($(ctx, '.mlv-workflow__limitations').contains(listed()[0]), 'and that list is the header Details');
+      assert.equal(listed().length, 0, 'the Selection pane does not repeat them');
       assert.doesNotMatch(panel.textContent, /Distributed launch was not inspected|Coverage limitations/);
       const line = panel.querySelector('.mlv-insp__limits');
       assert.ok(visible(ctx, line));
-      assert.equal(line.textContent, '2 document-wide limitations apply. Show');
+      assert.equal(line.textContent, '2 document-wide limitations apply to every claim. Read them in About');
       assert.equal(line.getAttribute('data-limitations'), '2');
     }
 
-    // Show opens Details and the list, and moves the focus to it.
-    const header = $(ctx, '.mlv-workflow');
-    assert.notEqual(header.getAttribute('data-expanded'), 'true', 'precondition: Details starts closed');
-    assert.equal($(ctx, '.mlv-workflow__limitations').open, false, 'precondition: the list starts closed');
+    // The link opens About at the list and moves the focus to it.
     const show = inspector(ctx).querySelector('.mlv-insp__limits-show');
-    assert.equal(show.getAttribute('aria-label'), 'Show the 2 document-wide limitations');
+    assert.equal(show.getAttribute('aria-label'), 'Read the 2 document-wide limitations in About');
     show.click();
-    assert.equal(header.getAttribute('data-expanded'), 'true');
-    assert.equal($(ctx, '.mlv-workflow__details').hidden, false);
-    const limits = $(ctx, '.mlv-workflow__limitations');
+    assert.equal(ctx.app.getState().railTab, 'about');
+    const limits = $(ctx, '.mlv-about__limitations');
     assert.equal(limits.open, true);
+    assert.equal(listed().length, 1, 'listed once in the whole page');
     assert.ok(visible(ctx, listed()[0]), 'the limitation is now visible');
     assert.equal(ctx.document.activeElement, limits.querySelector('summary'), 'focus lands on the list');
   } finally {
@@ -303,7 +329,7 @@ test('one limitation reads in the singular, and none draws no line', async () =>
   let ctx = await mount(doc({ coverage: { status: 'partial', summary: 's', inspectedFiles: ['train.py'], limitations: ['Only one.'] } }));
   try {
     clickCard(ctx, 'load');
-    assert.equal(inspector(ctx).querySelector('.mlv-insp__limits').textContent, '1 document-wide limitation applies. Show');
+    assert.equal(inspector(ctx).querySelector('.mlv-insp__limits').textContent, '1 document-wide limitation applies to every claim. Read it in About');
   } finally {
     ctx.app.destroy();
   }
@@ -321,7 +347,8 @@ test('the evidence heading carries the caption, once per Inspector', async () =>
   try {
     clickCard(ctx, 'opt');
     let panel = inspector(ctx);
-    const heading = Array.from(panel.querySelectorAll('h5')).find((h) => h.textContent === 'Source evidence');
+    const heading = Array.from(panel.querySelectorAll('h5')).find((h) => headings({ querySelectorAll: () => [h] })[0] === 'Source evidence');
+    assert.equal(heading.querySelector('.mlv-rail__count').textContent, '1 quote');
     const caption = heading.nextElementSibling;
     assert.ok(caption.classList.contains('mlv-insp__caption'));
     assert.equal(caption.textContent, CAPTION);
@@ -331,11 +358,12 @@ test('the evidence heading carries the caption, once per Inspector', async () =>
     ctx.app.select({ kind: 'edge', id: 'feeds' }, { tab: 'inspector' });
     assert.equal(inspector(ctx).querySelectorAll('.mlv-insp__caption').length, 1);
 
-    // A finding's own Inspector: under its evidence heading.
+    // A finding's own pane: under its evidence heading.
     ctx.app.focusIssue('f-sched');
     ctx.app.setRailTab('inspector');
     panel = inspector(ctx);
-    const review = Array.from(panel.querySelectorAll('h5')).find((h) => h.textContent === 'Evidence review');
+    const review = panel.querySelector('[data-section="quotes"] h5');
+    assert.equal(review.querySelector('.mlv-rail__headtext').textContent, 'Source evidence');
     assert.equal(review.nextElementSibling.textContent, CAPTION);
     assert.equal(panel.querySelectorAll('.mlv-insp__caption').length, 1);
 
@@ -419,7 +447,10 @@ test('notebook cells are counted from 0 everywhere, as the evidence records them
 
     clickCard(ctx, 'crit');
     const open = inspector(ctx).querySelector('.mlv-insp__source-evidence [data-evidence-id="nb"]');
-    assert.equal(open.textContent, 'Open train.ipynb › cell 34, line 2');
+    // Viewer M2: the quote names its place; its button says Open and its name says what.
+    assert.equal(open.textContent, 'Open');
+    assert.equal(open.getAttribute('aria-label'), 'Open train.ipynb › cell 34, line 2');
+    assert.equal(open.closest('.mlv-quote').querySelector('.mlv-quote__loc').textContent, 'train.ipynb › cell 34, line 2');
     assert.match(open.title, /^cell 34, counted from 0 as the artifact records it/);
     open.click();
     const posted = ctx.bridge.posted.filter((m) => m.type === 'openLocation').at(-1);
@@ -436,7 +467,7 @@ test('notebook cells are counted from 0 everywhere, as the evidence records them
   }
 });
 
-test('a finding Inspector shows its title once; a finding listed under a step keeps it', async () => {
+test('a finding\'s pane shows its title once; a finding listed under a step keeps it', async () => {
   const ctx = await mount();
   try {
     ctx.app.focusIssue('f-sched');

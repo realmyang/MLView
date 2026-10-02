@@ -6,10 +6,14 @@
 import { add, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { KEYMAP } from './keymap.js';
+import { restoreFocus, trapTab } from './focustrap.js';
 
 export class ShortcutSheet {
   readonly root: HTMLElement;
   private closeBtn: HTMLButtonElement;
+  private panel: HTMLElement;
+  /** Viewer M2: what had the focus when the sheet opened; it gets it back on close. */
+  private opener: HTMLElement | null = null;
 
   constructor(onClose: () => void) {
     this.root = el('div', 'mlv-sheet');
@@ -18,6 +22,7 @@ export class ShortcutSheet {
     on(scrim, 'click', () => onClose());
 
     const panel = add(this.root, el('div', 'mlv-sheet__panel'));
+    this.panel = panel;
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
     panel.setAttribute('aria-label', 'Keyboard shortcuts');
@@ -30,8 +35,13 @@ export class ShortcutSheet {
     head.appendChild(this.closeBtn);
 
     // Escape must close the sheet from inside it too — the close button takes
-    // focus on open, so the canvas key handler never sees the key.
+    // focus on open, so the canvas key handler never sees the key. Viewer M2: it is a modal
+    // dialog, so Tab stays inside it.
     on(this.root, 'keydown', (ev: KeyboardEvent) => {
+      if (trapTab(this.panel, ev)) {
+        ev.stopPropagation();
+        return;
+      }
       if (ev.key !== 'Escape') return;
       ev.preventDefault();
       ev.stopPropagation();
@@ -59,6 +69,11 @@ export class ShortcutSheet {
   }
 
   show(): void {
+    if (!this.open) {
+      const doc = this.root.ownerDocument;
+      const active = doc ? (doc.activeElement as HTMLElement | null) : null;
+      this.opener = active && !this.root.contains(active) ? active : null;
+    }
     this.root.hidden = false;
     try {
       this.closeBtn.focus();
@@ -67,8 +82,14 @@ export class ShortcutSheet {
     }
   }
 
-  hide(): void {
+  /** Close; the focus goes back to what had it when the sheet opened, else to `fallback`. */
+  hide(fallback: HTMLElement | null = null): void {
+    const wasOpen = this.open;
     this.root.hidden = true;
+    if (!wasOpen) return;
+    const opener = this.opener;
+    this.opener = null;
+    restoreFocus(opener, fallback);
   }
 
   toggle(): boolean {

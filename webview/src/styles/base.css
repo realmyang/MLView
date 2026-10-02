@@ -194,7 +194,7 @@ html.mlv-fills-page > body > .mlv-root {
   text-underline-offset: 2px;
 }
 
-/* A link inside a sentence (the search footer, the Inspector's limitations line). */
+/* A link inside a sentence (the search footer, the Selection pane's limitations line). */
 .mlv-link--inline {
   padding: 0;
   border: 0;
@@ -241,6 +241,15 @@ html.mlv-fills-page > body > .mlv-root {
 body.vscode-reduce-motion .mlv-root *,
 body.vscode-reduce-motion .mlv-root *::before,
 body.vscode-reduce-motion .mlv-root *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Viewer M2: the same clamp while VS Code's screen-reader optimisation is on. */
+body.vscode-using-screen-reader .mlv-root *,
+body.vscode-using-screen-reader .mlv-root *::before,
+body.vscode-using-screen-reader .mlv-root *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;

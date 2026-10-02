@@ -1,5 +1,5 @@
 /**
- * The basis chip a finding row and its Inspector both draw.
+ * The basis chip a finding row and its Selection pane both draw.
  */
 
 import { el } from '../dom.js';

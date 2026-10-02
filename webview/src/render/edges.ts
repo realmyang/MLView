@@ -7,7 +7,7 @@
  * observed connection, dashed for inferred, dotted for unresolved (edge.css,
  * keyed on `data-basis`). The kind stays in the class name (the flow layer's
  * stream density reads it) and is told in words by the hover card, the
- * Inspector and the accessible name.
+ * Selection pane and the accessible name.
  */
 
 import { svg, setAttrs } from '../dom.js';

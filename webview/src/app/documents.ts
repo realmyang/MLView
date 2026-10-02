@@ -30,7 +30,7 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
   if (app.selection && app.selection.kind === 'node' && !known.has(app.selection.id)) app.selection = null;
   if (app.selection && app.selection.kind === 'edge' && !index.edgeById.has(app.selection.id)) app.selection = null;
   // VIEWUI-15: a finding the new revision removed is not a selection either,
-  // or the Inspector goes blank and the composer posts a stale id.
+  // or the Selection pane goes blank and the composer posts a stale id.
   if (app.selection && app.selection.kind === 'issue' && !index.issueById.has(app.selection.id)) app.selection = null;
 
   app.view.relayout();

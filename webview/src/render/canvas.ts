@@ -154,11 +154,11 @@ export const REFIT_MIN_PX = 80;
 export const REFIT_MIN_RATIO = 0.1;
 
 /**
- * The narrowest strip beside an overlay that a reveal centres in (Campaign 3 review, VL-1): at
- * 541 px the rail drawer leaves 181 px, enough for a card at a readable zoom; in a 393 px panel it
- * leaves 55 px, so the reveal uses the whole canvas and the target shows when the drawer closes.
+ * Viewer M2: the zoom bounds a finding's frame stays within (`frameRect`): never so far out that
+ * the cited cards are unreadable shapes, never blown up past their natural size.
  */
-export const REVEAL_MIN_STRIP = 160;
+export const FRAME_MIN_ZOOM = 0.45;
+export const FRAME_MAX_ZOOM = 1;
 
 export class ViewportController {
   readonly canvas: HTMLElement;
@@ -181,13 +181,6 @@ export class ViewportController {
   private fitSize: { w: number; h: number; whole: boolean; padding: number } | null = null;
   /** The frame the readable plan anchors on (viewer M2); null before the first layout. */
   private frame: ReadableFrame | null = null;
-  /**
-   * How many pixels at the canvas's right edge an overlay covers: the rail, which below the
-   * 900 px breakpoint is a drawer over the canvas rather than a column beside it. Set by the view;
-   * 0 when nothing covers the canvas (and in jsdom, which measures nothing).
-   */
-  coveredRight: () => number = () => 0;
-
   constructor(canvas: HTMLElement, world: HTMLElement, onChange: (vp: Viewport) => void) {
     this.canvas = canvas;
     this.world = world;
@@ -337,16 +330,44 @@ export class ViewportController {
   }
 
   /**
-   * The part of the canvas a reveal can use (VL-1): the strip left of an overlay while it is at
-   * least REVEAL_MIN_STRIP wide, otherwise the whole canvas. Fit is unaffected: it lays the whole
-   * document out for the canvas, drawer or not.
+   * The part of the canvas a reveal can use. Viewer M2: the whole canvas. The drawer that lay over
+   * its right side below 900 px (Campaign 3 review, VL-1) is gone; the bottom sheet that replaced
+   * it sits under the canvas and shrinks it, so the canvas IS the area above the sheet.
    */
   visibleArea(): { w: number; h: number } {
-    const size = this.size();
-    const covered = this.coveredRight();
-    if (!(covered > 0)) return size;
-    const w = size.w - covered;
-    return w >= REVEAL_MIN_STRIP ? { w, h: size.h } : size;
+    return this.size();
+  }
+
+  /**
+   * Viewer M2: the canvas changed size for a reason that is not a new picture (the bottom sheet
+   * opened or collapsed under it). A fitted viewport stays fitted but takes this size as the one it
+   * was fitted for, so the resize that follows does not refit (and move) the diagram the reader is
+   * reading.
+   */
+  acceptResize(): void {
+    if (!this.fitted || !this.fitSize) return;
+    const { w, h } = this.size();
+    this.fitSize = { ...this.fitSize, w, h };
+  }
+
+  /**
+   * Viewer M2: bring a rectangle (a finding's cited cards) into view. At full detail the zoom is
+   * kept when the rectangle fits and it is only centred; otherwise the zoom is the largest that
+   * fits it, at most `readable` (READABLE_ZOOM) below full detail and FRAME_MAX_ZOOM above, and at
+   * least FRAME_MIN_ZOOM. A rectangle too large even at that floor is centred on `anchor` (the first
+   * cited card), so the reader starts where the finding starts.
+   */
+  frameRect(rect: Rect, anchor: Rect, readable: number, margin = 48): void {
+    const { w, h } = this.visibleArea();
+    const fits = Math.min((w - margin) / Math.max(1, rect.w), (h - margin) / Math.max(1, rect.h));
+    const zoom = this.vp.zoom;
+    if (zoom >= LOD_FULL_ZOOM && fits >= zoom) {
+      this.centerOn(rect);
+      return;
+    }
+    const ceiling = zoom >= LOD_FULL_ZOOM ? Math.max(FRAME_MAX_ZOOM, zoom) : readable;
+    const next = Math.max(FRAME_MIN_ZOOM, Math.min(ceiling, fits));
+    this.centerOn(fits >= FRAME_MIN_ZOOM ? rect : anchor, next);
   }
 
   centerOn(rect: Rect, zoom?: number): void {

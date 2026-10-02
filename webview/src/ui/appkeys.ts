@@ -8,8 +8,9 @@
  * Two behaviours live here in full because they are keyboard behaviours and
  * nothing else calls them:
  *
- *  - THE Escape cascade, in this exact order — shortcut sheet -> the details or
- *    Refine… panel -> legend -> focus mode -> selection -> blur. One owner writes that order ONCE
+ *  - THE Escape cascade, in this exact order — shortcut sheet -> the Refine…
+ *    popover -> legend -> the open bottom panel (viewer M2) -> focus mode -> selection -> blur.
+ *    One owner writes that order ONCE
  *    (CONTRACTS v1.1 §10.1, which is where v1.0 §11.13 now lives); whichever
  *    rung fires also stops the flow it owned.
  *  - `e` / `Shift+E`, which walk the selection's connections over the LIVE
@@ -47,11 +48,13 @@ export interface KeyContext {
   toggleFlow(): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
-  setRailTab(tab: RailTab): void;
+  showRailTab(tab: RailTab): void;
   toggleShortcuts(next?: boolean): void;
   sheetOpen(): boolean;
-  /** Viewer M2: close the request and coverage details or the Refine… popover; false when neither is open. */
+  /** Viewer M2: close the Refine… popover; false when it is not open. */
   closeHeaderPanels(): boolean;
+  /** Viewer M2: collapse the open bottom panel to its tab strip; false when there is none. */
+  collapseSheet(): boolean;
   announce(text: string): void;
 }
 
@@ -68,6 +71,9 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
       // above focus mode because it is the shallower thing on screen: dismissing
       // it must never also throw away the focus or selection underneath.
       else if (ctx.legendOpen()) ctx.closeLegend();
+      // Viewer M2: the open bottom panel collapses to its tab strip before anything on the canvas
+      // is undone: the selection it shows stays selected.
+      else if (ctx.collapseSheet()) return;
       else if (ctx.view().isFocusLocked) ctx.view().toggleFocusMode(ctx.selection());
       else if (ctx.selection()) {
         // A connection reached with `e` still holds DOM focus, and focus alone
@@ -113,7 +119,7 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     move: (key) => ctx.move(key),
     toggleSeverity: (sev) => ctx.toggleSeverity(sev),
     toggleRail: () => ctx.toggleRail(),
-    setRailTab: (tab) => ctx.setRailTab(tab),
+    showRailTab: (tab) => ctx.showRailTab(tab),
     toggleShortcuts: () => ctx.toggleShortcuts(),
 
     cycleConnections: (backwards) => cycleConnections(ctx, backwards),

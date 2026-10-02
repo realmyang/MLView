@@ -1,14 +1,10 @@
 /*
- * The authored layer under the one-row header (viewer M2): the request and coverage details and
- * the Refine… popover. Both open OVER the diagram, so opening them never moves the canvas.
+ * The authored layer under the one-row header (viewer M2): the Refine… popover, which opens OVER
+ * the diagram, so opening it never moves the canvas. The request and coverage that also opened
+ * here are the rail's About tab now (rail.css).
  *
- * The section itself has no height: it sits right after the header and anchors the two overlays
- * at the header's bottom edge, whatever the header's height.
- *
- * Campaign 3, issue 1 still holds: the contract allows 4000 + 2000 + 2000 + 4000 characters of
- * request and coverage text, and `.mlv-root` is `overflow: hidden`, so the details panel is
- * height-capped and scrolls on its own. MEASURED live before the fix: a header that printed it
- * all drew 736-915 px and left the canvas 0 px in the 541x798 panel beside the artifact editor.
+ * The section itself has no height: it sits right after the header and anchors the popover at
+ * the header's bottom edge, whatever the header's height.
  */
 .mlv-workflow {
   position: relative;
@@ -16,51 +12,6 @@
   flex: none;
   height: 0;
 }
-.mlv-workflow__details {
-  position: absolute;
-  top: 4px;
-  left: var(--mlv-s4);
-  width: min(680px, calc(100vw - 2 * var(--mlv-s4)));
-  max-height: min(70vh, 560px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 10px 14px 12px;
-  border: 1px solid var(--mlv-border-strong);
-  border-radius: var(--mlv-r-panel);
-  background: var(--mlv-surface);
-  box-shadow: var(--mlv-sh-3);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.mlv-workflow__details[hidden] { display: none; }
-.mlv-workflow__details:focus { outline: none; }
-.mlv-workflow__details:focus-visible { outline: 2px solid var(--mlv-focus); outline-offset: -2px; }
-.mlv-workflow__detailshead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.mlv-workflow__detailstitle {
-  flex: 1 1 auto;
-  margin: 0;
-  color: var(--mlv-text-2);
-  font-size: 11px;
-  font-weight: var(--mlv-fw-semi);
-  letter-spacing: var(--mlv-track-caps);
-  text-transform: uppercase;
-}
-.mlv-workflow__close { flex: none; }
-.mlv-workflow__question {
-  margin: 0 0 8px;
-  color: var(--mlv-text);
-  font-size: 13px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.mlv-workflow__meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mlv-text-2); }
-.mlv-workflow__meta > span { overflow-wrap: anywhere; white-space: pre-wrap; }
-.mlv-workflow__coverage { color: var(--mlv-text); }
-.mlv-workflow__limitations { margin-top: 8px; font-size: 12px; color: var(--mlv-text-2); }
-.mlv-workflow__limitations summary { cursor: pointer; color: var(--mlv-text); }
-.mlv-workflow__limitations ul { margin: 4px 0 0; padding-left: 20px; }
-.mlv-workflow__limitations li { overflow-wrap: anywhere; }
-.mlv-workflow__provenance { margin: 10px 0 0; color: var(--mlv-text-2); font-size: 11px; overflow-wrap: anywhere; }
 
 /* The Refine… popover, anchored under the button at the header's right end. */
 .mlv-workflow__composer {
@@ -154,7 +105,7 @@
 .mlv-hostnotice__actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .mlv-hostnotice__actions[hidden] { display: none; }
 
-/* Viewer M1: freshness in place — the status bar item, the Inspector's quotes and finding chips. */
+/* Viewer M1: freshness in place — the status bar item, the Selection pane's quotes and finding chips. */
 .mlv-status__fresh { display: inline-flex; align-items: center; gap: 4px; }
 .mlv-status__fresh.is-warn { color: var(--mlv-text); }
 .mlv-status__fresh.is-warn .mlv-uicon { color: var(--mlv-stale-ink); }

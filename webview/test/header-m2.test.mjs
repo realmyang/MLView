@@ -146,18 +146,24 @@ test('at 541 px only the title, the severity toggles, "not observed", ... and Re
   assert.deepEqual(headerShows(ctx), ['title', 'high', 'medium', 'not observed', 'more', 'Refine…']);
   const menu = openMenu(ctx);
   assert.equal(menu.hidden, false);
-  assert.deepEqual(menuItems(ctx), ['search', 'details', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
-  assert.equal($(ctx, '[data-more-item="details"] .mlv-moremenu__label').textContent, 'Revision r7 · claude-code');
+  assert.deepEqual(menuItems(ctx), ['search', 'about', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
+  assert.equal($(ctx, '[data-more-item="about"] .mlv-moremenu__label').textContent, 'About revision r7 · claude-code');
+  assert.equal($(ctx, '[data-more-item="rail"] .mlv-moremenu__label').textContent, 'Bottom panel', 'at 541 px the rail is the bottom sheet');
   // The menu's Search opens the field in the title's place.
   $(ctx, '[data-more-item="search"]').click();
   assert.equal(menu.hidden, true, 'an item closes the menu');
   assert.ok(visible(ctx, $(ctx, '.mlv-search .mlv-input')));
   assert.equal(visible(ctx, $(ctx, '.mlv-header__title')), false, 'an open search takes the title\'s place');
   assert.equal(ctx.document.activeElement, $(ctx, '.mlv-search .mlv-input'));
-  // The menu's revision item opens the request and coverage details.
+  // The menu's revision item opens About, in the bottom sheet.
+  ctx.app.setRailTab('issues');
+  ctx.app.collapseSheet(false);
+  assert.equal($(ctx, '.mlv-rail').getAttribute('data-expanded'), 'false');
   openMenu(ctx);
-  $(ctx, '[data-more-item="details"]').click();
-  assert.equal($(ctx, '.mlv-workflow').getAttribute('data-expanded'), 'true');
+  $(ctx, '[data-more-item="about"]').click();
+  assert.equal(ctx.app.getState().railTab, 'about');
+  assert.equal($(ctx, '.mlv-rail').getAttribute('data-expanded'), 'true');
+  assert.ok($(ctx, '.mlv-rail__panel:not([hidden]) .mlv-about'));
   ctx.app.destroy();
 });
 
@@ -283,7 +289,7 @@ test('each ... item does what it says: legend, flow, overview map, rail, fit, ex
   assert.ok($(ctx, '.mlv-sheet') && !$(ctx, '.mlv-sheet').hidden, 'the shortcut sheet opens');
   // Every item names itself; the exports are the whole diagram, and nothing else is offered.
   assert.deepEqual($$(ctx, '.mlv-moremenu__item').map((item) => item.querySelector('.mlv-moremenu__label').textContent), [
-    'Search steps and findings', 'Revision r7 · claude-code', 'Legend', 'Connection flow animation', 'Overview map', 'Side rail',
+    'Search steps and findings', 'About revision r7 · claude-code', 'Legend', 'Connection flow animation', 'Overview map', 'Side panel',
     'Fit the whole diagram', 'Zoom to the selection', 'Export SVG…', 'Export PNG…', 'Copy SVG', 'Keyboard shortcuts',
   ]);
   assert.equal($(ctx, '[data-more-item="zoomsel"]').disabled, true, 'nothing selected, nothing to zoom to');
@@ -384,7 +390,8 @@ test('the shortcut sheet lists Ctrl/Cmd+F and no scope keys', async () => {
   assert.equal(keys.some((k) => /^s Shift\+S$|^\[ \]$/.test(k)), false, 'the scope keys are gone');
   const sheet = $(ctx, '.mlv-sheet').textContent;
   assert.doesNotMatch(sheet, /scope/i);
-  assert.match(sheet, /Close the menu, sheet, details, Refine popover or legend/);
+  assert.match(sheet, /Close the menu, this sheet, the Refine popover or the legend, collapse the bottom panel/);
+  assert.match(sheet, /About \/ Findings \/ Selection \/ Outline/);
   ctx.app.destroy();
 });
 

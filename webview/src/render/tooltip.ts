@@ -1,7 +1,7 @@
 /**
  * The hover card. Positioned in canvas space from the world coordinates of the
  * thing being described, so it tracks pan and zoom without its own listeners.
- * Nothing lives only in here — everything it shows is also in the Inspector,
+ * Nothing lives only in here — everything it shows is also in the Selection pane,
  * which shows an authored step's whole `detail` (viewer M1).
  */
 

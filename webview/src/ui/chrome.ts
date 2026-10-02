@@ -51,8 +51,12 @@ export interface ChromeCallbacks {
   onSeverity(sev: Severity): void;
   /** Viewer M2: fade the observed claims so the inferred and unresolved ones stand out. */
   onToggleExceptions(next: boolean): void;
-  /** The provenance chip and the status bar's coverage item: the request and coverage details. */
-  onDetails(): void;
+  /**
+   * Viewer M2: the provenance chip, the status bar's coverage item and the ... menu's About item
+   * open the About tab. `byKeyboard`: the control was activated from the keyboard (a click event
+   * with no pointer detail), so the focus moves into About; a pointer click leaves it.
+   */
+  onAbout(byKeyboard: boolean): void;
   onZoom(dir: number): void;
   onToggleLegend(next: boolean): void;
   onToggleFlow(next: boolean): void;
@@ -85,8 +89,8 @@ export interface ChromeState {
   /** Viewer M2: the claims in view that are not observed, by unit. */
   notObserved: NotObservedCounts;
   exceptionsOn: boolean;
-  /** Whether the request and coverage details are open. */
-  detailsOpen: boolean;
+  /** Viewer M2: the rail is docked beside the canvas or a bottom sheet under it (the menu names it). */
+  railMode: 'docked' | 'sheet';
 }
 
 /** Viewer M2: inferred or unresolved claims, counted by what they are. */
@@ -146,7 +150,7 @@ export class Chrome {
   private cb: ChromeCallbacks;
   private layout: HeaderLayout = 'full';
   private searchOpen = false;
-  private lastDetailsLabel = 'Request and coverage details';
+  private lastAboutLabel = 'About this revision';
   /** The state of the last update, which the ... menu's toggles flip. */
   private state: ChromeState | null = null;
 
@@ -168,11 +172,10 @@ export class Chrome {
     // Provenance: host · revision. Its dot turns amber only when a cited file is stale.
     this.provenance = el('button', 'mlv-chip mlv-header__prov') as HTMLButtonElement;
     this.provenance.type = 'button';
-    this.provenance.setAttribute('aria-haspopup', 'dialog');
     add(this.provenance, el('span', 'mlv-header__dot')).setAttribute('aria-hidden', 'true');
     this.provHost = add(this.provenance, el('span', 'mlv-header__host', ''));
     this.provRev = add(this.provenance, el('span', 'mlv-header__rev', ''));
-    on(this.provenance, 'click', () => cb.onDetails());
+    on(this.provenance, 'click', (ev: MouseEvent) => cb.onAbout(ev.detail === 0));
     this.toolbar.appendChild(this.provenance);
 
     add(this.toolbar, el('span', 'mlv-header__spacer'));
@@ -231,7 +234,7 @@ export class Chrome {
     on(this.exceptionsBtn, 'click', () => cb.onToggleExceptions(this.exceptionsBtn.getAttribute('aria-pressed') !== 'true'));
     this.toolbar.appendChild(this.exceptionsBtn);
 
-    this.more = new MoreMenu((id) => this.pick(id), () => cb.onMenuOpen());
+    this.more = new MoreMenu((id, byKeyboard) => this.pick(id, byKeyboard), () => cb.onMenuOpen());
     this.toolbar.appendChild(this.more.button);
 
     this.refineSlot = add(this.toolbar, el('span', 'mlv-header__refine'));
@@ -242,9 +245,8 @@ export class Chrome {
     this.counts = add(this.status, el('span', 'mlv-status__counts', ''));
     this.coverage = el('button', 'mlv-status__coverage') as HTMLButtonElement;
     this.coverage.type = 'button';
-    this.coverage.setAttribute('aria-haspopup', 'dialog');
     this.coverage.hidden = true;
-    on(this.coverage, 'click', () => cb.onDetails());
+    on(this.coverage, 'click', (ev: MouseEvent) => cb.onAbout(ev.detail === 0));
     this.status.appendChild(this.coverage);
     add(this.status, el('span', 'mlv-status__spacer'));
     this.fresh = add(this.status, el('span', 'mlv-status__freshness'));
@@ -303,10 +305,10 @@ export class Chrome {
     this.searchBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
-  private pick(id: MoreItemId): void {
+  private pick(id: MoreItemId, byKeyboard: boolean): void {
     const cb = this.cb;
     if (id === 'search') cb.onSearchOpen();
-    else if (id === 'details') cb.onDetails();
+    else if (id === 'about') cb.onAbout(byKeyboard);
     else if (id === 'legend') cb.onToggleLegend(!(this.state && this.state.legendOpen));
     else if (id === 'flow') cb.onToggleFlow(!(this.state && this.state.flowOn));
     else if (id === 'minimap') cb.onToggleMinimap(!(this.state && this.state.minimapCollapsed));
@@ -356,11 +358,12 @@ export class Chrome {
 
     this.more.update({
       narrow: this.layout === 'narrow',
-      detailsLabel: this.lastDetailsLabel,
+      aboutLabel: this.lastAboutLabel,
       legendOpen: s.legendOpen,
       flowOn: s.flowOn,
       minimapShown: !s.minimapCollapsed,
       railOpen: s.railOpen,
+      railMode: s.railMode,
       hasSelection: s.hasSelection,
       canExport: !!g,
     });
@@ -389,10 +392,9 @@ export class Chrome {
       ? 'Published ' + doc.verification.publishedAt + ' with hashes of ' + plural(Object.keys(doc.verification.files || {}).length, 'file', 'files') + '.'
       : 'Published without source hashes.';
     const freshness = stale && s.freshness ? ' ' + s.freshness.text + '.' : '';
-    this.provenance.title = 'Revision ' + doc.revision.id + ' by ' + host + model + '. ' + published + freshness + ' Open the request and coverage details.';
-    this.provenance.setAttribute('aria-label', 'Revision ' + doc.revision.id + ', ' + host + freshness + ' Show the request and coverage details');
-    this.provenance.setAttribute('aria-expanded', s.detailsOpen ? 'true' : 'false');
-    this.lastDetailsLabel = 'Revision ' + doc.revision.id + ' · ' + host;
+    this.provenance.title = 'Revision ' + doc.revision.id + ' by ' + host + model + '. ' + published + freshness + ' Show About: the request, coverage and provenance.';
+    this.provenance.setAttribute('aria-label', 'Revision ' + doc.revision.id + ', ' + host + '.' + freshness + ' Show About this revision');
+    this.lastAboutLabel = 'About revision ' + doc.revision.id + ' · ' + host;
   }
 
   private renderStatus(s: ChromeState): void {
@@ -413,8 +415,7 @@ export class Chrome {
       const meaning = status === 'scoped'
         ? '"scoped": the assistant lists no remaining work within the stated scope.'
         : '"partial": the assistant lists work that remains.';
-      this.coverage.title = 'Coverage as the assistant recorded it. ' + meaning + ' Open the request, coverage and limitations.';
-      this.coverage.setAttribute('aria-expanded', s.detailsOpen ? 'true' : 'false');
+      this.coverage.title = 'Coverage as the assistant recorded it. ' + meaning + ' Show About, where the limitations are listed.';
     } else this.coverage.hidden = true;
 
     // Freshness: a warning icon and words only for changed or missing files; muted text otherwise.

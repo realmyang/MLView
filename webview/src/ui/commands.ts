@@ -34,12 +34,19 @@ export interface CommandPort {
   move(key: string): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
-  setRailTab(tab: RailTab): void;
+  /** Viewer M2: Ctrl+1 to Ctrl+4. In the bottom sheet this opens it and focuses the tab. */
+  showRailTab(tab: RailTab): void;
   toggleShortcuts(): void;
   cycleConnections(backwards: boolean): boolean;
 }
 
-const RAIL_TABS: RailTab[] = ['issues', 'inspector', 'outline'];
+/** Every rail tab, in strip order: Ctrl+1 About, Ctrl+2 Findings, Ctrl+3 Selection, Ctrl+4 Outline (viewer M2). */
+export const RAIL_TABS: readonly RailTab[] = ['about', 'issues', 'inspector', 'outline'];
+
+/** A saved or posted tab, or null when it is not one of ours. */
+export function sanitizeRailTab(value: unknown): RailTab | null {
+  return typeof value === 'string' && (RAIL_TABS as readonly string[]).indexOf(value) >= 0 ? (value as RailTab) : null;
+}
 
 export function canvasCommands(port: CommandPort): KeyCommands {
   return {
@@ -71,7 +78,7 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     },
     toggleRail: () => port.toggleRail(),
     selectRailTab: (i) => {
-      if (RAIL_TABS[i]) port.setRailTab(RAIL_TABS[i]);
+      if (RAIL_TABS[i]) port.showRailTab(RAIL_TABS[i]);
     },
     toggleShortcuts: () => port.toggleShortcuts(),
     cycleConnections: (backwards) => port.cycleConnections(backwards),

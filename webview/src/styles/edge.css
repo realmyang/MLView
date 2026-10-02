@@ -1,7 +1,7 @@
 /* Edge layer. Viewer M2: the dash pattern encodes CERTAINTY, not kind — solid for an observed
  * connection, dashed for inferred, dotted for unresolved — so the exceptions survive a greyscale
  * screenshot and no reader has to learn a kind key. The kind is told in words (hover card,
- * Inspector, accessible name). One stroke colour (tokens.css --mlv-edge) at about 3:1 or better
+ * Selection pane, accessible name). One stroke colour (tokens.css --mlv-edge) at about 3:1 or better
  * against the canvas in every theme, at full opacity. */
 
 .mlv-edge {

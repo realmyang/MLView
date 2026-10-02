@@ -63,11 +63,6 @@ export interface CanvasHost {
   onMinimapCollapsed(collapsed: boolean): void;
   onKeyDown(ev: KeyboardEvent): void;
   onBackgroundClick(): void;
-  /**
-   * Campaign 3 review (VL-1): how many pixels at the canvas's right edge the open rail covers.
-   * Docked beside the canvas it covers none; below the 900 px breakpoint it is a drawer over it.
-   */
-  coveredRight(): number;
   /** The node or connection the current selection points at, kept in view across a resize. */
   keptTarget(): { kind: 'node' | 'edge'; id: string } | null;
 }

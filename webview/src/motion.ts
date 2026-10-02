@@ -16,6 +16,9 @@
  *    `display: none !important` for the element, so a stale node from a
  *    mid-session preference change cannot appear either.
  *
+ * Viewer M2: VS Code's screen-reader class (`vscode-using-screen-reader`) counts as `reduced` too:
+ * a reader listening to the diagram gains nothing from moving charges.
+ *
  * Every access is wrapped: `window.matchMedia` is absent in jsdom by default and
  * a host may hand back a partial stub (no `addEventListener`).
  *
@@ -30,15 +33,31 @@ export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 /** The class VS Code puts on a webview's <body> when its Reduce Motion setting applies. */
 export const REDUCE_MOTION_CLASS = 'vscode-reduce-motion';
 
+/**
+ * Viewer M2: the class VS Code puts on a webview's <body> while its screen-reader optimisation is
+ * on (`editor.accessibilitySupport`). The viewer then skips motion, as under Reduce Motion, and
+ * announces a selection by its claim (app.ts).
+ */
+export const SCREEN_READER_CLASS = 'vscode-using-screen-reader';
+
 /** The current preference. `full` whenever it cannot be determined. */
 export function motionMode(): MotionMode {
   return matches(REDUCED_MOTION_QUERY) || bodyAsksStillness() ? 'reduced' : 'full';
 }
 
+/** True while VS Code says a screen reader is in use (the body class above). */
+export function screenReaderActive(): boolean {
+  return bodyHas(SCREEN_READER_CLASS);
+}
+
 function bodyAsksStillness(): boolean {
+  return bodyHas(REDUCE_MOTION_CLASS) || bodyHas(SCREEN_READER_CLASS);
+}
+
+function bodyHas(name: string): boolean {
   try {
     const body = typeof document !== 'undefined' ? document.body : null;
-    return !!body && body.classList.contains(REDUCE_MOTION_CLASS);
+    return !!body && body.classList.contains(name);
   } catch (_e) {
     return false;
   }

@@ -16,7 +16,7 @@ import { titleLines } from '../layout/cardmetrics.js';
 /**
  * An authored sublabel is the model's `detail`, up to 8000 characters. The card
  * shows one ellipsised line of it (CSS), so the DOM keeps only a prefix far
- * longer than any card can draw; the Inspector shows the whole text (viewer M1,
+ * longer than any card can draw; the Selection pane shows the whole text (viewer M1,
  * `MLNode.detail`), and the card's accessible name its first sentence.
  */
 const SUB_DOM_CHARS = 240;
@@ -134,7 +134,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
   if (v.stale) bits.push(staleWords(v));
-  // Viewer M1: the claim's first sentence, so the name says what the step does. The Inspector
+  // Viewer M1: the claim's first sentence, so the name says what the step does. The Selection pane
   // has the whole text.
   const claim = n.detail ? detailSpoken(n.detail) : '';
   return bits.join(', ') + '.' + (claim ? ' ' + claim : '');
@@ -167,7 +167,7 @@ function abbreviationBefore(text: string, at: number): boolean {
  * ended with an ellipsis. A period after an abbreviation ("e.g.", "i.e.", "etc.") does not end
  * the sentence. Whitespace runs read as one space.
  */
-function detailSpoken(detail: string): string {
+export function detailSpoken(detail: string): string {
   const text = detail.replace(/\s+/g, ' ').trim();
   if (!text) return '';
   const ends = /[.!?](?=\s|$)/g;

@@ -17,7 +17,7 @@ export type ExportActionId = 'svg' | 'png' | 'copy-svg';
 
 export type MoreItemId =
   | 'search'
-  | 'details'
+  | 'about'
   | 'legend'
   | 'flow'
   | 'minimap'
@@ -43,11 +43,11 @@ interface ItemSpec {
 
 const ITEMS: ItemSpec[] = [
   { id: 'search', label: 'Search steps and findings', icon: 'search', keys: 'Ctrl+K', narrowOnly: true },
-  { id: 'details', label: 'Request and coverage details', icon: 'info', narrowOnly: true },
+  { id: 'about', label: 'About this revision', icon: 'info', narrowOnly: true },
   { id: 'legend', label: 'Legend', icon: 'legend', keys: 'L', check: true, group: true },
   { id: 'flow', label: 'Connection flow animation', icon: 'flow', keys: 'A', check: true },
   { id: 'minimap', label: 'Overview map', icon: 'minimap', check: true },
-  { id: 'rail', label: 'Side rail', icon: 'rail', keys: 'Ctrl+B', check: true },
+  { id: 'rail', label: 'Side panel', icon: 'rail', keys: 'Ctrl+B', check: true },
   { id: 'fit', label: 'Fit the whole diagram', icon: 'fit', group: true },
   { id: 'zoomsel', label: 'Zoom to the selection', icon: 'target', keys: 'Z' },
   { id: 'svg', label: 'Export SVG…', icon: 'image', group: true },
@@ -61,12 +61,14 @@ const EXPORTS: readonly string[] = ['svg', 'png', 'copy-svg'];
 export interface MoreMenuState {
   /** The header is narrow: search and the revision live in this menu. */
   narrow: boolean;
-  /** The revision line for the narrow header's `details` item. */
-  detailsLabel: string;
+  /** The narrow header's `about` item: "About revision r2 · host" (the chip has no room there). */
+  aboutLabel: string;
   legendOpen: boolean;
   flowOn: boolean;
   minimapShown: boolean;
   railOpen: boolean;
+  /** Viewer M2: the rail item is "Side panel" while docked and "Bottom panel" as a sheet. */
+  railMode: 'docked' | 'sheet';
   hasSelection: boolean;
   /** Something is drawn, so the exports have a picture to export. */
   canExport: boolean;
@@ -81,13 +83,16 @@ export class MoreMenu {
   readonly panel: HTMLElement;
 
   private items = new Map<MoreItemId, HTMLButtonElement>();
-  private onPick: (id: MoreItemId) => void;
+  private onPick: (id: MoreItemId, byKeyboard: boolean) => void;
   private beforeOpen: () => void;
   private openState = false;
   private disposers: (() => void)[] = [];
 
-  /** `beforeOpen` runs as the menu opens, so the owner can bring the items up to date first. */
-  constructor(onPick: (id: MoreItemId) => void, beforeOpen: () => void = () => undefined) {
+  /**
+   * `beforeOpen` runs as the menu opens, so the owner can bring the items up to date first.
+   * `onPick` learns whether the item was chosen from the keyboard (a click with no pointer detail).
+   */
+  constructor(onPick: (id: MoreItemId, byKeyboard: boolean) => void, beforeOpen: () => void = () => undefined) {
     this.onPick = onPick;
     this.beforeOpen = beforeOpen;
     const uid = 'mlv-more' + ++menuSeq;
@@ -144,8 +149,9 @@ export class MoreMenu {
       on(item, 'click', (ev: MouseEvent) => {
         ev.preventDefault();
         if (item.disabled) return;
+        const byKeyboard = ev.detail === 0;
         this.setOpen(false);
-        this.onPick(spec.id);
+        this.onPick(spec.id, byKeyboard);
       });
       this.panel.appendChild(item);
       this.items.set(spec.id, item);
@@ -191,10 +197,15 @@ export class MoreMenu {
       const spec = ITEMS.find((x) => x.id === id)!;
       const shown = !spec.narrowOnly || s.narrow;
       item.hidden = !shown;
-      if (id === 'details') {
+      if (id === 'about') {
         const label = item.querySelector('.mlv-moremenu__label');
-        if (label) label.textContent = s.detailsLabel;
-        item.title = 'Show the request, coverage and limitations';
+        if (label) label.textContent = s.aboutLabel;
+        item.title = 'Show About: the request, coverage, limitations and provenance';
+      }
+      if (id === 'rail') {
+        const label = item.querySelector('.mlv-moremenu__label');
+        if (label) label.textContent = s.railMode === 'sheet' ? 'Bottom panel' : 'Side panel';
+        item.title = s.railMode === 'sheet' ? 'Open or collapse the bottom panel' : 'Show or hide the side panel';
       }
       if (spec.check) {
         const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'minimap' ? s.minimapShown : s.railOpen;

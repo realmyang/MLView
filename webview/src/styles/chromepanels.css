@@ -1,5 +1,5 @@
 /*
- * The chrome's PANELS: the narrow-window scrim, the `?` shortcut sheet and
+ * The chrome's PANELS: the `?` shortcut sheet and
  * its keycaps, the search list's foot, the flow and legend toggles, the
  * legend itself, and the `role="toolbar"` wrapper that holds the two chrome
  * rows together.
@@ -8,23 +8,8 @@
  * chrome -> chromestates -> chromepanels.
  */
 
-/*
- * Below the 900 px breakpoint the rail becomes an overlay drawer with a scrim
- * (UX_DESIGN §1) instead of eating 360 px of a narrow canvas.
- */
-.mlv-scrim {
-  display: none;
-  position: absolute;
-  inset: 0;
-  z-index: 39;
-  background: var(--mlv-scrim);
-}
-
+/* A narrow panel has no room for the overview map beside the diagram. */
 @media (max-width: 900px) {
-  .mlv-scrim:not([hidden]) {
-    display: block;
-  }
-
   .mlv-minimap {
     display: none;
   }

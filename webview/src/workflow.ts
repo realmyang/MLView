@@ -1,6 +1,6 @@
 /** Adapter from the host-LLM contract to the renderer's private view model. */
 import { add, clear, el, on } from './dom.js';
-import { uiIcon } from './icons.js';
+import { restoreFocus, trapTab } from './ui/focustrap.js';
 import { emptyCounts } from './markers.js';
 import { normalizeEdgeKind } from './render/edges.js';
 import type { App } from './app.js';
@@ -19,7 +19,7 @@ function evidenceLoc(evidence: Map<string, WorkflowEvidence>, ids: string[]): Lo
 
 /**
  * Viewer M2: a finding's short label, `F1` for the first finding in the document. The owner
- * accepted that these renumber between revisions; the real id stays in tooltips, the Inspector
+ * accepted that these renumber between revisions; the real id stays in tooltips, the Selection pane
  * and the Refine and Challenge prompts.
  */
 export function findingLabel(position: number): string {
@@ -44,7 +44,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   const phaseLabels = new Map((document.phases || []).map((phase) => [phase.id, phase.label]));
   const nodes = (document.nodes || []).map((node) => {
     return {
-      // Viewer M1: what the Inspector and the accessible name read.
+      // Viewer M1: what the Selection pane and the accessible name read.
       ...(typeof node.detail === 'string' && node.detail.trim() ? { detail: node.detail } : {}),
       ...(phaseLabels.has(node.phase) ? { phaseLabel: phaseLabels.get(node.phase) } : {}),
       id: node.id, kind: node.kind || 'unknown', level: node.parent ? 'op' : 'unit', stage: node.phase,
@@ -216,7 +216,9 @@ function onRefineResult(app: App, result: ActionResult): void {
     refine.setAttribute('aria-expanded', 'false');
     custom.value = '';
     status.textContent = '';
-    refine.focus();
+    const opener = composerOpeners.get(composer) || null;
+    composerOpeners.delete(composer);
+    restoreFocus(opener, refine);
     app.saveSoon();
     return;
   }
@@ -226,126 +228,11 @@ function onRefineResult(app: App, result: ActionResult): void {
   app.saveSoon();
 }
 
-let detailsSeq = 0;
-
 /**
- * The request and coverage details (Campaign 3, issue 1; viewer M2).
- *
- * Every authored request and coverage word: the question, scope, entrypoints, configuration, the
- * coverage summary and its limitations, the publication time and the provenance. Viewer M2 moved
- * it out of the header (which is one row now) into a panel that opens OVER the diagram, under the
- * header, from the provenance chip or the status bar's coverage item, so opening it never moves
- * the canvas. The contract allows 4000 + 2000 + 2000 + 4000 characters here, so the panel is
- * height-capped and scrolls on its own (styles/workflow.css). Hidden, every word stays in the DOM
- * for search, copy and assistive technology.
+ * Viewer M2: what had the focus when the Refine… popover opened (the Refine… button, or the
+ * Selection pane's Challenge or Refine… button); closing gives it back.
  */
-function buildDetails(app: App, panel: HTMLElement, document: WorkflowDocument): HTMLElement {
-  const id = 'mlv-workflow-details-' + ++detailsSeq;
-  const details = add(panel, el('div', 'mlv-workflow__details'));
-  details.id = id;
-  details.setAttribute('role', 'region');
-  details.setAttribute('aria-labelledby', id + '-title');
-  details.tabIndex = -1;
-  const head = add(details, el('div', 'mlv-workflow__detailshead'));
-  const title = add(head, el('h2', 'mlv-workflow__detailstitle', 'Request and coverage'));
-  title.id = id + '-title';
-  const close = add(head, el('button', 'mlv-btn mlv-btn--icon mlv-workflow__close')) as HTMLButtonElement;
-  close.type = 'button';
-  close.title = 'Close the details (Escape)';
-  close.setAttribute('aria-label', 'Close the request and coverage details');
-  close.appendChild(uiIcon('close', 12));
-  on(close, 'click', () => setDetailsOpen(app, false, true));
-
-  add(details, el('p', 'mlv-workflow__question', document.request.question));
-  const meta = add(details, el('div', 'mlv-workflow__meta'));
-  add(meta, el('span', '', 'Scope: ' + document.request.scope));
-  add(meta, el('span', '', 'Entrypoints: ' + (document.request.entrypoints?.join(', ') || 'not specified')));
-  add(meta, el('span', '', 'Configuration: ' + (document.request.configuration || 'not specified')));
-  const status = document.coverage.status;
-  add(meta, el('span', 'mlv-workflow__coverage mlv-workflow__coverage--' + status, 'Coverage: ' + status + ' · ' + document.coverage.summary));
-  if (document.verification) add(meta, el('span', 'mlv-workflow__published', 'Published: ' + document.verification.publishedAt));
-  if (document.coverage.limitations.length) {
-    const limits = add(details, el('details', 'mlv-workflow__limitations')) as HTMLDetailsElement;
-    const n = document.coverage.limitations.length;
-    add(limits, el('summary', '', n + (n === 1 ? ' coverage limitation' : ' coverage limitations') + ' (apply to every claim)'));
-    const list = add(limits, el('ul'));
-    for (const limitation of document.coverage.limitations) add(list, el('li', '', limitation));
-  }
-  const producer = document.producer.host + (document.producer.model ? ' · ' + document.producer.model : '');
-  add(details, el('p', 'mlv-workflow__provenance',
-    'Revision ' + document.revision.id + ' · ' + producer + '. Model-authored: MLView checks the citations, not the interpretation.'));
-
-  on(details, 'keydown', (ev: KeyboardEvent) => {
-    if (ev.key !== 'Escape') return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    setDetailsOpen(app, false, true);
-  });
-  return details;
-}
-
-/** Whether the request and coverage details are open. */
-export function detailsOpen(app: App): boolean {
-  const panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
-  return !!panel && panel.getAttribute('data-expanded') === 'true';
-}
-
-/**
- * Open or close the request and coverage details. Opening moves the focus into the panel (it
- * opens over the diagram); closing with `restoreFocus` gives it back to the provenance chip.
- */
-export function setDetailsOpen(app: App, open: boolean, restoreFocus = false): void {
-  const panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
-  const details = panel ? panel.querySelector<HTMLElement>('.mlv-workflow__details') : null;
-  if (!panel || !details) return;
-  const was = panel.getAttribute('data-expanded') === 'true';
-  panel.setAttribute('data-expanded', open ? 'true' : 'false');
-  details.hidden = !open;
-  if (open && !was) {
-    details.scrollTop = 0;
-    try {
-      details.focus();
-    } catch (_e) {
-      /* a host may have detached the panel already */
-    }
-  }
-  if (!open && was && restoreFocus) {
-    // A narrow header hides the chip (the ... menu opened the details): the canvas takes the focus.
-    const chip = app.root.querySelector<HTMLElement>('.mlv-header__prov');
-    const target = chip && !chip.hidden && app.chrome.headerLayout !== 'narrow' ? chip : app.view.canvasEl;
-    try {
-      target.focus();
-    } catch (_e) {
-      /* the header may have been rebuilt */
-    }
-  }
-  if (open !== was) {
-    app.announce(open ? 'Request and coverage details shown.' : 'Request and coverage details hidden.');
-    app.refreshChrome();
-  }
-}
-
-/**
- * Viewer M1: the Inspector's "N document-wide limitations apply. Show" link. The limitations
- * are listed once, in the request and coverage details; this opens them at the list and moves the
- * focus to the list's summary so the reader lands on them. False when there is no list to show.
- */
-export function revealWorkflowLimitations(app: App): boolean {
-  const panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
-  const limits = panel ? panel.querySelector<HTMLDetailsElement>('.mlv-workflow__limitations') : null;
-  if (!panel || !limits) return false;
-  setDetailsOpen(app, true);
-  limits.open = true;
-  const summary = limits.querySelector<HTMLElement>('summary');
-  const target = summary || limits;
-  if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest' });
-  try {
-    target.focus();
-  } catch (_e) {
-    /* a host may have detached the panel already */
-  }
-  return true;
-}
+const composerOpeners = new WeakMap<HTMLElement, HTMLElement>();
 
 /** The composer names its target by its authored label; the id stays on `data-selection-id` and in the prompt. */
 function selectionLabel(app: App, value: ComposerSelection): string {
@@ -367,10 +254,11 @@ function selectionLabel(app: App, value: ComposerSelection): string {
 }
 
 /**
- * The authored layer over the diagram: the request and coverage details and the Refine… popover,
- * both under the one-row header, plus the Refine… button the header shows. `restored` is the
- * composer a remounted viewer saved for this same revision. The title and the provenance chip are
- * the header's own (`ui/chrome.ts` reads the document).
+ * The authored layer over the diagram: the Refine… popover under the one-row header, plus the
+ * Refine… button the header shows. `restored` is the composer a remounted viewer saved for this
+ * same revision. The title and the provenance chip are the header's own (`ui/chrome.ts` reads the
+ * document). Viewer M2: the request and coverage details that also opened here are the About tab
+ * now (`ui/about.ts`).
  */
 export function decorateWorkflow(app: App, document: WorkflowDocument, restored?: ComposerState | null): void {
   app.root.classList.add('mlv-root--workflow');
@@ -389,12 +277,11 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
   const prior: ComposerSnapshot | null = captured
     ?? (restored ? { revision: document.revision.id, open: restored.open, intent: restored.intent, custom: restored.custom, focus: null, selection: undefined } : null);
   const fromRestore = !captured && !!restored;
-  // The reader's choice to keep the details open survives a rebuild of the same panel (a
-  // re-posted or refreshed revision), and nothing else.
-  const wasExpanded = panel.getAttribute('data-expanded') === 'true';
+  const oldComposer = panel.querySelector<HTMLElement>('.mlv-workflow__composer');
+  const opener = oldComposer ? composerOpeners.get(oldComposer) || null : null;
   clear(panel);
   panel.setAttribute('data-revision', document.revision.id);
-  panel.setAttribute('aria-label', 'Authored request, coverage and refinement');
+  panel.setAttribute('aria-label', 'Refinement');
 
   const refine = el('button', 'mlv-btn mlv-btn--primary mlv-workflow__refine', 'Refine…') as HTMLButtonElement;
   refine.type = 'button';
@@ -408,7 +295,11 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
 
   const composer = add(panel, el('form', 'mlv-workflow__composer')) as HTMLFormElement;
   composer.hidden = true;
+  // Viewer M2: a modal popover: Tab stays inside it, Escape closes it and gives the focus back.
+  composer.setAttribute('role', 'dialog');
+  composer.setAttribute('aria-modal', 'true');
   composer.setAttribute('aria-label', 'Refine');
+  if (opener) composerOpeners.set(composer, opener);
   const selected = add(composer, el('span', 'mlv-workflow__selection'));
   const intent = add(composer, el('select', 'mlv-input mlv-workflow__intent')) as HTMLSelectElement;
   intent.setAttribute('aria-label', 'Refinement intent');
@@ -439,13 +330,24 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
   };
   const refreshSelection = () => showSelection(selection());
   on(refine, 'click', () => {
+    if (composer.hidden) {
+      // Remember who opened it; a Challenge button presses Refine… for itself.
+      const active = refine.ownerDocument.activeElement as HTMLElement | null;
+      if (active && !composer.contains(active) && active !== refine.ownerDocument.body) composerOpeners.set(composer, active);
+      else composerOpeners.delete(composer);
+    }
     composer.hidden = !composer.hidden;
     refine.setAttribute('aria-expanded', composer.hidden ? 'false' : 'true');
     if (!composer.hidden) { refreshSelection(); intent.focus(); }
     app.saveSoon();
   });
-  // Escape inside the popover closes it and gives the focus back to Refine….
+  // Escape inside the popover closes it and gives the focus back to whatever opened it; Tab and
+  // Shift+Tab cycle inside it.
   on(composer, 'keydown', (ev: KeyboardEvent) => {
+    if (trapTab(composer, ev)) {
+      ev.stopPropagation();
+      return;
+    }
     if (ev.key !== 'Escape') return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -490,11 +392,6 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
     else if (prior.focus === 'custom' && !composer.hidden && !custom.hidden) custom.focus();
     else if (prior.focus === 'submit' && !composer.hidden) submit.focus();
   }
-
-  const details = buildDetails(app, panel, document);
-  panel.setAttribute('data-expanded', wasExpanded ? 'true' : 'false');
-  details.hidden = !wasExpanded;
-
 }
 
 /** Whether the Refine… popover is open. */
@@ -503,22 +400,19 @@ export function composerOpen(app: App): boolean {
   return !!composer && !composer.hidden;
 }
 
-/** Close the Refine… popover (Escape); the typed text and intent stay for next time. */
-export function closeComposer(app: App, restoreFocus = false): boolean {
+/**
+ * Close the Refine… popover (Escape); the typed text and intent stay for next time. With
+ * `giveFocusBack` the focus returns to what opened it (viewer M2), else to Refine….
+ */
+export function closeComposer(app: App, giveFocusBack = false): boolean {
   const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
   const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
   if (!composer || composer.hidden) return false;
   composer.hidden = true;
-  if (refine) {
-    refine.setAttribute('aria-expanded', 'false');
-    if (restoreFocus) {
-      try {
-        refine.focus();
-      } catch (_e) {
-        /* the header may have been rebuilt */
-      }
-    }
-  }
+  const opener = composerOpeners.get(composer) || null;
+  composerOpeners.delete(composer);
+  if (refine) refine.setAttribute('aria-expanded', 'false');
+  if (giveFocusBack) restoreFocus(opener, refine);
   app.saveSoon();
   return true;
 }

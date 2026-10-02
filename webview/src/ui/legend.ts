@@ -45,7 +45,7 @@ const BASIS_ROWS: LegendRow[] = [
 const EDGE_ROWS: LegendRow[] = [
   { group: 'edge', key: 'arrow', label: 'connection', detail: 'Points from the step that produces something to the step that uses it. The line style shows the basis above, not the kind.' },
   { group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' },
-  { group: 'edge', key: 'kinds', label: 'kind', detail: 'What a connection carries (data, call, state…) is written in its hover card and the Inspector.' },
+  { group: 'edge', key: 'kinds', label: 'kind', detail: 'What a connection carries (data, call, state…) is written in its hover card and the Selection tab.' },
 ];
 
 const PHASE_ROWS: LegendRow[] = [
@@ -78,7 +78,7 @@ export function legendModel(): LegendSection[] {
               ? 'Medium potential impact if the finding is correct.'
               : 'Low potential impact if the finding is correct. Severity does not express certainty.',
       })).concat([
-        { group: 'severity', key: 'short', label: 'numbers', detail: 'Findings numbered in document order. A new revision can renumber them; the hover card, the Inspector and Refine prompts use the real id.' },
+        { group: 'severity', key: 'short', label: 'numbers', detail: 'Findings numbered in document order. A new revision can renumber them; the hover card, the Selection tab and Refine prompts use the real id.' },
       ]),
     },
     { id: 'edges', title: 'Connections', rows: EDGE_ROWS },

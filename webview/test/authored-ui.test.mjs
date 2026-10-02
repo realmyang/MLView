@@ -42,13 +42,17 @@ const issueRows = (ctx) => Array.from(ctx.document.querySelectorAll('.mlv-issue[
 
 test('zero authored findings are described as none recorded, never as a clean check', async () => {
   const ctx = await mount(workflow({ findings: [] }));
+  // Viewer M2: the tab counts them, and the list says why it is empty.
+  assert.equal(ctx.root.querySelector('[role="tab"][data-tab="issues"]').textContent, 'Findings (0)');
+  ctx.app.setRailTab('issues');
   const panel = ctx.root.querySelector('.mlv-rail__panel:not([hidden])').textContent;
   assert.match(panel, /No findings recorded in this revision/);
-  assert.match(panel, /The assistant recorded no findings\. Coverage: partial; 1 limitation listed above\. This is not a check result\./);
+  assert.match(panel, /The assistant recorded no findings\. Coverage: partial; 1 limitation listed in About\. This is not a check result\./);
   assert.doesNotMatch(panel, /nothing to flag|checked|No issues found/);
   ctx.app.destroy();
 
   const scoped = await mount(workflow({ findings: [], coverage: { status: 'scoped', summary: 's', inspectedFiles: ['src/train.py'], limitations: [] } }));
+  scoped.app.setRailTab('issues');
   assert.match(scoped.root.querySelector('.mlv-rail__panel:not([hidden])').textContent,
     /The assistant recorded no findings\. Coverage: scoped\. This is not a check result\./);
   scoped.app.destroy();
@@ -73,6 +77,7 @@ test('a workflow-level finding stays listed under every severity filter, and an 
     coverage: { status: 'scoped', summary: 's', inspectedFiles: ['train.py'], limitations: [] },
   };
   const ctx = await mount(doc);
+  ctx.app.setRailTab('issues');
   assert.deepEqual(issueRows(ctx).sort(), ['node-level', 'workflow-level']);
   // Viewer M2 removed the phase chips and the scope picker: a host still sending the old phase
   // filter changes nothing, and the whole document stays drawn.
@@ -126,7 +131,9 @@ test('authored notebook evidence names its cell as the artifact records it, coun
   const anchor = ctx.root.querySelector('.mlv-rail__panel:not([hidden]) [data-evidence-id="ev-load"]');
   // Viewer M1: cell 7 is cell 7 everywhere (the skill, the helper's --cell, the extension and
   // the model's own labels count from 0); it used to print as "cell 8 : 3".
-  assert.equal(anchor.textContent, 'Open nb/explore.ipynb › cell 7, line 3');
+  assert.equal(anchor.textContent, 'Open');
+  assert.equal(anchor.getAttribute('aria-label'), 'Open nb/explore.ipynb › cell 7, line 3');
+  assert.equal(anchor.closest('.mlv-quote').querySelector('.mlv-quote__loc').textContent, 'nb/explore.ipynb › cell 7, line 3');
   assert.equal(anchor.title, 'cell 7, counted from 0 as the artifact records it (markdown cells count too); line 3 of that cell');
   assert.doesNotMatch(ctx.root.textContent, /concatenated code cells/);
   const card = ctx.root.querySelector('[data-node-id="dataset"]');
@@ -175,23 +182,25 @@ test('authored readers see finding wording, no adapter chips and no duplicated m
   const ctx = await mount();
   ctx.app.focusIssue('loss-risk');
   assert.match(ctx.app.liveEl.textContent, /^Finding loss-risk, medium severity: Loss is aggregated late$/);
+  ctx.app.setRailTab('issues');
   const list = ctx.root.querySelector('.mlv-issues[role="listbox"]');
   assert.equal(list.getAttribute('aria-label'), 'medium severity findings');
   const row = ctx.root.querySelector('.mlv-issue[data-issue-id="loss-risk"]');
   assert.equal((row.textContent.match(/The update uses a delayed aggregate\./g) || []).length <= 1, true, 'the message is printed once');
   assert.equal(row.querySelector('.mlv-insp__why'), null);
+  ctx.app.setRailTab('inspector');
   ctx.app.focusNode('dataset');
-  const meta = Array.from(ctx.root.querySelectorAll('.mlv-rail__panel:not([hidden]) .mlv-insp__meta .mlv-chip'), (chip) => chip.textContent);
-  assert.equal(meta.includes('unknown'), false, 'no kind chip when the author gave no kind');
-  assert.equal(meta.includes('unit') || meta.includes('op'), false, 'no level chip');
+  const eyebrow = ctx.root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-insp__eyebrow').textContent;
+  assert.equal(eyebrow, '1 · Load', 'the phase only: no kind when the author gave none, no level');
   ctx.app.focusNode('step');
-  const headings = Array.from(ctx.root.querySelectorAll('.mlv-rail__panel:not([hidden]) h4, .mlv-rail__panel:not([hidden]) h5'), (h) => h.textContent);
-  assert.ok(headings.includes('Findings'));
+  const headings = Array.from(ctx.root.querySelectorAll('.mlv-rail__panel:not([hidden]) h4, .mlv-rail__panel:not([hidden]) .mlv-rail__headtext'), (h) => h.textContent);
+  assert.ok(headings.includes('Findings on this step'));
   assert.equal(headings.includes('Issues'), false);
   const badge = ctx.root.querySelector('[data-node-id="step"] [aria-label*="highest severity"]');
   assert.ok(badge);
   // Viewer M2: the badge names its finding by short label (F1…Fn, document order), not a bare count.
   assert.match(badge.getAttribute('aria-label'), /^Finding F\d+, highest severity medium$/);
+  ctx.app.setRailTab('issues');
   ctx.app.setFilters({ severities: ['high'] });
   assert.match(ctx.root.querySelector('.mlv-rail').textContent, /No findings match these filters\./);
   ctx.app.destroy();

@@ -89,15 +89,16 @@ function declarationsFor(css, selector) {
 
 /* ── issue 1: the header (viewer M2: one row; the request details open over the diagram) ── */
 
-test('the request and coverage details start closed, hold every authored word, and open over the diagram', async () => {
+test('About holds every authored word of the request and coverage; the header row holds none of it', async () => {
   const ctx = await mount(doc());
-  const panel = ctx.document.querySelector('.mlv-workflow');
-  const details = panel.querySelector('.mlv-workflow__details');
+  // Viewer M2: a new revision opens on About, in the rail; the details panel that opened over the
+  // diagram from the header is gone.
+  assert.equal(ctx.document.querySelector('.mlv-workflow__details'), null);
+  const about = ctx.document.querySelector('.mlv-rail__panel:not([hidden]) .mlv-about');
+  assert.ok(about, 'the About tab is shown');
   const chip = ctx.document.querySelector('.mlv-header__prov');
-  assert.equal(panel.getAttribute('data-expanded'), 'false');
-  assert.equal(details.hidden, true, 'the question, scope, configuration and coverage wait behind the chip');
-  assert.equal(chip.getAttribute('aria-expanded'), 'false');
-  assert.equal(chip.getAttribute('aria-haspopup'), 'dialog');
+  assert.equal(chip.getAttribute('aria-haspopup'), null, 'the chip switches a tab; it opens no popup');
+  assert.equal(chip.getAttribute('aria-expanded'), null);
   // The header row carries the title (whole on hover) and host · revision, nothing else of the request.
   const title = ctx.document.querySelector('.mlv-header__title');
   assert.equal(title.tagName, 'H1');
@@ -105,42 +106,60 @@ test('the request and coverage details start closed, hold every authored word, a
   assert.equal(title.title, 'Layout fixture', 'the whole title is on hover');
   assert.equal(chip.textContent, 'claude-code · r1');
   assert.doesNotMatch(ctx.document.querySelector('.mlv-header').textContent, /How does the loop update state/);
-  // Everything is still in the DOM for search, copy and assistive technology.
-  assert.equal(details.querySelector('.mlv-workflow__question').textContent, 'How does the loop update state?');
-  assert.match(details.textContent, /Scope: src\//);
-  assert.match(details.textContent, /Configuration: defaults/);
-  assert.match(details.textContent, /Coverage: partial · Core path/);
-  assert.match(details.textContent, /1 coverage limitation/);
-  assert.match(details.textContent, /Revision r1 · claude-code · fixture-model\./);
-  // The details live in a zero-height section after the header, so opening them moves no canvas.
-  assert.equal(panel.previousElementSibling, ctx.document.querySelector('.mlv-header'));
+  // About, in order: Asked, What the model traced, Coverage, Scope, Run configuration, Cited files, Provenance.
+  assert.deepEqual(Array.from(about.querySelectorAll('[data-about]'), (section) => section.getAttribute('data-about')),
+    ['asked', 'traced', 'coverage', 'scope', 'config', 'files', 'provenance']);
+  assert.equal(about.querySelector('.mlv-about__question').textContent, 'How does the loop update state?');
+  assert.equal(about.querySelector('.mlv-about__more'), null, 'a short question is not clamped');
+  assert.equal(about.querySelector('[data-about="traced"]').textContent, 'What the model tracedCore path');
+  assert.match(about.querySelector('[data-about="coverage"]').textContent, /Partial: the assistant lists work that remains within the scope\./);
+  assert.match(about.querySelector('[data-about="coverage"]').textContent, /1 coverage limitation \(apply to every claim\)Launcher not read\./);
+  assert.match(about.querySelector('[data-about="scope"]').textContent, /src\/Entrypoints: src\/train\.py/);
+  assert.equal(about.querySelector('[data-about="config"] .mlv-about__config').textContent, 'defaults');
+  assert.deepEqual(Array.from(about.querySelectorAll('.mlv-about__file'), (li) => li.getAttribute('data-file')), ['src/train.py']);
+  assert.equal(about.querySelector('.mlv-about__file .mlv-quote__fresh').textContent, 'not checked', 'no hashes were published');
+  assert.equal(about.querySelector('[data-about="provenance"] .mlv-about__meta').textContent,
+    'claude-code · fixture-model · revision r1 · published without source hashes');
+  assert.equal(about.querySelector('.mlv-about__trust').textContent, 'Model-authored; MLView checks citations, not the interpretation.');
   ctx.app.destroy();
 });
 
-test('the provenance chip and the coverage item open the details; Escape and the close button shut them; a rebuild keeps them', async () => {
+test('the provenance chip, the coverage item and the ... menu open About; a keyboard activation moves the focus into it', async () => {
   const ctx = await mount(doc());
-  const panel = () => ctx.document.querySelector('.mlv-workflow');
+  const shown = () => ctx.app.getState().railTab;
+  const panel = () => ctx.document.querySelector('.mlv-rail__panel:not([hidden])');
   const chip = () => ctx.document.querySelector('.mlv-header__prov');
+  ctx.app.setRailTab('issues');
+  // A pointer click (detail 1) switches the tab and leaves the focus where it was.
+  chip().focus();
+  chip().dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  assert.equal(shown(), 'about');
+  assert.equal(ctx.document.activeElement, chip(), 'a pointer click does not move the focus');
+  assert.match(ctx.document.querySelector('[aria-live="polite"]').textContent, /About this revision shown/);
+  // A keyboard activation (Enter or Space: a click with no detail) moves the focus into About.
+  ctx.app.setRailTab('issues');
   chip().click();
-  assert.equal(panel().getAttribute('data-expanded'), 'true');
-  assert.equal(chip().getAttribute('aria-expanded'), 'true');
-  assert.equal(panel().querySelector('.mlv-workflow__details').hidden, false);
-  assert.equal(ctx.document.activeElement, panel().querySelector('.mlv-workflow__details'), 'the focus moves into the panel');
-  assert.match(ctx.document.querySelector('[aria-live="polite"]').textContent, /details shown/);
-  ctx.bridge.send({ v: 1, type: 'workflow', document: doc() });
-  assert.equal(panel().getAttribute('data-expanded'), 'true', 'a re-posted revision keeps the reader\'s choice');
-  panel().querySelector('.mlv-workflow__details').dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  assert.equal(panel().getAttribute('data-expanded'), 'false');
-  assert.equal(panel().querySelector('.mlv-workflow__details').hidden, true);
-  assert.equal(ctx.document.activeElement, chip(), 'the focus goes back to the chip');
-  // The status bar's coverage item is the other way in (the About view replaces it in a later step).
+  assert.equal(shown(), 'about');
+  assert.equal(ctx.document.activeElement, panel(), 'the focus moves into the About panel');
+  // The status bar's coverage item is the other way in.
+  ctx.app.setRailTab('outline');
   const coverage = ctx.document.querySelector('.mlv-status__coverage');
   assert.equal(coverage.textContent, 'Coverage: partial · 1 limitation');
-  coverage.click();
-  assert.equal(panel().getAttribute('data-expanded'), 'true');
-  assert.equal(coverage.getAttribute('aria-expanded'), 'true');
-  panel().querySelector('.mlv-workflow__close').click();
-  assert.equal(panel().getAttribute('data-expanded'), 'false');
+  assert.equal(coverage.getAttribute('aria-haspopup'), null);
+  coverage.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  assert.equal(shown(), 'about');
+  // A rail the reader hid opens for it.
+  ctx.app.toggleRail();
+  assert.equal(ctx.document.querySelector('.mlv-rail').hidden, true);
+  coverage.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  assert.equal(ctx.document.querySelector('.mlv-rail').hidden, false);
+  // A re-posted revision keeps the reader's tab; a new revision opens on About again.
+  ctx.app.setRailTab('outline');
+  ctx.bridge.send({ v: 1, type: 'workflow', document: doc() });
+  assert.equal(shown(), 'outline', 'the same revision keeps the tab');
+  ctx.bridge.send({ v: 1, type: 'workflow', document: doc({ revision: { id: 'r2', parent: 'r1' } }) });
+  assert.equal(shown(), 'about', 'a new revision opens on About');
+  assert.match(panel().querySelector('[data-about="provenance"]').textContent, /revision r2 \(after r1\)/);
   ctx.app.destroy();
 });
 
@@ -148,14 +167,23 @@ test('a contract-maximum document keeps the header to its one row with every wor
   const max = contractMaxHeader();
   const ctx = await mount(max);
   const header = ctx.document.querySelector('.mlv-header');
-  const panel = ctx.document.querySelector('.mlv-workflow');
-  assert.equal(panel.getAttribute('data-expanded'), 'false');
-  assert.equal(panel.querySelector('.mlv-workflow__details').hidden, true);
+  const panel = ctx.document.querySelector('.mlv-about');
   assert.equal(header.querySelector('.mlv-header__title').title, max.title);
   assert.equal(header.querySelector('.mlv-header__title').textContent, max.title, 'the CSS ellipsis cuts it, not the DOM');
   assert.match(header.querySelector('.mlv-header__prov').title, new RegExp('by claude-code \\(' + 'M'.repeat(200) + '\\)'));
-  assert.equal(panel.querySelector('.mlv-workflow__question').textContent.length, 4000);
-  assert.equal(panel.querySelectorAll('.mlv-workflow__limitations li').length, 500);
+  // About holds every word: the question is clamped with Show all, the limitations listed once.
+  const question = panel.querySelector('.mlv-about__question');
+  assert.equal(question.textContent.length, 4000);
+  assert.equal(question.getAttribute('data-clamped'), 'true');
+  const more = panel.querySelector('.mlv-about__more');
+  assert.equal(more.textContent, 'Show all');
+  assert.equal(more.getAttribute('aria-controls'), question.id);
+  more.click();
+  assert.equal(question.getAttribute('data-clamped'), 'false');
+  assert.equal(more.textContent, 'Show less');
+  assert.equal(more.getAttribute('aria-expanded'), 'true');
+  assert.equal(panel.querySelectorAll('.mlv-about__limitations li').length, 500);
+  assert.equal(panel.querySelectorAll('[data-about="config"] .mlv-about__kv').length, 0, 'plain words, no k=v tokens');
   assert.equal(ctx.document.querySelector('.mlv-status__coverage').textContent, 'Coverage: partial · 500 limitations');
   // The header holds no request text and no phase chip row, whatever the document's size.
   assert.doesNotMatch(header.textContent, /question0|scope0|summary0|lim0w|phase0w/);
@@ -163,7 +191,7 @@ test('a contract-maximum document keeps the header to its one row with every wor
   ctx.app.destroy();
 });
 
-test('the shipped CSS keeps the header to one row, caps the details, and gives the authored canvas a floor', async () => {
+test('the shipped CSS keeps the header to one row, stacks the bottom sheet under the canvas, and gives the canvas a floor', async () => {
   const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
   const header = declarationsFor(css, '.mlv-header');
   assert.equal(header.flex, 'none', 'the header never grows or shrinks');
@@ -177,15 +205,23 @@ test('the shipped CSS keeps the header to one row, caps the details, and gives t
   assert.equal(title['white-space'], 'nowrap');
   assert.equal(title.overflow, 'hidden');
   const section = declarationsFor(css, '.mlv-workflow');
-  assert.equal(section.height, '0', 'the details anchor adds no height under the header');
-  const details = declarationsFor(css, '.mlv-workflow__details');
-  assert.equal(details.position, 'absolute', 'the details open over the diagram');
-  assert.match(details['max-height'] || '', /^min\(70vh,\s*560px\)$/, 'the contract-maximum text is height-capped');
-  assert.equal(details['overflow-y'], 'auto', 'and scrolls inside its cap');
-  assert.equal(declarationsFor(css, '.mlv-workflow__details[hidden]').display, 'none');
+  assert.equal(section.height, '0', 'the Refine… anchor adds no height under the header');
+  assert.equal(css.includes('.mlv-workflow__details'), false, 'the details panel is gone (About replaced it)');
+  assert.equal(css.includes('.mlv-scrim'), false, 'no drawer, so no scrim');
+  // The canvas floor (issue 1), unchanged: the body under the header keeps at least this much.
   const body = declarationsFor(css, '.mlv-root--workflow>.mlv-body');
   assert.equal(body.flex, '1 1 0', 'basis 0: the body takes the free space');
-  assert.match(body['min-height'] || '', /^min\(320px,\s*50vh\)$/, 'the canvas keeps at least 320 px (half a short panel)');
+  assert.match(body['min-height'] || '', /^min\(320px,\s*50vh\)$/, 'the body keeps at least 320 px (half a short panel)');
+  // Viewer M2: the bottom sheet shares that body with the canvas. Stacked under it (never over
+  // it), at most what leaves the canvas min(240px, 45%), 32 px when collapsed.
+  assert.equal(declarationsFor(css, '.mlv-body[data-rail=sheet]')['flex-direction'], 'column');
+  const sheet = declarationsFor(css, '.mlv-rail[data-mode=sheet]');
+  assert.match(sheet.flex || '', /^0 0 calc\(var\(--mlv-sheet-fraction,\s*\.47\)\s*\*\s*100%\)$/);
+  assert.equal(sheet.position, undefined, 'in the flow, not an overlay');
+  assert.match(sheet['max-height'] || '', /^calc\(100% - min\(240px,\s*45%\)\)$/, 'the canvas keeps min(240px, 45%) above an open sheet');
+  assert.equal(declarationsFor(css, '.mlv-rail[data-mode=sheet][data-expanded=false]')['flex-basis'], '32px');
+  // The 900 px drawer media rule is gone: nothing positions the rail over the canvas.
+  assert.doesNotMatch(css, /@media[^{]*max-width:\s*900px[^{]*\{[^}]*\.mlv-rail\{[^}]*position:\s*absolute/);
   const banner = declarationsFor(css, '#mlview-authored-error');
   assert.match(banner['max-height'] || '', /vh$/);
   assert.equal(declarationsFor(css, '.mlv-minimap.is-short').display, 'none');
@@ -193,30 +229,50 @@ test('the shipped CSS keeps the header to one row, caps the details, and gives t
 
 /* ── issue 6: rail, minimap, refit, reveal, default collapse ─────────── */
 
-test('the rail starts closed when the canvas beside it would be under 900 px, and follows the panel until the reader chooses', async () => {
+test('below 1260 px the rail is a bottom sheet: its tab strip until a selection or the reader opens it', async () => {
   let width = 541;
   const ctx = await mount(doc(), { rootWidth: () => width });
   const rail = ctx.document.querySelector('.mlv-rail');
-  assert.equal(rail.hidden, true, 'at 541 px the rail would cover the canvas');
+  const body = ctx.document.querySelector('.mlv-body');
+  const panels = () => Array.from(rail.querySelectorAll('.mlv-rail__panel')).filter((panel) => !panel.hidden).length;
+  assert.equal(rail.hidden, false, 'the tab strip is always there');
+  assert.equal(rail.getAttribute('data-mode'), 'sheet');
+  assert.equal(body.getAttribute('data-rail'), 'sheet', 'the body stacks the sheet under the canvas');
+  assert.equal(rail.getAttribute('data-expanded'), 'false', 'collapsed: a 32 px tab strip');
+  assert.equal(panels(), 0);
+  assert.equal(rail.querySelector('.mlv-sr').textContent, 'Bottom panel', 'a labelled region');
+  assert.equal(rail.getAttribute('role'), null, 'not a dialog');
   width = 1382;
   resize(ctx);
-  assert.equal(rail.hidden, false, 'a panel wide enough to dock it opens it again');
+  assert.equal(rail.getAttribute('data-mode'), 'docked', 'a panel wide enough docks it');
+  assert.equal(rail.hidden, false);
+  assert.equal(panels(), 1);
+  assert.equal(rail.style.width, '360px', 'the docked width');
+  width = 1259;
+  resize(ctx);
+  assert.equal(rail.getAttribute('data-mode'), 'sheet', '1259 - 360 leaves the canvas under 900 px');
+  assert.equal(rail.getAttribute('data-expanded'), 'false');
+  assert.equal(rail.style.width, '', 'the sheet spans the panel');
+  width = 1260;
+  resize(ctx);
+  assert.equal(rail.getAttribute('data-mode'), 'docked', '1260 - 360 = 900: docked');
   width = 1086;
   resize(ctx);
-  assert.equal(rail.hidden, true, '1086 - 360 leaves a canvas under 900 px');
-  // Viewer M2: the rail toggle is in the ... menu (and Ctrl+B).
+  // Viewer M2: the rail toggle is in the ... menu (and Ctrl+B), named for the mode.
   ctx.document.querySelector('.mlv-btn--more').click();
   const item = ctx.document.querySelector('[data-more-item="rail"]');
+  assert.equal(item.querySelector('.mlv-moremenu__label').textContent, 'Bottom panel');
   assert.equal(item.getAttribute('aria-checked'), 'false');
   item.click();
-  assert.equal(rail.hidden, false, 'the reader opened it');
+  assert.equal(rail.getAttribute('data-expanded'), 'true', 'the reader opened it');
+  assert.equal(panels(), 1);
   width = 541;
   resize(ctx);
-  assert.equal(rail.hidden, false, 'after an explicit choice the width rule no longer decides');
+  assert.equal(rail.getAttribute('data-expanded'), 'true', 'after an explicit choice the width rule no longer decides');
   ctx.app.destroy();
 });
 
-test('working in the rail keeps it: a narrower panel after following evidence does not close it', async () => {
+test('working in the rail keeps it: a narrower panel after following evidence opens it as the sheet', async () => {
   let width = 1382;
   const ctx = await mount(doc(), { rootWidth: () => width });
   const rail = ctx.document.querySelector('.mlv-rail');
@@ -224,17 +280,19 @@ test('working in the rail keeps it: a narrower panel after following evidence do
   rail.dispatchEvent(new ctx.window.Event('pointerdown', { bubbles: true }));
   width = 691;
   resize(ctx);
-  assert.equal(rail.hidden, false, 'the split beside the source must not take the finding away');
+  assert.equal(rail.getAttribute('data-mode'), 'sheet');
+  assert.equal(rail.getAttribute('data-expanded'), 'true', 'the split beside the source must not take the finding away');
   ctx.app.destroy();
 });
 
-test('selecting a finding opens a collapsed rail', async () => {
+test('selecting a finding opens a collapsed sheet', async () => {
   const ctx = await mount(doc(), { rootWidth: () => 541 });
   const rail = ctx.document.querySelector('.mlv-rail');
-  assert.equal(rail.hidden, true);
+  assert.equal(rail.getAttribute('data-expanded'), 'false');
   ctx.app.focusIssue('f1');
-  assert.equal(rail.hidden, false);
+  assert.equal(rail.getAttribute('data-expanded'), 'true');
   assert.equal(ctx.app.getState().selection.id, 'f1');
+  assert.equal(ctx.app.getState().railTab, 'inspector', 'on the Selection tab');
   ctx.app.destroy();
 });
 
@@ -333,11 +391,21 @@ test('a finding or rail item selected below the detail threshold zooms to its ta
   ctx.app.destroy();
 });
 
-/* ── Campaign 3 review: VL-1 reveal beside the rail drawer, self-loops ── */
+/* ── Campaign 3 review VL-1, viewer M2: reveal above the bottom sheet; self-loops ── */
 
-/** Stub the rail's box: jsdom lays nothing out, so the drawer's geometry is given. */
-function placeRail(ctx, left, right, height = 600) {
-  ctx.document.querySelector('.mlv-rail').getBoundingClientRect = () => ({ x: left, y: 0, top: 0, left, width: right - left, height, right, bottom: height });
+/**
+ * jsdom lays nothing out, so the canvas box is given: the body's height, less the sheet's 32 px
+ * strip when collapsed or its share (47 %) when open, as the shipped CSS stacks them.
+ */
+function sizeCanvasOverSheet(ctx, w, bodyH) {
+  const rail = ctx.document.querySelector('.mlv-rail');
+  const canvas = ctx.document.querySelector('.mlv-canvas');
+  canvas.getBoundingClientRect = () => {
+    const sheet = rail.getAttribute('data-mode') !== 'sheet' ? 0 : rail.getAttribute('data-expanded') === 'true' ? Math.round(bodyH * 0.47) : 32;
+    const h = bodyH - sheet;
+    return { x: 0, y: 0, top: 0, left: 0, width: w, height: h, right: w, bottom: h };
+  };
+  return () => canvas.getBoundingClientRect();
 }
 
 /** The target card's box on screen, from the viewport and the laid-out frame. */
@@ -347,64 +415,102 @@ function screenBox(ctx, id) {
   return { left: box.x * vp.zoom + vp.x, right: (box.x + box.w) * vp.zoom + vp.x, top: box.y * vp.zoom + vp.y, bottom: (box.y + box.h) * vp.zoom + vp.y };
 }
 
-test('below the breakpoint a finding reveals its target in the strip the rail drawer leaves', async () => {
-  // MEASURED live: at 541 px the drawer covered x 181-541 and the target sat at x 173-368, 4 % visible.
+const inside = (box, area) => box.left >= 0 && box.top >= 0 && box.right <= area.width && box.bottom <= area.height;
+
+test('at 541 px a finding opens the sheet and frames every cited card in the canvas above it', async () => {
+  // MEASURED live before viewer M2: at 541 px the drawer covered x 181-541 of the canvas and the
+  // target sat at x 173-368, 4 % visible.
   const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => 541 });
-  sizeCanvas(ctx, { w: 541, h: 600 });
-  placeRail(ctx, 181, 541);
+  const area = sizeCanvasOverSheet(ctx, 541, 740);
   ctx.app.view.viewport.set({ zoom: 0.2 });
   ctx.app.focusIssue('finding-a');
-  assert.equal(ctx.document.querySelector('.mlv-rail').hidden, false, 'the finding opened the drawer');
-  const primary = ctx.app.index.issueById.get('finding-a').nodeIds[0];
-  const card = screenBox(ctx, ctx.app.index.visibleRepresentative(primary, new Set()) || primary);
-  assert.ok(card.left >= 0 && card.right <= 181, `the card (${card.left.toFixed(0)}-${card.right.toFixed(0)}) is left of the drawer`);
-  assert.ok(ctx.app.getState().viewport.zoom >= 0.62, 'and still drawn at full detail');
+  assert.equal(ctx.document.querySelector('.mlv-rail').getAttribute('data-expanded'), 'true', 'the finding opened the sheet');
+  assert.equal(area().height, 740 - 348, 'the canvas is the part above the sheet');
+  const issue = ctx.app.index.issueById.get('finding-a');
+  for (const id of issue.nodeIds) {
+    const card = screenBox(ctx, ctx.app.index.visibleRepresentative(id, new Set()) || id);
+    assert.ok(inside(card, area()), `${id} (${card.left.toFixed(0)}-${card.right.toFixed(0)}, ${card.top.toFixed(0)}-${card.bottom.toFixed(0)}) is above the sheet`);
+  }
+  assert.ok(ctx.app.getState().viewport.zoom >= 0.45, 'and readable');
+  // Escape on the canvas collapses the sheet; the selection stays.
+  const canvas = ctx.document.querySelector('.mlv-canvas');
+  canvas.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.querySelector('.mlv-rail').getAttribute('data-expanded'), 'false');
+  assert.equal(ctx.app.getState().selection.id, 'finding-a', 'the selection stays');
   ctx.app.destroy();
 });
 
-test('a strip too narrow for a card reveals on the whole canvas, and a docked rail changes nothing', async () => {
-  const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => 393 });
-  sizeCanvas(ctx, { w: 393, h: 600 });
-  placeRail(ctx, 55, 393);
-  ctx.app.view.viewport.set({ zoom: 0.2 });
-  ctx.app.focusIssue('finding-a');
-  assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'READABLE_ZOOM on the whole canvas; the target shows once the drawer closes');
-  // Docked (the rail starts where the canvas ends), the whole canvas is visible.
+test('opening and collapsing the sheet never refits; the selected card stays visible above it', async () => {
+  const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => 900 });
+  const area = sizeCanvasOverSheet(ctx, 900, 742);
+  ctx.app.view.fit();
+  const fitted = ctx.app.getState().viewport;
+  // A card low in the canvas: where the open sheet will be.
+  const id = 'node-8';
+  const box = ctx.app.view.frameData.boxes.get(id);
+  ctx.app.view.viewport.set({ x: 450 - (box.x + box.w / 2) * fitted.zoom, y: 680 - (box.y + box.h) * fitted.zoom });
+  const zoom = ctx.app.getState().viewport.zoom;
+  const card = ctx.document.querySelector(`.mlv-node[data-node-id="${id}"]`);
+  card.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(ctx.app.getState().selection.id, id);
+  assert.equal(ctx.document.querySelector('.mlv-rail').getAttribute('data-expanded'), 'true', 'a click opens the sheet');
+  assert.equal(ctx.app.getState().viewport.zoom, zoom, 'no refit: the zoom is kept');
+  assert.ok(inside(screenBox(ctx, id), area()), 'the card moved up into the canvas left above the sheet');
+  // Two columns in a 900 px sheet: the claim on the left, the evidence on the right.
+  const pane = ctx.document.querySelector('.mlv-rail__panel:not([hidden]) .mlv-sel');
+  assert.equal(pane.getAttribute('data-columns'), '2');
+  assert.ok(pane.querySelector('.mlv-sel__col--claim .mlv-insp__title'));
+  assert.ok(pane.querySelector('.mlv-sel__col--evidence [data-section="quotes"]'));
+  assert.ok(pane.querySelector('.mlv-sel__col--evidence .mlv-insp__actions'));
+  // Collapsing keeps the picture too.
+  const before = ctx.app.getState().viewport;
+  ctx.app.collapseSheet(false);
+  assert.deepEqual(ctx.app.getState().viewport, before, 'collapsing moves nothing');
+  ctx.app.destroy();
+});
+
+test('docked, the whole canvas is the visible area', async () => {
+  const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => 1382 });
   sizeCanvas(ctx, { w: 1022, h: 600 });
-  placeRail(ctx, 1022, 1382);
+  assert.equal(ctx.document.querySelector('.mlv-rail').getAttribute('data-mode'), 'docked');
   const area = ctx.app.view.viewport.visibleArea();
   assert.deepEqual([area.w, area.h], [1022, 600]);
   ctx.app.destroy();
 });
 
-test('a selected target stays in view when a split turns the docked rail into a drawer over it', async () => {
-  // MEASURED live: finding selected at 1382 px (rail docked), evidence followed, panel 691 px: the
-  // chosen rail became the drawer at x 331-691 and the target was 0 % visible behind it.
+test('a selected target stays in view when a split turns the docked rail into the sheet under it', async () => {
+  // MEASURED live before viewer M2: finding selected at 1382 px (rail docked), evidence followed,
+  // panel 691 px: the chosen rail became the drawer at x 331-691 and the target was 0 % visible.
   let width = 1382;
   const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => width });
-  sizeCanvas(ctx, { w: 1022, h: 600 });
-  placeRail(ctx, 1022, 1382);
+  let canvasW = 1022;
+  const rail = ctx.document.querySelector('.mlv-rail');
+  const canvas = ctx.document.querySelector('.mlv-canvas');
+  canvas.getBoundingClientRect = () => {
+    const h = rail.getAttribute('data-mode') === 'sheet' ? (rail.getAttribute('data-expanded') === 'true' ? 600 - 282 : 568) : 600;
+    return { x: 0, y: 0, top: 0, left: 0, width: canvasW, height: h, right: canvasW, bottom: h };
+  };
   ctx.app.focusIssue('finding-b');
   const primary = ctx.app.index.issueById.get('finding-b').nodeIds[0];
-  // Put the target on the right of the docked canvas, where the drawer will land.
+  // Put the target low on the docked canvas, where the sheet will be.
   const box = ctx.app.view.frameData.boxes.get(primary);
   const zoom = ctx.app.getState().viewport.zoom;
-  ctx.app.view.viewport.set({ x: 900 - (box.x + box.w) * zoom, y: 300 - (box.y + box.h / 2) * zoom });
+  ctx.app.view.viewport.set({ x: 500 - (box.x + box.w) * zoom, y: 560 - (box.y + box.h) * zoom });
   const before = screenBox(ctx, primary);
-  assert.ok(before.left >= 331 && before.right <= 1022, 'in view on the docked canvas, under where the drawer will be');
+  assert.ok(before.top >= 318 && before.bottom <= 600, 'in view on the docked canvas, under where the sheet will be');
   width = 691;
-  sizeCanvas(ctx, { w: 691, h: 600 });
-  placeRail(ctx, 331, 691);
+  canvasW = 691;
   resize(ctx);
+  assert.equal(rail.getAttribute('data-mode'), 'sheet');
+  assert.equal(rail.getAttribute('data-expanded'), 'true', 'the finding the reader chose stays open');
   const after = screenBox(ctx, primary);
-  assert.ok(after.left >= 0 && after.right <= 331, `re-centred left of the drawer (${after.left.toFixed(0)}-${after.right.toFixed(0)})`);
+  assert.ok(inside(after, canvas.getBoundingClientRect()), `re-centred above the sheet (${after.top.toFixed(0)}-${after.bottom.toFixed(0)})`);
   assert.equal(ctx.app.getState().viewport.zoom, zoom, 'at the same zoom');
   // A target the reader had already moved out of view is left where it is.
   ctx.app.view.viewport.set({ x: -5000 });
   const moved = ctx.app.getState().viewport.x;
   width = 600;
-  sizeCanvas(ctx, { w: 600, h: 600 });
-  placeRail(ctx, 240, 600);
+  canvasW = 600;
   resize(ctx);
   assert.equal(ctx.app.getState().viewport.x, moved);
   ctx.app.destroy();

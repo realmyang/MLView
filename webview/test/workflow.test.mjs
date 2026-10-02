@@ -71,16 +71,22 @@ test('mountWorkflow identifies authored provenance and accepts revision updates 
   const app = ctx.MLView.mountWorkflow(root, workflow(), bridge);
   assert.ok(root.classList.contains('mlv-root--workflow'));
   // Viewer M2: the one-row header names the title and host · revision; the model and the
-  // request are in the chip's tooltip and in the details it opens.
+  // request are in the chip's tooltip and in the About tab, which a new revision opens on.
   assert.equal(root.querySelector('.mlv-header__title').textContent, 'Training and review');
   assert.equal(root.querySelector('.mlv-header__prov').textContent, 'codex · r1');
   assert.match(root.querySelector('.mlv-header__prov').title, /by codex \(gpt-test\)/);
-  assert.match(root.querySelector('.mlv-workflow').textContent, /codex · gpt-test/);
-  assert.match(root.querySelector('.mlv-workflow').textContent, /partial · Core training path inspected/);
+  const about = root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-about');
+  assert.ok(about, 'a new revision opens on About');
+  assert.match(about.querySelector('[data-about="provenance"]').textContent, /codex · gpt-test · revision r1/);
+  assert.equal(about.querySelector('[data-about="coverage"] [data-status]').getAttribute('data-status'), 'partial');
+  assert.match(about.querySelector('[data-about="traced"]').textContent, /Core training path inspected/);
   assert.doesNotMatch(root.textContent, /Graph truncated|graph was truncated/i);
   // A revision published without hashes says so in muted words in the status bar.
   assert.equal(root.querySelector('[data-freshness="unverified"]').textContent, 'Freshness not checked');
-  assert.equal(root.querySelector('[role="tab"][aria-controls$="-panel-issues"]').textContent, 'Findings');
+  // "Findings (1)": the tab counts the revision's findings, and its accessible name says the unit.
+  const findingsTab = root.querySelector('[role="tab"][aria-controls$="-panel-issues"]');
+  assert.equal(findingsTab.textContent, 'Findings (1)');
+  assert.equal(findingsTab.getAttribute('aria-label'), 'Findings, 1 finding');
   const search = root.querySelector('.mlv-search input[type="search"]');
   assert.equal(search.placeholder, 'Search steps and findings');
   assert.equal(root.querySelector(`label[for="${search.id}"]`).textContent, 'Search steps, findings, IDs, or cited text');
@@ -98,7 +104,8 @@ test('rail tabs support wrapped arrow navigation plus Home and End without consu
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
   const tabs = [...root.querySelectorAll('[role="tab"]')];
-  assert.deepEqual(tabs.map((tab) => tab.textContent), ['Findings', 'Inspector', 'Outline']);
+  // Viewer M2: About · Findings (n) · Selection · Outline.
+  assert.deepEqual(tabs.map((tab) => tab.textContent), ['About', 'Findings (1)', 'Selection', 'Outline']);
 
   tabs[0].focus();
   tabs[0].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
@@ -106,12 +113,12 @@ test('rail tabs support wrapped arrow navigation plus Home and End without consu
   assert.equal(tabs[1].getAttribute('aria-selected'), 'true');
 
   tabs[1].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
-  assert.equal(ctx.document.activeElement, tabs[2]);
-  tabs[2].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[3]);
+  tabs[3].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
   assert.equal(ctx.document.activeElement, tabs[0], 'ArrowRight wraps to the first tab');
   tabs[0].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
-  assert.equal(ctx.document.activeElement, tabs[2], 'ArrowLeft wraps to the last tab');
-  tabs[2].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[3], 'ArrowLeft wraps to the last tab');
+  tabs[3].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
   assert.equal(ctx.document.activeElement, tabs[0]);
 
   const tabEvent = new ctx.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
@@ -148,8 +155,10 @@ test('refinement posts the current stable selection and short intent', async () 
   assert.deepEqual(withoutRequestId(bridge.posted.at(-1)), {
     v: 1, type: 'refineWorkflow', revisionId: 'revision-7', selection: { kind: 'edge', id: 'cycle' }, intent: 'trace',
   });
-  assert.match(ctx.document.querySelector('.mlv-workflow__meta').textContent, /Entrypoints: src\/train.py/);
-  assert.match(ctx.document.querySelector('.mlv-workflow__meta').textContent, /Configuration: not specified/);
+  // Viewer M2: the request's scope and configuration are in About.
+  app.setRailTab('about');
+  assert.match(ctx.document.querySelector('.mlv-about [data-about="scope"]').textContent, /Entrypoints: src\/train.py/);
+  assert.match(ctx.document.querySelector('.mlv-about [data-about="config"]').textContent, /Configuration: not specified/);
 });
 
 test('source-less concepts do not fabricate file jumps and epistemic basis stays visible', async () => {
@@ -167,6 +176,8 @@ test('source-less concepts do not fabricate file jumps and epistemic basis stays
   assert.doesNotMatch(basis.getAttribute('title'), /100%/);
   assert.equal(ctx.document.querySelector('[data-node-id="epoch"]').classList.contains('is-lowconf'), false,
     'absence of a calibrated percentage must not fabricate a low-confidence state');
+  app.setRailTab('issues');
+  assert.ok(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'));
   app.setFilters({ severities: ['high'] });
   assert.equal(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'), null,
     'authored basis does not bypass ordinary severity filtering');
@@ -225,7 +236,8 @@ test('node and edge inspectors expose every authored evidence anchor and post it
   app.select({ kind: 'edge', id: 'cycle' }, { tab: 'inspector' });
   anchors = Array.from(root.querySelectorAll('.mlv-rail__panel:not([hidden]) .mlv-insp__source-evidence [data-evidence-id]'));
   assert.deepEqual(anchors.map((item) => item.getAttribute('data-evidence-id')), ['ev-step', 'ev-load']);
-  assert.match(root.querySelector('.mlv-rail__panel:not([hidden])').textContent, /basis · inferred/);
+  // Viewer M2: an inferred connection's basis is its tag word and one sentence, not a chip.
+  assert.match(root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-insp__basis[data-basis="inferred"]').textContent, /^inferred Reasoned from the cited code/);
   anchors[0].click();
   opened = bridge.posted.findLast((item) => item.type === 'openLocation');
   assert.equal(opened.evidenceId, 'ev-step');
@@ -296,17 +308,25 @@ test('finding inspector keeps claim, supporting evidence, counter-evidence, and 
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
   app.focusNode('step');
+  // Viewer M2: under "Findings on this step" a finding shows its claim and What to change; its
+  // quotes are in its own pane, which its title opens.
   const issue = root.querySelector('.mlv-insp__issue[data-issue-id="loss-risk"]');
   assert.match(issue.textContent, /The update uses a delayed aggregate/);
   // Viewer M1: the suggestion is labelled as the skill words it (visibility is checked in
   // inspector-content.test.mjs; textContent alone cannot see a display:none rule).
   assert.match(issue.textContent, /What to change.*Verify the intended reduction/);
-  assert.match(issue.textContent, /Evidence review.*Supporting evidence.*Counter-evidence/);
-  assert.deepEqual(Array.from(issue.querySelectorAll('[data-evidence-id]'), (row) => row.getAttribute('data-evidence-id')), ['ev-step', 'ev-loss', 'ev-load']);
-  assert.match(issue.textContent, /optimizer\.step\(\).*loss\.mean\(\).*load\(\)/s);
-  // Viewer M1: the limitations are listed once, in the header Details; the Inspector links to them.
+  issue.querySelector('.mlv-insp__issue-title').click();
+  const pane = root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-sel[data-kind="finding"]');
+  assert.ok(pane, 'the title selects the finding');
+  assert.match(pane.textContent, /Medium finding.*F1.*loss-risk.*Loss is aggregated late.*The update uses a delayed aggregate.*What to change.*Verify the intended reduction/s);
+  assert.deepEqual(Array.from(pane.querySelectorAll('.mlv-quote__role'), (role) => role.textContent), ['Supporting evidence', 'Supporting evidence', 'Counter-evidence']);
+  assert.deepEqual(Array.from(pane.querySelectorAll('[data-evidence-id]'), (row) => row.getAttribute('data-evidence-id')), ['ev-step', 'ev-loss', 'ev-load']);
+  assert.match(pane.textContent, /optimizer\.step\(\).*loss\.mean\(\).*load\(\)/s);
+  // Viewer M1: the limitations are listed once, in About; the pane links to them.
   const inspector = root.querySelector('.mlv-rail__panel:not([hidden])');
-  assert.match(inspector.textContent, /1 document-wide limitation applies\. Show/);
+  assert.match(inspector.textContent, /1 document-wide limitation applies to every claim\. Read it in About/);
+  // The basis is said once: the eyebrow's chip, then the sentence without a second tag.
+  assert.equal((pane.textContent.match(/inferred/g) || []).length, 1);
   assert.doesNotMatch(inspector.textContent, /Approval implementation was not found/);
   app.destroy();
 });
@@ -386,7 +406,7 @@ test('authored help avoids retired rule terminology and offers no finding groupi
   const sheet = root.querySelector('.mlv-sheet').textContent;
   assert.match(sheet, /Search steps, findings, IDs, or cited text/);
   assert.match(sheet, /Next \/ previous finding \(document order\)/);
-  assert.match(sheet, /Findings \/ Inspector \/ Outline/);
+  assert.match(sheet, /About \/ Findings \/ Selection \/ Outline/);
   assert.doesNotMatch(sheet, /rule codes|issue by severity/i);
   // Viewer M1: the analyzer-era "Group by" control (rule / file) is gone, and a restored
   // grouping is ignored rather than written back.

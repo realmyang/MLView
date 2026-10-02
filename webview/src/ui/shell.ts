@@ -14,7 +14,6 @@ import type { ViewportController } from '../render/canvas.js';
 
 export interface Shell {
   body: HTMLElement;
-  scrim: HTMLElement;
   /**
    * The `<main>` landmark around the diagram (VIEW-12). The canvas, the minimap
    * and the Pipeline Answer Card live inside it; the rail is a sibling `<aside>`,
@@ -65,11 +64,9 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
   clear(root);
   const uid = 'mlv-shell' + ++shellSeq;
 
+  // Viewer M2: the rail is beside the canvas or a bottom sheet under it (`data-rail`), never a
+  // drawer over it, so there is no scrim.
   const body = el('div', 'mlv-body');
-
-  // Overlay scrim behind the rail below the 900 px breakpoint (UX_DESIGN §1).
-  const scrim = add(body, el('div', 'mlv-scrim'));
-  scrim.hidden = true;
 
   const main = el('main', 'mlv-main');
   main.setAttribute('aria-labelledby', uid + '-main-heading');
@@ -127,7 +124,6 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
 
   return {
     body,
-    scrim,
     main,
     canvas,
     world,

@@ -177,7 +177,7 @@ const UI_PATHS: Record<string, string> = {
   target: 'M8 2.6v2.2M8 11.2v2.2M2.6 8h2.2M11.2 8h2.2M8 5.2A2.8 2.8 0 1 0 8 10.8 2.8 2.8 0 0 0 8 5.2Z',
   // Viewer M1: a source file no longer matches its published hash (with text beside it, never alone).
   warning: 'M8 2.2 14.4 13.4H1.6ZM8 6.4v3.4M8 11.6v.1',
-  /** The request and coverage details. */
+  /** About this revision (the request and coverage). */
   info: 'M8 2.2a5.8 5.8 0 1 0 0 11.6A5.8 5.8 0 0 0 8 2.2ZM8 7.2v4M8 5v.1',
   /** Viewer M2: "not observed" — a dashed square, the mark an inferred card carries. */
   notobserved: 'M2.6 5V2.6H5M7 2.6h2M11 2.6h2.4V5M13.4 7v2M13.4 11v2.4H11M9 13.4H7M5 13.4H2.6V11M2.6 9V7',

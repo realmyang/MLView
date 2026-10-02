@@ -134,7 +134,6 @@ export class CanvasView {
       this.lastArea = this.viewport.visibleArea();
       this.host.onViewportChange(vp);
     });
-    this.viewport.coveredRight = () => this.host.coveredRight();
 
     for (const dispose of wireCanvasGestures(this.canvasEl, this.viewport, {
       onKeyDown: (ev) => this.host.onKeyDown(ev),
@@ -356,8 +355,8 @@ export class CanvasView {
   /**
    * The window or the canvas resized (issue 6). Campaign 3 review (VL-1): a selected target that
    * was in view stays in view. Following evidence from a docked rail opens a split, the panel
-   * narrows under the 900 px breakpoint, and the rail the reader is using becomes a drawer over
-   * the target; the target is re-centred, at the same zoom, in the strip the drawer leaves.
+   * narrows, and (viewer M2) the rail the reader is using becomes the bottom sheet under the
+   * canvas; the target is re-centred, at the same zoom, in the canvas left above the sheet.
    */
   handleResize(): void {
     const kept = this.host.keptTarget();
@@ -367,6 +366,19 @@ export class CanvasView {
     const refitted = this.viewport.onResize();
     if (!refitted && target && wasVisible && !this.viewport.isVisible(target)) this.viewport.centerOn(target);
     this.syncShortCanvas();
+  }
+
+  /**
+   * Viewer M2: the bottom sheet opened, collapsed or was dragged to a new height. The canvas above
+   * it changed height, which is not a reason to refit (the reader is reading a card): a fitted
+   * viewport keeps its picture, and a selected target that was in view stays in view above the
+   * sheet, at the same zoom. Called synchronously by the App, so jsdom (no ResizeObserver) and a
+   * real host agree; the observer's own call that follows finds nothing to do.
+   */
+  afterSheetToggle(): void {
+    this.viewport.acceptResize();
+    this.handleResize();
+    this.lastArea = this.viewport.visibleArea();
   }
 
   /**
@@ -568,7 +580,7 @@ export class CanvasView {
 
   /**
    * Pan, never zoom, so the target lies in the visible area (viewer M1): a click that opens the
-   * rail drawer over the card it selected keeps that card in the strip the drawer leaves.
+   * bottom sheet under the card it selected (viewer M2) keeps that card in the canvas above it.
    */
   keepInView(target: { kind: 'node' | 'edge'; id: string }): void {
     const rect = this.targetRect(target);
@@ -603,6 +615,34 @@ export class CanvasView {
     }
   }
 
+  /**
+   * Viewer M2: frame every step a finding cites (issue 6 revealed only the first); a finding that
+   * cites no step frames both ends of each connection it cites. See `ViewportController.frameRect`
+   * for the zoom bounds. The first cited card pulses.
+   */
+  frameIssue(id: string): void {
+    if (!this.index || !this.frameData) return;
+    const issue = this.index.issueById.get(id);
+    if (!issue) return;
+    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    for (const nodeId of issue.nodeIds) {
+      const rect = this.targetRect({ kind: 'node', id: nodeId });
+      if (rect) rects.push(rect);
+    }
+    if (!rects.length) {
+      for (const edgeId of issue.edgeIds) {
+        const rect = this.targetRect({ kind: 'edge', id: edgeId });
+        if (rect) rects.push(rect);
+      }
+    }
+    if (!rects.length) return;
+    const x = Math.min(...rects.map((r) => r.x));
+    const y = Math.min(...rects.map((r) => r.y));
+    const union = { x, y, w: Math.max(...rects.map((r) => r.x + r.w)) - x, h: Math.max(...rects.map((r) => r.y + r.h)) - y };
+    this.viewport.frameRect(union, rects[0], READABLE_ZOOM);
+    if (issue.nodeIds[0]) this.pulseNode(this.index.visibleRepresentative(issue.nodeIds[0], this.collapsedSet));
+  }
+
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */
   revealEdge(id: string): void {
     const union = this.targetRect({ kind: 'edge', id });
@@ -627,7 +667,7 @@ export class CanvasView {
 
   /**
    * READABLE_ZOOM, or less when the box would not fit the visible area at it. The margin shrinks
-   * with a narrow strip beside the rail drawer (VL-1), so a card still lands at full detail there.
+   * with a short canvas above an open sheet, so a card still lands at full detail there.
    */
   private readableZoomFor(box: { w: number; h: number }): number {
     const area = this.viewport.visibleArea();

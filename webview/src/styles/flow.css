@@ -329,6 +329,12 @@ body.vscode-reduce-motion .mlv-edge__charge {
   display: none !important;
 }
 
+/* Viewer M2: and while VS Code's screen-reader optimisation is on. */
+body.vscode-using-screen-reader .mlv-edge__flow,
+body.vscode-using-screen-reader .mlv-edge__charge {
+  display: none !important;
+}
+
 /* Flow off entirely: the toolbar toggle, persisted as ViewState.flow. */
 .mlv-canvas[data-flow="off"] .mlv-edge__flow,
 .mlv-canvas[data-flow="off"] .mlv-edge__charge,

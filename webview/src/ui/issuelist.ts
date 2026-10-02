@@ -1,8 +1,8 @@
 /**
  * The Findings panel: the severity sections, the rows and the empty states.
  *
- * The rail file owns the three tabs, the Inspector and the Outline; this one
- * owns everything under the Findings tab.
+ * The rail file owns the four tabs and the Outline (the Selection and About panes are their own
+ * files); this one owns everything under the Findings tab.
  */
 
 import { add, button, clear, el, fileLine, locSpan, iconButton, on } from '../dom.js';
@@ -60,11 +60,12 @@ export function staleChipText(reasons: StaleReason[]): string {
 
 /**
  * Viewer M1: a finding's `suggestion`, labelled "What to change" (the skill's own words for it),
- * or null when the author wrote none, so no label ever stands over nothing. The Inspector passes
+ * or null when the author wrote none, so no label ever stands over nothing. The Selection pane passes
  * `h5` so the label is a heading among the finding's other sections; the Findings list uses a
- * plain label inside the expanded row.
+ * plain label inside the expanded row. Viewer M2: a finding listed under a step in the Selection pane
+ * passes `h6` (it sits under that finding's section heading).
  */
-export function suggestionBlock(issue: Issue, labelTag: 'h5' | 'div' = 'div'): HTMLElement | null {
+export function suggestionBlock(issue: Issue, labelTag: 'h5' | 'h6' | 'div' = 'div'): HTMLElement | null {
   const text = (issue.fixHint || '').trim();
   if (!text) return null;
   const box = el('div', 'mlv-insp__fix');
@@ -302,7 +303,7 @@ function noFindingsRecordedState(s: IssueListState): HTMLElement {
       'div',
       'mlv-clean__detail',
       'The assistant recorded no findings. Coverage: ' + status +
-        (limits ? '; ' + limits + (limits === 1 ? ' limitation' : ' limitations') + ' listed above' : '') +
+        (limits ? '; ' + limits + (limits === 1 ? ' limitation' : ' limitations') + ' listed in About' : '') +
         '. This is not a check result.',
     ),
   );

@@ -394,7 +394,7 @@ test('the SVG export draws the same marks and the same phase tones as the screen
   ctx.app.destroy();
 });
 
-test('finding badges use F1..Fn in document order; the real id stays in tooltips, the Inspector and Refine', async () => {
+test('finding badges use F1..Fn in document order; the real id stays in tooltips, the Selection pane and Refine', async () => {
   const ctx = await mount();
   // `read` carries all three findings: two labels, then "+1".
   const badge = ctx.card('read').querySelector('.mlv-badge');
@@ -402,7 +402,8 @@ test('finding badges use F1..Fn in document order; the real id stays in tooltips
   assert.equal(badge.getAttribute('aria-label'), 'Findings F1, F2 and F3, highest severity high');
   assert.equal(ctx.card('save').querySelector('.mlv-badge__ids').textContent, 'F3');
   assert.match(ctx.edge('c-read-split').querySelector('.mlv-edge-marker').getAttribute('aria-label'), /^Finding F2 on this connection, highest severity high$/);
-  // The Findings list and the Inspector print the short label beside the real id.
+  // The Findings list and the Selection pane print the short label beside the real id.
+  ctx.app.setRailTab('issues');
   const row = ctx.q('.mlv-issue[data-issue-id="f-gamma"]');
   assert.equal(row.querySelector('.mlv-issue__short').textContent, 'F3');
   assert.match(row.textContent, /f-gamma/);
@@ -421,6 +422,7 @@ test('finding badges use F1..Fn in document order; the real id stays in tooltips
   const next = doc({ revision: { id: 'r2' } });
   next.findings = next.findings.slice().reverse();
   ctx.bridge.send({ v: 1, type: 'workflow', document: next });
+  ctx.app.setRailTab('issues');
   assert.equal(ctx.q('.mlv-issue[data-issue-id="f-gamma"] .mlv-issue__short').textContent, 'F1');
   assert.equal(ctx.card('save').querySelector('.mlv-badge__ids').textContent, 'F1');
   ctx.app.destroy();
