@@ -232,9 +232,17 @@ export interface ViewState {
    * it, and a new revision opens on About.
    */
   railTab: RailTab;
-  /** Optional: the minimap's collapsed tab survives a reload the way `collapsed` does. */
+  /**
+   * Viewer M3: the phase index folded to its pill, or hidden (the ... menu). Absent at its default
+   * (shown, unfolded).
+   */
+  phaseIndex?: 'folded' | 'hidden';
+  /**
+   * Written before viewer M3, when the minimap was collapsed to its tab. No longer written; a saved
+   * `true` with no `phaseIndex` opens the phase index folded.
+   */
   minimapCollapsed?: boolean;
-  /** Optional: flow animation on/off, like `minimapCollapsed`. Absent = on. */
+  /** Optional: flow animation on/off. Absent = on. */
   flow?: boolean;
   /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
   legendOpen?: boolean;

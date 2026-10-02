@@ -4,7 +4,7 @@
  *
  * It is one function because the ORDER is the contract — the canvas has to stay
  * within four Tab presses of the top of the document (VIEW-12), the legend is anchored
- * inside the canvas beside the minimap (VIEW-10), and the overlays go on the app
+ * inside the canvas over the phase index's corner (VIEW-10), and the overlays go on the app
  * root so they are never inside the world layer that pans and zooms. Reading
  * those decisions together is the point of keeping them in one place.
  *
@@ -49,7 +49,9 @@ export function buildAppUi(app: App): void {
     onZoom: (dir) => app.view.zoomStep(dir),
     onToggleLegend: (next) => app.setLegend(next),
     onToggleFlow: (next) => app.setFlow(next),
-    onToggleMinimap: (collapsed) => app.setMinimapCollapsed(collapsed),
+    onTogglePhaseIndex: (shown) => app.setPhaseIndexShown(shown),
+    // Viewer M3: the ... menu's Phase overview, as Shift+0 (it closes an open one).
+    onOverview: () => app.toggleOverview(true),
     onToggleRail: () => app.toggleRail(),
     onFitWhole: () => app.view.fitWhole(),
     onZoomToSelection: () => app.zoomToSelection(),
@@ -165,7 +167,7 @@ export function buildAppUi(app: App): void {
   on(app.rail.root, 'pointerdown', () => { app.railChosen = true; });
   on(app.rail.root, 'keydown', () => { app.railChosen = true; });
 
-  // Anchored inside the canvas, beside the minimap, so the key sits with the
+  // Anchored inside the canvas, over the phase index's corner, so the key sits with the
   // picture it explains rather than in a modal over it (VIEW-10).
   app.legend = new Legend((open) => app.setLegend(open));
   shell.canvas.appendChild(app.legend.root);
@@ -224,9 +226,8 @@ export function canvasHost(app: App): CanvasHost {
       app.viewportState = { x: vp.x, y: vp.y, zoom: vp.zoom };
       app.saveSoon();
     },
-    onMinimapCollapsed: () => {
-      // The toolbar carries the accessible copy of this toggle (VIEW-12), so
-      // the pointer affordance inside the panel has to keep it in step.
+    onPhaseIndexChanged: () => {
+      // Viewer M3: the phase index's fold chevron; the ... menu and the saved state follow it.
       renderChrome(app);
       app.saveSoon();
     },

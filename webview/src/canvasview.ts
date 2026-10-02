@@ -2,7 +2,8 @@
  * The canvas view — everything inside the diagram surface.
  *
  * It owns the layout frame, the routed edges, the scene DOM, the viewport, the
- * minimap, the tooltip and the transient states (hover, focus mode, collapse).
+ * phase index and the phase overview (viewer M3), the tooltip and the transient states (hover,
+ * focus mode, collapse).
  * The App owns the chrome, the rail, the filters and the host protocol, and
  * drives this class through the `CanvasHost` callbacks.
  *
@@ -23,11 +24,15 @@ import { routeEdges, RoutedEdge } from './layout/routing.js';
 import type { Point } from './layout/routing.js';
 import { planLabels, LabelPlan } from './layout/labels.js';
 import { firstBox, nextBox } from './layout/navigate.js';
-import { minimapDots, renderScene } from './render/scene.js';
+import { renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { markerPoint, nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
-import { FRAME_MIN_ZOOM, LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
+import { FRAME_MIN_ZOOM, LOD_FULL_ZOOM, READABLE_ZOOM, ViewportController, phasePlan } from './render/canvas.js';
+import { PhaseIndex } from './render/phaseindex.js';
+import type { PhaseRow } from './render/phaseindex.js';
+import { overviewInput } from './render/phaseoverview.js';
+import { PhaseOverview } from './ui/overview.js';
 import { FlowBinding } from './render/flowbinding.js';
 import { EdgeHover } from './render/edgehover.js';
 import { Tooltip } from './render/tooltip.js';
@@ -35,7 +40,7 @@ import { Toasts, buildEmptyState, buildFilterEmptyState } from './ui/states.js';
 import { wireCanvasGestures } from './ui/shell.js';
 import { Emphasis } from './canvas/emphasis.js';
 import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
-import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES, MINIMAP_NARROW_W } from './canvas/host.js';
+import { HOVER_CLOSE_MS, HOVER_OPEN_MS, PHASE_INDEX_LIST_MIN_H, PHASE_INDEX_LIST_MIN_W } from './canvas/host.js';
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
 import type { Sel, StaleFile, StaleReason } from './types.js';
@@ -58,7 +63,17 @@ export class CanvasView {
   private zoomLevelEl: HTMLElement;
   private stateHost: HTMLElement;
   private tooltip: Tooltip;
-  private minimap: Minimap;
+  /** Viewer M3: the labelled phase index (it replaced the minimap) and the phase overview. */
+  private phaseIndex: PhaseIndex;
+  private overview: PhaseOverview;
+  /** Where the keyboard was when the overview opened, so Escape gives it back. */
+  private overviewReturn: HTMLElement | null = null;
+  /** The panel's width as the App last measured it (0 when it cannot be measured). */
+  private panelWidth = 0;
+  private indexFolded = false;
+  private indexHidden = false;
+  /** Viewer M3: the phase a move to a phase landed on, where the next arrow key starts. */
+  private arrowLane: string | null = null;
 
   private host: CanvasHost;
   private index: GraphIndex | null = null;
@@ -109,20 +124,24 @@ export class CanvasView {
     );
     this.canvasEl.appendChild(this.tooltip.root);
 
-    this.minimap = new Minimap(
-      (x, y) => {
-        const size = this.viewport.size();
-        this.viewport.set({ x: size.w / 2 - x * this.viewport.vp.zoom, y: size.h / 2 - y * this.viewport.vp.zoom });
+    // Viewer M3: the phase index, inside the canvas (so in the bottom sheet's layout it stays above
+    // the sheet) and outside the world layer. Its rows are not Tab stops; the phase overview is
+    // the keyboard's way to the same moves. The viewport treats what it covers as out of view.
+    this.phaseIndex = new PhaseIndex({
+      go: (id) => this.goToPhase(id, { focusCanvas: true }),
+      fold: (folded) => {
+        this.indexFolded = folded;
+        this.syncPhaseIndex();
+        this.host.onPhaseIndexChanged();
       },
-      (collapsed) => this.host.onMinimapCollapsed(collapsed),
-    );
-    // VIEW-12: BEFORE the canvas, and outside it. The minimap duplicates a
-    // diagram that is already fully navigable from the keyboard, so it is
-    // `aria-hidden` — and an `aria-hidden` subtree may not contain a tab stop,
-    // which is why its in-panel chevron is pointer-only and the keyboard's
-    // toggle lives in the toolbar. It is absolutely positioned either way, so
-    // it is drawn exactly where it always was.
-    shell.main.insertBefore(this.minimap.root, this.canvasEl);
+    });
+    this.canvasEl.appendChild(this.phaseIndex.root);
+    // The phase overview (Shift+0): an overlay over the whole canvas, drawn from its own geometry.
+    this.overview = new PhaseOverview({
+      go: (id) => this.goToPhase(id, { focusCanvas: true }),
+      back: () => this.closeOverview(true),
+    });
+    this.canvasEl.appendChild(this.overview.root);
 
     this.toasts = new Toasts();
     this.canvasEl.appendChild(this.toasts.root);
@@ -130,10 +149,11 @@ export class CanvasView {
     this.viewport = new ViewportController(this.canvasEl, this.worldEl, (vp) => {
       this.zoomLevelEl.textContent = Math.round(vp.zoom * 100) + '%';
       const size = this.viewport.size();
-      this.minimap.setViewport(vp, size.w, size.h);
+      this.phaseIndex.setInView(vp, size.w, size.h);
       this.lastArea = this.viewport.visibleArea();
       this.host.onViewportChange(vp);
     });
+    this.viewport.setCovered(() => this.indexCovered());
 
     for (const dispose of wireCanvasGestures(this.canvasEl, this.viewport, {
       onKeyDown: (ev) => this.host.onKeyDown(ev),
@@ -226,35 +246,186 @@ export class CanvasView {
     this.collapsedSet = new Set(ids);
   }
 
-  get minimapCollapsed(): boolean {
-    return this.minimap.collapsed;
+  /* ── the phase index (viewer M3; it replaced the minimap) ─────────────── */
+
+  /** The reader folded the wide phase index to its pill (saved per viewer). */
+  get phaseIndexFolded(): boolean {
+    return this.indexFolded;
   }
 
-  setMinimapCollapsed(collapsed: boolean): void {
-    this.minimap.setCollapsed(collapsed);
+  /** The reader hid the phase index (the ... menu; saved per viewer). */
+  get phaseIndexHidden(): boolean {
+    return this.indexHidden;
+  }
+
+  setPhaseIndex(state: { folded?: boolean; hidden?: boolean }): void {
+    if (typeof state.folded === 'boolean') this.indexFolded = state.folded;
+    if (typeof state.hidden === 'boolean') this.indexHidden = state.hidden;
+    this.syncPhaseIndex();
+  }
+
+  /** The phase index's element (tests and the harness read it). */
+  get phaseIndexElement(): HTMLElement {
+    return this.phaseIndex.root;
+  }
+
+  /** The phases the phase index marks as in view, in drawn order. */
+  phasesInView(): string[] {
+    return this.phaseIndex.inView();
   }
 
   /**
-   * Viewer M2 live fix: the panel's width decides whether the minimap has room (`.is-narrow`,
-   * styles/workflow.css; MINIMAP_NARROW_W). An unmeasurable panel (jsdom, a detached mount)
-   * leaves it as it was.
+   * The panel's width decides the phase index's form: the panel of rows from PHASE_INDEX_LIST_MIN_W
+   * (1000 px), the pill below. An unmeasurable panel (jsdom, a detached mount) keeps the panel.
    */
   setPanelWidth(width: number): void {
     if (!(width > 0)) return;
-    this.minimap.root.classList.toggle('is-narrow', width <= MINIMAP_NARROW_W);
+    this.panelWidth = width;
+    this.syncPhaseIndex();
   }
 
   /**
-   * Viewer M2 live fix: why the minimap is not drawn now, in words for the ... menu, or null when
-   * it is drawn (collapsed to its tab or not). Before, the menu showed "Overview map" checked
-   * while the stylesheet hid the map beside the code.
+   * Why the phase index is not drawn now, in words for the ... menu, or null when it is (as the
+   * panel of rows or as the pill). It needs two or more phases; nothing else hides it.
    */
-  minimapUnavailable(): string | null {
-    const root = this.minimap.root;
-    if (root.hidden) return 'Shown when ' + MINIMAP_MIN_NODES + ' or more cards are drawn';
-    if (root.classList.contains('is-narrow')) return 'No room in a panel ' + MINIMAP_NARROW_W + ' px wide or narrower';
-    if (root.classList.contains('is-short')) return 'No room in a canvas under ' + MINIMAP_MIN_CANVAS_H + ' px tall';
-    return null;
+  phaseIndexUnavailable(): string | null {
+    return this.phaseIndex.available ? null : 'Shown when the diagram has two or more phases';
+  }
+
+  /** Close the pill's open phase list (an Escape rung); false when it was not open. */
+  closePhasePopover(): boolean {
+    return this.phaseIndex.closePopover();
+  }
+
+  private syncPhaseIndex(): void {
+    const height = this.canvasEl.getBoundingClientRect().height;
+    const wide = !(this.panelWidth > 0) || this.panelWidth >= PHASE_INDEX_LIST_MIN_W;
+    const tall = !(height > 0) || height >= PHASE_INDEX_LIST_MIN_H;
+    this.phaseIndex.setMode({ roomy: wide && tall, folded: this.indexFolded, hidden: this.indexHidden, suppressed: this.overview.open });
+  }
+
+  /** What the phase index covers, in canvas pixels (the viewport keeps targets out of it). */
+  private indexCovered(): { x: number; y: number; w: number; h: number } | null {
+    const r = this.canvasEl.getBoundingClientRect();
+    const size = this.viewport.size();
+    return this.phaseIndex.coveredRect(size.w, size.h, r.width > 0 ? r.left : 0, r.width > 0 ? r.top : 0);
+  }
+
+  private renderPhaseIndex(): void {
+    if (!this.index || !this.frameData) return;
+    const rows: PhaseRow[] = this.frameData.lanes.map((lane) => ({
+      id: lane.id,
+      label: lane.label,
+      index: this.index!.phaseIndexOf(lane.id),
+      steps: lane.nodeCount,
+      counts: this.index!.laneCounts(lane.id, (issue) => this.host.keep(issue)),
+      rect: { x: lane.x, y: lane.y, w: lane.w, h: lane.h },
+    }));
+    this.phaseIndex.setRows(rows);
+    this.syncPhaseIndex();
+    const size = this.viewport.size();
+    this.phaseIndex.setInView(this.viewport.vp, size.w, size.h);
+  }
+
+  /* ── the phase overview (viewer M3, Shift+0) ─────────────────────────── */
+
+  get overviewOpen(): boolean {
+    return this.overview.open;
+  }
+
+  /** The overview's element and layout (tests and the harness read them). */
+  get overviewElement(): HTMLElement {
+    return this.overview.root;
+  }
+
+  overviewLayout() {
+    return this.overview.layout;
+  }
+
+  /**
+   * Open the overview over the canvas, on the phase most in view. The diagram under it does not
+   * move, so closing it is going back to exactly where the reader was. False with no phases.
+   */
+  openOverview(): boolean {
+    if (!this.index || !this.frameData || this.overview.open || !this.index.lanes.length) return false;
+    const doc = this.canvasEl.ownerDocument;
+    const active = doc ? (doc.activeElement as HTMLElement | null) : null;
+    this.overviewReturn = active && active !== doc!.body ? active : null;
+    this.tooltip.hide();
+    const input = overviewInput(this.index, (issue) => this.host.keep(issue));
+    const size = this.viewport.size();
+    const current = this.phaseIndex.currentPhase();
+    const at = Math.max(0, input.phases.findIndex((p) => p.id === current));
+    this.overview.show(input, size.w, size.h, at);
+    this.syncPhaseIndex();
+    const n = input.phases.length;
+    this.host.announce('Phase overview: ' + n + (n === 1 ? ' phase' : ' phases') + ', ' + input.totalSteps + (input.totalSteps === 1 ? ' step' : ' steps') +
+      '. Arrow keys move between phases, Enter goes to one, Escape goes back.');
+    return true;
+  }
+
+  /**
+   * Close the overview. `back` (Escape, Shift+0, the Back button): the keyboard returns to where it
+   * was, and the diagram is as it was. Otherwise (a phase was chosen, another key acted) the caller
+   * decides where the focus goes. False when it was not open.
+   */
+  closeOverview(back: boolean): boolean {
+    if (!this.overview.open) return false;
+    const doc = this.canvasEl.ownerDocument;
+    const hadFocus = !!doc && !!doc.activeElement && this.overview.root.contains(doc.activeElement);
+    this.overview.hide();
+    this.syncPhaseIndex();
+    const target = this.overviewReturn;
+    this.overviewReturn = null;
+    if (back) {
+      this.host.announce('Back to the diagram.');
+      if (hadFocus) this.focusSafely(target && target.isConnected && !this.overview.root.contains(target) ? target : this.canvasEl);
+    } else if (hadFocus) this.focusSafely(this.canvasEl);
+    return true;
+  }
+
+  toggleOverview(): void {
+    if (this.overview.open) this.closeOverview(true);
+    else this.openOverview();
+  }
+
+  /**
+   * Go to a phase at reading size (`phasePlan`), animated over VIEW_ANIMATION_MS unless motion is
+   * reduced: a block of the overview, or a row of the phase index. The selection is unchanged; the
+   * next arrow key starts at the phase's first step.
+   */
+  goToPhase(laneId: string, opts: { focusCanvas?: boolean } = {}): void {
+    if (!this.index || !this.frameData) return;
+    const k = this.frameData.lanes.findIndex((lane) => lane.id === laneId);
+    if (k < 0) return;
+    const wasOpen = this.closeOverview(false);
+    const size = this.viewport.size();
+    const plan = phasePlan(this.frameData, k, size.w, size.h);
+    if (plan) this.viewport.animateTo({ x: plan.x, y: plan.y, zoom: plan.zoom });
+    this.arrowLane = laneId;
+    const lane = this.frameData.lanes[k];
+    this.host.announce('Phase ' + (this.index.phaseIndexOf(laneId) + 1) + ': ' + lane.label + ', ' + lane.nodeCount + (lane.nodeCount === 1 ? ' step' : ' steps') + '.');
+    if (opts.focusCanvas || wasOpen) this.focusSafely(this.canvasEl);
+  }
+
+  /** The phase a move to a phase landed on, once (the next arrow key starts there), or null. */
+  takeArrowLane(): string | null {
+    const lane = this.arrowLane;
+    this.arrowLane = null;
+    return lane;
+  }
+
+  /** Forget the arrow start (any selection replaces it). */
+  clearArrowLane(): void {
+    this.arrowLane = null;
+  }
+
+  private focusSafely(target: HTMLElement): void {
+    try {
+      target.focus();
+    } catch (_e) {
+      /* a detached element cannot take focus */
+    }
   }
 
   setStale(files: StaleFile[]): void {
@@ -342,28 +513,25 @@ export class CanvasView {
     // controller's memory and re-stamp the canvas (CONTRACTS 11.14 C1); a
     // latched pulse is re-applied by the applySelection that follows.
     this.flow.clear();
-    this.renderMinimap();
+    this.renderPhaseIndex();
     this.renderEmptyState();
-  }
-
-  private renderMinimap(): void {
-    if (!this.index || !this.frameData) return;
-    const dots = minimapDots(this.index, this.frameData, (issue) => this.host.keep(issue));
-    this.minimap.render(dots, this.frameData.width, this.frameData.height);
-    this.minimap.root.hidden = dots.length < MINIMAP_MIN_NODES;
-    this.syncShortCanvas();
+    // Viewer M3: an open overview follows the new data (a severity toggle changes its F labels).
+    if (this.overview.open && this.index) {
+      const size = this.viewport.size();
+      this.overview.redraw(overviewInput(this.index, (issue) => this.host.keep(issue)), size.w, size.h);
+    }
   }
 
   /**
-   * Issue 6: a 200x132 minimap over a canvas under MINIMAP_MIN_CANVAS_H tall
-   * covers a third of the diagram it is meant to summarise, so it is not drawn
-   * there (`.is-short`, styles/workflow.css). The reader's own collapse choice
-   * is untouched. An unmeasurable canvas (jsdom, before first layout) keeps it.
+   * Issue 6, viewer M3: a canvas under PHASE_INDEX_LIST_MIN_H tall has no room for the panel of
+   * rows, so the phase index is its pill there; an open overview is drawn for the new size.
    */
   private syncShortCanvas(): void {
-    const height = this.canvasEl.getBoundingClientRect().height;
-    if (!(height > 0)) return;
-    this.minimap.root.classList.toggle('is-short', height < MINIMAP_MIN_CANVAS_H);
+    this.syncPhaseIndex();
+    if (this.overview.open && this.index) {
+      const size = this.viewport.size();
+      this.overview.redraw(overviewInput(this.index, (issue) => this.host.keep(issue)), size.w, size.h);
+    }
   }
 
   /**
@@ -536,32 +704,6 @@ export class CanvasView {
         (node ? node.label : id) +
         (this.collapsedSet.has(id) ? ' collapsed, ' + hidden + (hidden === 1 ? ' step' : ' steps') + ' hidden.' : ' expanded.'),
     );
-  }
-
-  /**
-   * Overview mode (VIEW-10, `Shift+0`): every group folded to its card, then a
-   * WHOLE fit — the picture a reviewer actually wants to paste. The aggregated
-   * severity markers survive, because a collapsed group already carries them.
-   *
-   * Measured on the emitted demo in Chromium after the ANA-1 re-baseline: 22
-   * cards, all of them inside the canvas at 1440x900 and at 1600x1000. VIEW-10's
-   * "<= 14 visible cards" was written against the 45-node demo; the count is a
-   * property of how many top-level units the workspace has, not of this method.
-   */
-  overview(): number {
-    if (!this.index) return 0;
-    const groups: string[] = [];
-    for (const node of this.index.graph.nodes || []) {
-      if (this.index.isGroup(node.id)) groups.push(node.id);
-    }
-    this.collapsedSet = new Set(groups);
-    this.relayout();
-    // fitWhole, not fit: Overview must never take the top-anchored tall branch,
-    // or the whole-diagram picture it exists to produce opens clipped.
-    this.viewport.fitWhole();
-    this.host.afterCollapse();
-    this.host.announce('Overview: ' + groups.length + (groups.length === 1 ? ' group' : ' groups') + ' collapsed, whole diagram fitted.');
-    return groups.length;
   }
 
   /** Expand every collapsed ancestor of `id`. Returns true when it relaid out. */
@@ -776,6 +918,8 @@ export class CanvasView {
   }
 
   destroy(): void {
+    this.phaseIndex.destroy();
+    this.overview.destroy();
     this.emphasis.destroy();
     this.edgeHover.destroy();
     for (const dispose of this.disposers) {

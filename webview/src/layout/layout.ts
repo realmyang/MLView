@@ -182,8 +182,8 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
   // maxContentW` made the world as wide as its widest band and left the others
   // 56-87 % empty, so `fit()` scaled the whole document down to the one lane
   // that needed the room. A lane now ends where its own content ends; the world
-  // is still as wide as the widest lane, which is what the band striping and
-  // the minimap letterbox measure themselves against.
+  // is still as wide as the widest lane, which is what the band striping
+  // measures itself against.
   const width = laneX + maxContentW + CANVAS_MARGIN;
   const height = Math.max(cursorY - LANE_GUTTER + CANVAS_MARGIN, CANVAS_MARGIN * 2);
 

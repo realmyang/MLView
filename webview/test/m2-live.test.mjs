@@ -166,61 +166,68 @@ test('live fix 1: a card the reader moved out of view is not pulled back by a la
 
 /* ── 4. the ... menu's overview map item tells the truth ───────────────────────────────────────── */
 
-test('live fix 4: beside the code the overview map item is disabled, unchecked and says why; wide, it toggles the map', async () => {
+// Viewer M3 step 13 (deliberate): the labelled phase index replaced the overview map. The rule this
+// fix pinned still holds for its item: never checked while the thing is not drawn, and the reason
+// on the item. Beside the code the index is no longer hidden: it is its pill.
+test('live fix 4 (phase index since viewer M3): the item says whether it is drawn; beside the code it is the pill, wide the panel', async () => {
   // MEASURED live before the fix: at 900 and 541 px the menu showed "Overview map" checked while
   // the stylesheet hid the map (`display: none`).
   const ctx = await mount(rendererRegressionWorkflow(48), { width: 1440 });
   try {
-    const map = $(ctx, '.mlv-minimap');
-    const item = () => $(ctx, '[data-more-item="minimap"]');
+    const index = $(ctx, '.mlv-phaseindex');
+    const item = () => $(ctx, '[data-more-item="phaseindex"]');
     const note = () => item().querySelector('.mlv-moremenu__note');
-    assert.equal(map.classList.contains('is-narrow'), false);
+    assert.equal(index.hidden, false);
+    assert.equal(index.getAttribute('data-form'), 'list', '1440 px: the panel of rows');
     openMenu(ctx);
     assert.equal(item().disabled, false);
-    assert.equal(item().getAttribute('aria-checked'), 'true', 'drawn and not collapsed: checked');
+    assert.equal(item().getAttribute('aria-checked'), 'true', 'drawn: checked');
     assert.equal(note().hidden, true);
     item().click();
-    assert.equal(ctx.app.getState().minimapCollapsed, true);
+    assert.equal(ctx.app.getState().phaseIndex, 'hidden');
+    assert.equal(index.hidden, true);
     openMenu(ctx);
     assert.equal(item().getAttribute('aria-checked'), 'false');
     item().click();
     for (const width of [900, 541]) {
       ctx.resize(width);
-      assert.equal(map.classList.contains('is-narrow'), true, width + ': no room for the map');
-      assert.equal(ctx.window.getComputedStyle(map).display, 'none', width + ': the stylesheet hides it');
+      assert.equal(index.hidden, false, width + ': still drawn');
+      assert.equal(index.getAttribute('data-form'), 'pill', width + ': as its pill');
       openMenu(ctx);
-      assert.equal(item().disabled, true, width + ': the item is disabled');
-      assert.equal(item().getAttribute('aria-checked'), 'false', width + ': and never checked');
-      assert.equal(note().hidden, false);
-      assert.equal(note().textContent, 'No room in a panel 900 px wide or narrower');
-      assert.match(item().title, /^Overview map: no room in a panel 900 px wide or narrower$/);
-      item().click();
-      assert.equal(ctx.app.getState().minimapCollapsed, false, 'a disabled item changes nothing');
+      assert.equal(item().disabled, false, width + ': the item works');
+      assert.equal(item().getAttribute('aria-checked'), 'true', width + ': and says it is drawn');
       $(ctx, '.mlv-btn--more').click();
     }
-    // Back at 1440 px the reader's choice (shown) is what the item says again.
     ctx.resize(1440);
-    openMenu(ctx);
-    assert.equal(item().disabled, false);
-    assert.equal(item().getAttribute('aria-checked'), 'true');
-    // The width rule is the class the App sets, not a media query the menu cannot see.
-    assert.doesNotMatch(CSS, /@media\s*\(max-width:\s*900px\)\s*\{\s*\.mlv-minimap/);
+    assert.equal(index.getAttribute('data-form'), 'list');
+    // The width rule is the App's, not a media query the menu cannot see.
+    assert.doesNotMatch(CSS, /@media[^{]*\{\s*\.mlv-phaseindex/);
   } finally {
     ctx.app.destroy();
   }
 });
 
-test('live fix 4: a canvas too short for the map gives that reason', async () => {
+test('live fix 4 (phase index since viewer M3): a canvas under 350 px tall gets the pill; one phase gives the reason', async () => {
   const ctx = await mount(rendererRegressionWorkflow(48), { width: 1440, bodyH: 300 });
   try {
     ctx.app.view.handleResize();
-    assert.equal($(ctx, '.mlv-minimap').classList.contains('is-short'), true);
-    openMenu(ctx);
-    const item = $(ctx, '[data-more-item="minimap"]');
-    assert.equal(item.disabled, true);
-    assert.equal(item.querySelector('.mlv-moremenu__note').textContent, 'No room in a canvas under 350 px tall');
+    assert.equal($(ctx, '.mlv-phaseindex').getAttribute('data-form'), 'pill');
   } finally {
     ctx.app.destroy();
+  }
+  const one = rendererRegressionWorkflow(16);
+  one.phases = one.phases.slice(0, 1);
+  for (const node of one.nodes) node.phase = one.phases[0].id;
+  const single = await mount(one, { width: 1440 });
+  try {
+    assert.equal($(single, '.mlv-phaseindex').hidden, true, 'one phase: nothing to index');
+    openMenu(single);
+    const item = $(single, '[data-more-item="phaseindex"]');
+    assert.equal(item.disabled, true);
+    assert.equal(item.getAttribute('aria-checked'), 'false');
+    assert.equal(item.querySelector('.mlv-moremenu__note').textContent, 'Shown when the diagram has two or more phases');
+  } finally {
+    single.app.destroy();
   }
 });
 

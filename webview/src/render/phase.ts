@@ -1,7 +1,7 @@
 /**
  * Viewer M2: phase colour by document order.
  *
- * Every element drawn for a phase (lane, card, group, connection, trunk, minimap dot)
+ * Every element drawn for a phase (lane, card, group, connection, trunk, phase-index row)
  * carries `data-phase-index` (its phase's 0-based position in the document) and `data-phase-tone`
  * (that position modulo `PHASE_TONES`). The stylesheet binds `--mlv-stage` from the tone
  * (styles/node.css), so the colour never depends on how the author spelled the phase id: the

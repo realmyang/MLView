@@ -21,7 +21,7 @@ export interface CommandPort {
   fit(): void;
   toggleFocusMode(): void;
   zoomToSelection(): void;
-  /** Collapse every group and fit (VIEW-10). */
+  /** Viewer M3: open or close the phase overview (Shift+0). */
   overview(): void;
   toggleLegend(): void;
   toggleFlow(): void;

@@ -2,7 +2,7 @@
  * The application shell: the DOM skeleton and the canvas gestures.
  *
  * Structure only — no graph knowledge. `buildShell` returns the slots the app
- * fills (chrome, rail, tooltip, minimap, toasts, states) and `wireCanvasGestures`
+ * fills (chrome, rail, tooltip, toasts, states) and `wireCanvasGestures`
  * attaches pan, wheel-zoom and background-click, returning their disposers.
  */
 
@@ -15,8 +15,8 @@ import type { ViewportController } from '../render/canvas.js';
 export interface Shell {
   body: HTMLElement;
   /**
-   * The `<main>` landmark around the diagram (VIEW-12). The canvas, the minimap
-   * and the Pipeline Answer Card live inside it; the rail is a sibling `<aside>`,
+   * The `<main>` landmark around the diagram (VIEW-12). The canvas (with the phase index and the
+   * phase overview inside it, viewer M3) and the review walk's bar live inside it; the rail is a sibling `<aside>`,
    * so a landmark walk reaches the diagram in one step.
    */
   main: HTMLElement;
@@ -167,6 +167,10 @@ export function wireCanvasGestures(
 
   disposers.push(
     on(canvas, 'pointerdown', (ev: PointerEvent) => {
+      // Viewer M3: the phase overview covers the canvas and scrolls by itself; a press on it is
+      // never a pan or a pinch of the diagram hidden under it.
+      const over = ev.target as HTMLElement;
+      if (over && over.closest && over.closest('.mlv-overview')) return;
       // EVERY pointer joins the pinch, wherever it landed (VIEW-06). This used
       // to sit below the card guard, so a finger placed on a node card was never
       // registered: `active()` stayed false and the second finger started an
@@ -183,7 +187,8 @@ export function wireCanvasGestures(
         return;
       }
       // The guard still decides whether a DRAG-PAN may start: dragging a card,
-      // the minimap, the zoom cluster or an edge is that widget's gesture.
+      // the phase index (viewer M3; it replaced the minimap), the zoom cluster or an edge is that
+      // widget's gesture.
       //
       // HOSTS-UX-LEGENDPAN. The list must name EVERY overlay painted over the
       // canvas, not only the two the shell builds itself: `app.ts` appends the
@@ -196,7 +201,7 @@ export function wireCanvasGestures(
       // No automated test holds the list to that rule any more: extend it by
       // hand when a new overlay is appended to the canvas.
       const target = ev.target as HTMLElement;
-      if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit, .mlv-legend, .mlv-statehost, .mlv-tooltip, .mlv-toasts')) {
+      if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-phaseindex, .mlv-zoom, .mlv-edge__hit, .mlv-legend, .mlv-statehost, .mlv-tooltip, .mlv-toasts')) {
         return;
       }
       panning = true;
@@ -258,12 +263,14 @@ export function wireCanvasGestures(
   disposers.push(
     on(canvas, 'click', (ev: MouseEvent) => {
       const target = ev.target as HTMLElement;
-      if (!target.closest || !target.closest('.mlv-node, .mlv-edge__hit, .mlv-group')) handlers.onBackgroundClick();
+      // Viewer M3: a click in the phase index, the phase overview or the legend is not a click on
+      // the diagram's background, so it keeps the selection.
+      if (!target.closest || !target.closest('.mlv-node, .mlv-edge__hit, .mlv-group, .mlv-phaseindex, .mlv-overview, .mlv-legend')) handlers.onBackgroundClick();
     }),
   );
 
   if (typeof window !== 'undefined') {
-    // Keep the derived chrome (zoom readout, minimap viewport) in step with a
+    // Keep the derived chrome (zoom readout, the phase index's marks) in step with a
     // resized panel. The canvas view decides whether a fitted viewport refits
     // (Campaign 3, issue 6); nothing the reader moved is ever moved back.
     disposers.push(on(window, 'resize', () => (handlers.onResize ? handlers.onResize() : viewport.apply())));

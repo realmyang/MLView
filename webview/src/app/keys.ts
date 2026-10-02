@@ -11,12 +11,44 @@
 import { handleCanvasKey } from '../ui/keymap.js';
 import { canvasCommands } from '../ui/commands.js';
 import { commandPortFor } from '../ui/appkeys.js';
+import { renderChrome } from './surfaces.js';
 import type { CommandPort } from '../ui/commands.js';
 import type { App } from '../app.js';
 import type { Issue } from '../types.js';
 
 export function onCanvasKey(app: App, ev: KeyboardEvent): void {
-  handleCanvasKey(ev, canvasCommands(commandPort(app)));
+  const port = commandPort(app);
+  handleCanvasKey(ev, canvasCommands(app.view.overviewOpen ? closingOverview(app, port) : port));
+}
+
+/**
+ * What leaves the phase overview open: the port's questions (asking must not close it), Escape and
+ * Shift+0 (they close it themselves), and the panels that open over it or beside it (the shortcut
+ * sheet, the search, the legend, the side panel and its tabs).
+ */
+const KEEP_OPEN: ReadonlySet<string> = new Set(['walking', 'visibleIssues', 'selectedIssueId', 'dismissTopmost', 'overview',
+  'toggleShortcuts', 'focusSearch', 'toggleLegend', 'toggleRail', 'focusRailTabs']);
+
+/**
+ * Viewer M3: while the phase overview is open, a key the canvas acts on (r, 0, f, n, a severity
+ * toggle…) first closes the overview without moving the diagram, then acts on it, as if the reader
+ * had pressed Escape first. `KEEP_OPEN` lists what does not, and a key the canvas does not answer
+ * leaves the overview open too.
+ */
+function closingOverview(app: App, port: CommandPort): CommandPort {
+  const out = {} as Record<string, unknown>;
+  for (const [name, fn] of Object.entries(port)) {
+    out[name] = KEEP_OPEN.has(name)
+      ? fn
+      : (...args: unknown[]) => {
+          if (app.view.overviewOpen) {
+            app.view.closeOverview(false);
+            renderChrome(app);
+          }
+          return (fn as (...a: unknown[]) => unknown)(...args);
+        };
+  }
+  return out as unknown as CommandPort;
 }
 
 /** Everything the keyboard model is allowed to reach (see ui/commands.ts). */
@@ -61,6 +93,13 @@ function commandPort(app: App): CommandPort {
     legendOpen: () => app.legendOpen,
     closeLegend: () => app.setLegend(false),
     toggleFlow: () => app.setFlow(!app.flowOn),
+    closePhasePopover: () => app.view.closePhasePopover(),
+    closeOverview: () => {
+      if (!app.view.closeOverview(true)) return false;
+      renderChrome(app);
+      return true;
+    },
+    toggleOverview: () => app.toggleOverview(),
     walking: () => app.walk.active,
     endWalk: () => app.walk.stop(),
     review: () => app.walk.toggle(),
@@ -75,8 +114,20 @@ function filteredIssues(app: App): Issue[] {
   return app.graph.issues.filter(app.filters.keep);
 }
 
-/** Arrows move the selection among visible siblings, in spatial order. */
+/**
+ * Arrows move the selection among visible siblings, in spatial order. Viewer M3: right after a move
+ * to a phase (the overview, the phase index), the first arrow selects that phase's first step.
+ */
 function moveSelection(app: App, key: string): void {
+  const lane = app.view.takeArrowLane();
+  const first = lane && app.index ? app.index.roots(lane)[0] : undefined;
+  if (first) {
+    const box = app.view.frame ? app.view.frame.boxes.get(first) : undefined;
+    app.select({ kind: 'node', id: first }, { center: !!box && !app.view.viewport.isVisible(box) });
+    const element = app.view.nodeElement(first);
+    if (element) element.focus();
+    return;
+  }
   const sel = app.selection;
   const next = app.view.nextSelection(sel && sel.kind === 'node' ? sel.id : null, key);
   if (!next) return;

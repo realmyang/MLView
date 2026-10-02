@@ -416,6 +416,8 @@ export class App implements MLViewApp {
     this.restoredSheet = null;
     this.workflowDocument = document;
     this.workflowRevision = document.revision.id;
+    // Viewer M3: another revision closes the phase overview drawn for the one before.
+    if (revisionChanged) this.view.closeOverview(false);
     // Before the first fit, so the fit sees the canvas the rail leaves (issue 6).
     this.autoRail();
     setGraph(this, normalizeWorkflow(document), next, true);
@@ -588,12 +590,31 @@ export class App implements MLViewApp {
     }
   }
 
-  /** VIEW-12: the toolbar's copy of the minimap chevron. */
-  setMinimapCollapsed(next: boolean): void {
-    this.view.setMinimapCollapsed(next);
+  /** Viewer M3: the ... menu shows or hides the phase index (it replaced the minimap). */
+  setPhaseIndexShown(shown: boolean): void {
+    this.view.setPhaseIndex({ hidden: !shown });
     renderChrome(this);
     this.saveSoon();
-    this.announce('Overview minimap ' + (next ? 'hidden' : 'shown') + '.');
+    this.announce('Phase index ' + (shown ? 'shown' : 'hidden') + '.');
+  }
+
+  /**
+   * Viewer M3: the phase overview (Shift+0, the ... menu). Open it over the canvas, or close it and
+   * go back to where the reader was. `fromMenu`: the menu gave the focus back to its button, so the
+   * focus is moved into the overview (opening) or onto the canvas (closing).
+   */
+  toggleOverview(fromMenu = false): void {
+    if (this.view.overviewOpen) {
+      this.view.closeOverview(true);
+      if (fromMenu) {
+        try {
+          this.view.canvasEl.focus();
+        } catch (_e) {
+          /* the canvas may already be torn down */
+        }
+      }
+    } else this.view.openOverview();
+    renderChrome(this);
   }
 
   setLegend(next: boolean): void {
@@ -829,6 +850,8 @@ export class App implements MLViewApp {
 
   select(sel: Sel, opts?: SelectOptions): void {
     if (sel.kind !== 'edge') this.edgeAnchor = null;
+    // Viewer M3: a selection replaces the phase a move to a phase left the arrow keys on.
+    this.view.clearArrowLane();
     this.selection = sel;
     // Viewer M2: a selection shows its claim in the Selection tab, unless it was made from the
     // Findings list or the Outline on screen (a list the reader is walking keeps its place).

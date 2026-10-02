@@ -9,8 +9,9 @@
  * nothing else calls them:
  *
  *  - THE Escape cascade, in this exact order — shortcut sheet -> the Refine…
- *    popover -> legend -> the review walk (viewer M3) -> the open bottom panel (viewer M2) ->
- *    focus mode -> selection -> blur.
+ *    popover -> the phase index's open list (viewer M3) -> legend -> the phase overview (viewer
+ *    M3) -> the review walk (viewer M3) -> the open bottom panel (viewer M2) -> focus mode ->
+ *    selection -> blur.
  *    One owner writes that order ONCE
  *    (CONTRACTS v1.1 §10.1, which is where v1.0 §11.13 now lives); whichever
  *    rung fires also stops the flow it owned.
@@ -57,6 +58,12 @@ export interface KeyContext {
   /** Viewer M2: collapse the open bottom panel to its tab strip; false when there is none. */
   collapseSheet(): boolean;
   announce(text: string): void;
+  /** Viewer M3: close the phase index's open list (the pill's); false when it was not open. */
+  closePhasePopover(): boolean;
+  /** Viewer M3: leave the phase overview for where the reader was; false when it was not open. */
+  closeOverview(): boolean;
+  /** Viewer M3: open or close the phase overview (Shift+0). */
+  toggleOverview(): void;
   /** Viewer M3: the review walk. */
   walking(): boolean;
   /** End the walk; false when it was not running. */
@@ -75,11 +82,16 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
       if (ctx.sheetOpen()) ctx.toggleShortcuts(false);
       // The panels that open over the diagram from the header, before anything on the canvas.
       else if (ctx.closeHeaderPanels()) return true;
+      // Viewer M3: the phase index's open list (the pill's), a small panel over the diagram.
+      else if (ctx.closePhasePopover()) return true;
       // The legend is a PANEL over the diagram, opened with `l` and closed with
       // its own [x] — and Escape is what a reader presses at a panel. It sits
       // above focus mode because it is the shallower thing on screen: dismissing
       // it must never also throw away the focus or selection underneath.
       else if (ctx.legendOpen()) ctx.closeLegend();
+      // Viewer M3: the phase overview covers the whole canvas; Escape goes back to the diagram as it
+      // was (the overview's own keys do the same when it has the focus).
+      else if (ctx.closeOverview()) return true;
       // Viewer M3: the review walk ends before anything it opened is closed: the claim it was on
       // stays selected and the bottom panel stays open on it. One Escape ends it, whatever else is
       // on screen below it, so it never takes two presses to leave the walk.
@@ -116,7 +128,7 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     fit: () => ctx.view().fit(),
     toggleFocusMode: () => ctx.view().toggleFocusMode(ctx.selection()),
     zoomToSelection: () => ctx.zoomToSelection(),
-    overview: () => ctx.view().overview(),
+    overview: () => ctx.toggleOverview(),
     toggleLegend: () => ctx.toggleLegend(),
     toggleFlow: () => ctx.toggleFlow(),
     // Viewer M2: a flow settles after two passes; Shift+A runs it again from its first pass.

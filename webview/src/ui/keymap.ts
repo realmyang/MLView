@@ -20,7 +20,11 @@ export interface KeyCommands {
   fit(): void;
   toggleFocusMode(): void;
   zoomToSelection(): void;
-  /** `Shift+0`: collapse every group and fit — the one-screen picture. */
+  /**
+   * `Shift+0` (viewer M3): open the phase overview, every phase as a block of its step titles, or
+   * close it. It used to fold every group and fit the whole diagram; the whole diagram is the ...
+   * menu's "Fit the whole diagram", and a group folds with its own chevron (or Space).
+   */
   overview(): void;
   /** `l`: show or hide the legend. */
   toggleLegend(): void;
@@ -83,9 +87,9 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['[', ']'], action: 'walkQuote', description: 'In the review walk: previous / next quote of the claim' },
   { keys: ['u', 'Shift+U'], action: 'walkNotObserved', description: 'Review walk on the claims not observed: start it, then next / previous one' },
   // Viewer M2: key 0 is the readable first view; the whole document is the ... menu's "Fit the
-  // whole diagram" (and Shift+0, which also folds the groups).
+  // whole diagram". Viewer M3: Shift+0 is the phase overview (it used to fold every group and fit).
   { keys: ['0'], action: 'fit', description: 'Readable view: the whole diagram if it fits at reading size, otherwise phase 1' },
-  { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit the whole diagram' },
+  { keys: ['Shift+0'], action: 'overview', description: 'Phase overview: every phase as a block of its step titles; arrows move between phases, Enter goes to one, Escape comes back' },
   { keys: ['+', '='], action: 'zoomIn', description: 'Zoom in' },
   { keys: ['-', '_'], action: 'zoomOut', description: 'Zoom out' },
   { keys: ['z'], action: 'zoomToSelection', description: 'Zoom to the selection' },
@@ -106,7 +110,7 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['?'], action: 'shortcuts', description: 'Show this shortcut sheet' },
   // The rungs, in the order `dismissTopmost` runs them (CONTRACTS 11.13). The
   // sheet is the only place the cascade is described to the user (MLV-R1-F2-06).
-  { keys: ['Escape'], action: 'escape', description: 'Close the menu, this sheet, the Refine popover or the legend, end the review walk, collapse the bottom panel, exit focus mode, clear the selection, leave the canvas' },
+  { keys: ['Escape'], action: 'escape', description: 'Close the menu, this sheet, the Refine popover, the phase list or the legend, leave the phase overview, end the review walk, collapse the bottom panel, exit focus mode, clear the selection, leave the canvas' },
   { keys: ['Tab', 'Shift+Tab'], action: 'browser', description: 'Move focus out of the diagram (never intercepted)' },
 ];
 
@@ -195,7 +199,7 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     return consume();
   }
   // Shift+0 arrives as ')' on a US layout and as '0' with `shiftKey` elsewhere;
-  // both mean Overview, and the plain `0` below must not swallow either.
+  // both mean the phase overview, and the plain `0` below must not swallow either.
   if (key === ')' || (key === '0' && ev.shiftKey)) {
     cmd.overview();
     return consume();

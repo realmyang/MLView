@@ -31,7 +31,11 @@ export function applyState(app: App, state: ViewState, rerender: boolean): void 
   // saved with; a state the host posts (`restoreState`) applies at once.
   const selection = sanitizeSelection(state.selection);
   if (rerender && selection) app.selection = selection;
-  if (typeof state.minimapCollapsed === 'boolean') app.view.setMinimapCollapsed(state.minimapCollapsed);
+  // Viewer M3: the phase index (it replaced the minimap): folded to its pill, or hidden. A state
+  // saved before M3 with the minimap collapsed opens with the index folded.
+  if (state.phaseIndex === 'folded' || state.phaseIndex === 'hidden') app.view.setPhaseIndex({ folded: state.phaseIndex === 'folded', hidden: state.phaseIndex === 'hidden' });
+  else if (state.phaseIndex === undefined && state.minimapCollapsed === true) app.view.setPhaseIndex({ folded: true });
+  else if (state.phaseIndex === undefined && rerender) app.view.setPhaseIndex({ folded: false, hidden: false });
   if (typeof state.flow === 'boolean') app.setFlow(state.flow);
   if (typeof state.legendOpen === 'boolean') app.setLegend(state.legendOpen);
   // Keys this viewer no longer writes (`railGroupBy`, `answersOpen`, `diffOnly`,
@@ -54,8 +58,10 @@ export function snapshotState(app: App): ViewState {
     collapsed: app.collapsedState.slice(),
     filters: app.filters.snapshot(),
     railTab: app.railTab,
-    minimapCollapsed: app.view.minimapCollapsed,
   };
+  // Viewer M3: absent at its default (shown, unfolded); `minimapCollapsed` is no longer written.
+  if (app.view.phaseIndexHidden) state.phaseIndex = 'hidden';
+  else if (app.view.phaseIndexFolded) state.phaseIndex = 'folded';
   if (!app.flowOn) state.flow = false;
   // Absent at its default, like `flow`: an older host round-trips
   // a state it has never seen, and a newer one restores to the documented

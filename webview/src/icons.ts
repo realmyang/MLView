@@ -185,8 +185,10 @@ const UI_PATHS: Record<string, string> = {
   /** The legend key (VIEW-10): a list with a swatch beside each row. */
   legend: 'M2.4 3.6h2.4v2.4H2.4ZM2.4 10h2.4v2.4H2.4ZM6.8 4.8h6.8M6.8 11.2h6.8',
   copy: 'M5.8 5.8h7.6v7.6H5.8ZM2.6 10.2V2.6h7.6v3.2',
-  /** The overview minimap: a frame with its viewport. */
-  minimap: 'M2.4 3.6h11.2v8.8H2.4ZM8.4 7.4h4.4v4.4H8.4Z',
+  /** Viewer M3: the phase overview, three stacked blocks joined by a line. */
+  phases: 'M2.6 2.2h10.8v3H2.6ZM2.6 6.5h10.8v3H2.6ZM2.6 10.8h10.8v3H2.6ZM4.6 5.2v1.3M4.6 9.5v1.3',
+  /** Viewer M3: the phase index (it replaced the minimap): numbered rows, one marked. */
+  phaseindex: 'M2.4 3.4h2v2h-2ZM2.4 7h2v2h-2ZM2.4 10.6h2v2h-2ZM6.4 4.4h7.2M6.4 8h7.2M6.4 11.6h7.2',
   /** VIEW-07: a picture in a frame — "export the diagram". */
   image: 'M2.4 3.4h11.2v9.2H2.4ZM2.4 10.6 5.8 7.4l2.4 2.2 2.2-2 3.2 3M10.3 5.3a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1Z',
   /** Viewer M3: the review walk: a pointer at the first of three rows. */

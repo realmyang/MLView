@@ -73,8 +73,10 @@ export interface ChromeCallbacks {
   onZoom(dir: number): void;
   onToggleLegend(next: boolean): void;
   onToggleFlow(next: boolean): void;
-  /** `collapsed`: the minimap's new state (VIEW-12: the keyboard's way to it). */
-  onToggleMinimap(collapsed: boolean): void;
+  /** Viewer M3: show or hide the phase index (it replaced the minimap). */
+  onTogglePhaseIndex(shown: boolean): void;
+  /** Viewer M3: open the phase overview (Shift+0), or close it. */
+  onOverview(): void;
   onToggleRail(): void;
   onFitWhole(): void;
   onZoomToSelection(): void;
@@ -95,9 +97,12 @@ export interface ChromeState {
   visibleCounts: { low: number; medium: number; high: number };
   flowOn: boolean;
   legendOpen: boolean;
-  minimapCollapsed: boolean;
-  /** Viewer M2 live fix: why the minimap is not drawn now, or null when it is (the ... menu says it). */
-  minimapUnavailable: string | null;
+  /** Viewer M3: the reader has not hidden the phase index. */
+  phaseIndexShown: boolean;
+  /** Why the phase index is not drawn (fewer than two phases), or null when it is (the ... menu says it). */
+  phaseIndexUnavailable: string | null;
+  /** Viewer M3: the phase overview is open. */
+  overviewOpen: boolean;
   railOpen: boolean;
   /** The status bar's freshness item, or null before a document arrives. */
   freshness: FreshnessStatus | null;
@@ -444,8 +449,9 @@ export class Chrome {
       exceptionsOn: s.exceptionsOn,
       legendOpen: s.legendOpen,
       flowOn: s.flowOn,
-      minimapShown: !s.minimapCollapsed,
-      minimapUnavailable: s.minimapUnavailable,
+      phaseIndexShown: s.phaseIndexShown,
+      phaseIndexUnavailable: s.phaseIndexUnavailable,
+      overviewOpen: s.overviewOpen,
       railOpen: s.railOpen,
       walking: s.walking,
       railMode: s.railMode,
@@ -461,7 +467,8 @@ export class Chrome {
     else if (id === 'exceptions') cb.onToggleExceptions(!(this.state && this.state.exceptionsOn));
     else if (id === 'legend') cb.onToggleLegend(!(this.state && this.state.legendOpen));
     else if (id === 'flow') cb.onToggleFlow(!(this.state && this.state.flowOn));
-    else if (id === 'minimap') cb.onToggleMinimap(!(this.state && this.state.minimapCollapsed));
+    else if (id === 'phaseindex') cb.onTogglePhaseIndex(!(this.state && this.state.phaseIndexShown));
+    else if (id === 'overview') cb.onOverview();
     else if (id === 'rail') cb.onToggleRail();
     else if (id === 'fit') cb.onFitWhole();
     else if (id === 'zoomsel') cb.onZoomToSelection();

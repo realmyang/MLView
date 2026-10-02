@@ -1,14 +1,13 @@
 /**
  * Viewport control: pan by dragging the background, zoom by wheel or buttons,
- * the readable first view, fit, zoom-to-selection, and the minimap. Zoom writes
+ * the readable first view, fit, zoom-to-selection, and (viewer M3) the move to a phase and the
+ * part of the canvas the phase index covers. Zoom writes
  * at most one attribute (data-lod) and one bucketed custom property (--mlv-z)
  * per frame, so no component re-renders and nothing is laid out again while
  * zooming (R4.3).
  */
 
-import { svg, el, iconButton, on } from '../dom.js';
-import { uiIcon } from '../icons.js';
-import { stampPhase } from './phase.js';
+import { motionMode } from '../motion.js';
 import type { Viewport } from '../types.js';
 
 export const MIN_ZOOM = 0.15;
@@ -144,6 +143,72 @@ export function readablePlan(frame: ReadableFrame, w: number, h: number, padding
 }
 
 /**
+ * Viewer M3: how long a move to a phase takes (the phase overview's blocks, the phase index's
+ * rows). Instant under VS Code's Reduce Motion, the OS setting or VS Code's screen-reader mode
+ * (`motionMode`).
+ */
+export const VIEW_ANIMATION_MS = 240;
+
+/**
+ * Viewer M3: the view of phase `k` (its position among the lanes) at reading size, as a pure
+ * function of the frame and the canvas size, for the phase overview and the phase index. The rule
+ * is the readable plan's for phase 1: the lane (with the left routing channel, where the trunks
+ * that leave or enter it run) fitted whole when that zoom is PHASE_FIT_MIN_ZOOM (0.75) or more,
+ * capped at READABLE_ZOOM (0.9); otherwise READABLE_ZOOM anchored at its top-left. A document
+ * narrower (or shorter) than the canvas at that zoom is centred on that axis. A lane that fits is
+ * never left with empty canvas under the end of the document: the view stops where the world ends.
+ */
+export function phasePlan(frame: ReadableFrame, k: number, w: number, h: number, padding = 24): ReadablePlan | null {
+  const lane = frame.lanes[k];
+  if (!lane) return null;
+  const contentW = Math.max(1, frame.width);
+  const contentH = Math.max(1, frame.height);
+  const left = lane.x - Math.max(0, frame.channelW || 0);
+  const rectW = Math.max(1, lane.x + lane.w - left);
+  const rectH = Math.max(1, lane.h);
+  const fits = Math.min((w - padding * 2) / rectW, (h - padding * 2) / rectH);
+  const phaseFit = fits >= PHASE_FIT_MIN_ZOOM;
+  const zoom = clamp(phaseFit ? Math.min(fits, READABLE_ZOOM) : READABLE_ZOOM, MIN_ZOOM, MAX_ZOOM);
+  const x = contentW * zoom <= w ? (w - contentW * zoom) / 2 : padding - left * zoom;
+  let y: number;
+  if (contentH * zoom <= h) y = (h - contentH * zoom) / 2;
+  else {
+    y = padding - lane.y * zoom;
+    // The last phases: keep the end of the world at the foot of the canvas when the lane fits.
+    const floor = h - padding - contentH * zoom;
+    if (rectH * zoom + 2 * padding <= h && y < floor) y = floor;
+  }
+  return { zoom, x, y, mode: phaseFit ? 'phase-fit' : 'phase-anchor' };
+}
+
+/** True when two rectangles overlap (touching edges do not). */
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
+ * Viewer M3: the least pan that moves a screen rectangle `r` (canvas pixels) off `covered` while
+ * keeping it inside a `w` x `h` canvas: to the left of it, above it, to its right or below it,
+ * whichever is shortest, with `gap` px to spare. Null when it is already clear, or when no such pan
+ * keeps it inside the canvas (a card wider and taller than the room around the phase index).
+ */
+export function clearOf(r: Rect, covered: Rect, w: number, h: number, gap = 8): { dx: number; dy: number } | null {
+  if (!rectsOverlap(r, covered)) return null;
+  const options: Array<{ dx: number; dy: number }> = [];
+  const left = covered.x - gap - (r.x + r.w);
+  if (r.x + left >= 0) options.push({ dx: left, dy: 0 });
+  const up = covered.y - gap - (r.y + r.h);
+  if (r.y + up >= 0) options.push({ dx: 0, dy: up });
+  const right = covered.x + covered.w + gap - r.x;
+  if (r.x + r.w + right <= w) options.push({ dx: right, dy: 0 });
+  const down = covered.y + covered.h + gap - r.y;
+  if (r.y + r.h + down <= h) options.push({ dx: 0, dy: down });
+  if (!options.length) return null;
+  options.sort((p, q) => Math.abs(p.dx) + Math.abs(p.dy) - (Math.abs(q.dx) + Math.abs(q.dy)));
+  return options[0];
+}
+
+/**
  * A resize this large, in either dimension, refits a viewport the reader has
  * not moved since the last fit (issue 6): the panel opening narrow beside the
  * artifact editor and then being widened, a side bar closing, the header
@@ -181,6 +246,15 @@ export class ViewportController {
   private fitSize: { w: number; h: number; whole: boolean; padding: number } | null = null;
   /** The frame the readable plan anchors on (viewer M2); null before the first layout. */
   private frame: ReadableFrame | null = null;
+  /**
+   * Viewer M3: the part of the canvas an overlay covers (the phase index), in canvas pixels, read
+   * when it is needed. Reveals, centring and the visibility test keep a target out of it.
+   */
+  private coveredFn: (() => Rect | null) | null = null;
+  /** Viewer M3: bumped by every move, so a running animation stops as soon as anything else moves the view. */
+  private animToken = 0;
+  /** The token of the animation in flight, 0 when none is. */
+  private animLive = 0;
   constructor(canvas: HTMLElement, world: HTMLElement, onChange: (vp: Viewport) => void) {
     this.canvas = canvas;
     this.world = world;
@@ -210,6 +284,7 @@ export class ViewportController {
   }
 
   set(vp: Partial<Viewport>): void {
+    this.animToken++;
     this.fitted = false;
     if (typeof vp.x === 'number' && isFinite(vp.x)) this.vp.x = vp.x;
     if (typeof vp.y === 'number' && isFinite(vp.y)) this.vp.y = vp.y;
@@ -218,6 +293,7 @@ export class ViewportController {
   }
 
   panBy(dx: number, dy: number): void {
+    this.animToken++;
     this.fitted = false;
     this.vp.x += dx;
     this.vp.y += dy;
@@ -226,6 +302,7 @@ export class ViewportController {
 
   /** Zoom about a point in canvas-local coordinates. */
   zoomAt(factor: number, px: number, py: number): void {
+    this.animToken++;
     this.fitted = false;
     const next = clamp(this.vp.zoom * factor, MIN_ZOOM, MAX_ZOOM);
     const k = next / this.vp.zoom;
@@ -272,6 +349,7 @@ export class ViewportController {
   }
 
   private applyFit(padding: number, whole: boolean): void {
+    this.animToken++;
     const { w, h } = this.size();
     if (whole || !this.frame) {
       const { zoom } = fitPlan(this.contentW, this.contentH, w, h, padding);
@@ -311,8 +389,8 @@ export class ViewportController {
   /**
    * A resized canvas (issue 6). A fitted viewport is refitted when the size
    * changed by at least REFIT_MIN_PX and REFIT_MIN_RATIO in either dimension;
-   * anything else only refreshes the derived chrome (zoom readout, minimap
-   * rectangle) without moving what the reader is looking at.
+   * anything else only refreshes the derived chrome (zoom readout, the phase
+   * index's in-view marks) without moving what the reader is looking at.
    */
   onResize(): boolean {
     if (this.fitted && this.fitSize) {
@@ -369,20 +447,45 @@ export class ViewportController {
     const zoom = this.vp.zoom;
     if (zoom >= LOD_FULL_ZOOM && fits >= zoom) {
       this.centerOn(rect);
+      this.keepClear(anchor);
       return;
     }
     const ceiling = zoom >= LOD_FULL_ZOOM ? Math.max(FRAME_MAX_ZOOM, zoom) : readable;
     const next = Math.max(FRAME_MIN_ZOOM, Math.min(ceiling, fits));
     this.centerOn(fits >= FRAME_MIN_ZOOM ? rect : anchor, next);
+    this.keepClear(anchor);
+  }
+
+  /**
+   * Viewer M3: a frame too large to move off the phase index as a whole (`centerOn` leaves it) still
+   * keeps its anchor, the first cited card, out from under the index: the least pan off it.
+   */
+  private keepClear(anchor: Rect): void {
+    const covered = this.covered();
+    if (!covered) return;
+    const { w, h } = this.visibleArea();
+    const z = this.vp.zoom;
+    const shift = clearOf({ x: anchor.x * z + this.vp.x, y: anchor.y * z + this.vp.y, w: anchor.w * z, h: anchor.h * z }, covered, w, h);
+    if (shift) this.panBy(shift.dx, shift.dy);
   }
 
   centerOn(rect: Rect, zoom?: number): void {
+    this.animToken++;
     this.fitted = false;
     const { w, h } = this.visibleArea();
     if (typeof zoom === 'number') this.vp.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
     const z = this.vp.zoom;
     this.vp.x = w / 2 - (rect.x + rect.w / 2) * z;
     this.vp.y = h / 2 - (rect.y + rect.h / 2) * z;
+    // Viewer M3: a centred target the phase index would cover moves the least distance off it.
+    const covered = this.covered();
+    if (covered) {
+      const shift = clearOf({ x: rect.x * z + this.vp.x, y: rect.y * z + this.vp.y, w: rect.w * z, h: rect.h * z }, covered, w, h);
+      if (shift) {
+        this.vp.x += shift.dx;
+        this.vp.y += shift.dy;
+      }
+    }
     this.apply();
   }
 
@@ -402,8 +505,17 @@ export class ViewportController {
       if (start + size > extent) return extent - pad - (start + size);
       return 0;
     };
-    const dx = shift(rect.x * z + this.vp.x, rect.w * z, w);
-    const dy = shift(rect.y * z + this.vp.y, rect.h * z, h);
+    let dx = shift(rect.x * z + this.vp.x, rect.w * z, w);
+    let dy = shift(rect.y * z + this.vp.y, rect.h * z, h);
+    // Viewer M3: and off the part of the canvas the phase index covers, the least distance again.
+    const covered = this.covered();
+    if (covered) {
+      const off = clearOf({ x: rect.x * z + this.vp.x + dx, y: rect.y * z + this.vp.y + dy, w: rect.w * z, h: rect.h * z }, covered, w, h, Math.min(margin, 8));
+      if (off) {
+        dx += off.dx;
+        dy += off.dy;
+      }
+    }
     if (dx || dy) this.panBy(dx, dy);
   }
 
@@ -413,167 +525,88 @@ export class ViewportController {
     this.centerOn(rect, z);
   }
 
-  /** True when the rect is fully inside the visible area (by default the current one). */
+  /**
+   * True when the rect is fully inside the visible area (by default the current one). Viewer M3: and
+   * not under the phase index, so a card the index covers counts as out of view and is revealed.
+   */
   isVisible(rect: Rect, area: { w: number; h: number } = this.visibleArea()): boolean {
     const { w, h } = area;
     const x = rect.x * this.vp.zoom + this.vp.x;
     const y = rect.y * this.vp.zoom + this.vp.y;
-    return x >= 0 && y >= 0 && x + rect.w * this.vp.zoom <= w && y + rect.h * this.vp.zoom <= h;
+    const sw = rect.w * this.vp.zoom;
+    const sh = rect.h * this.vp.zoom;
+    if (!(x >= 0 && y >= 0 && x + sw <= w && y + sh <= h)) return false;
+    const covered = this.covered();
+    return !covered || !rectsOverlap({ x, y, w: sw, h: sh }, covered);
+  }
+
+  /** Viewer M3: say what part of the canvas is covered (the phase index), read on demand. */
+  setCovered(fn: (() => Rect | null) | null): void {
+    this.coveredFn = fn;
+  }
+
+  /** The covered part of the canvas now, or null. */
+  covered(): Rect | null {
+    if (!this.coveredFn) return null;
+    try {
+      const r = this.coveredFn();
+      return r && r.w > 0 && r.h > 0 ? r : null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /**
+   * Viewer M3: move to `target` over VIEW_ANIMATION_MS (the move to a phase), or at once under
+   * reduced motion (VS Code's Reduce Motion, the OS setting, VS Code's screen-reader mode) or where
+   * there is no animation frame. The point at the canvas centre travels in a straight line while
+   * the zoom changes on a log scale, eased out. Any other move (a pan, a wheel, a key, a reveal)
+   * stops it where it is. Returns once the move is set up; `done` runs when it lands (not when it
+   * is stopped).
+   */
+  animateTo(target: Viewport, ms = VIEW_ANIMATION_MS, done?: () => void): void {
+    const token = ++this.animToken;
+    this.fitted = false;
+    const to: Viewport = { x: target.x, y: target.y, zoom: clamp(target.zoom, MIN_ZOOM, MAX_ZOOM) };
+    const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : null;
+    const land = () => {
+      this.animLive = 0;
+      this.vp = { ...to };
+      this.apply();
+      if (done) done();
+    };
+    if (!raf || !(ms > 0) || motionMode() === 'reduced') {
+      land();
+      return;
+    }
+    const from: Viewport = { ...this.vp };
+    const { w, h } = this.size();
+    const c0 = { x: (w / 2 - from.x) / from.zoom, y: (h / 2 - from.y) / from.zoom };
+    const c1 = { x: (w / 2 - to.x) / to.zoom, y: (h / 2 - to.y) / to.zoom };
+    const start = Date.now();
+    this.animLive = token;
+    const frame = () => {
+      if (token !== this.animToken) return;
+      const t = Math.min(1, (Date.now() - start) / ms);
+      if (t >= 1) {
+        land();
+        return;
+      }
+      const e = 1 - Math.pow(1 - t, 3);
+      const z = from.zoom * Math.pow(to.zoom / from.zoom, e);
+      this.vp = { x: w / 2 - (c0.x + (c1.x - c0.x) * e) * z, y: h / 2 - (c0.y + (c1.y - c0.y) * e) * z, zoom: z };
+      this.apply();
+      raf(frame);
+    };
+    raf(frame);
+  }
+
+  /** True while an `animateTo` is under way (not landed, not stopped by another move). */
+  get animating(): boolean {
+    return this.animLive !== 0 && this.animLive === this.animToken;
   }
 }
 
 export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
-}
-
-export interface MinimapDot {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  stage: string;
-  /** Viewer M2: the phase's document position, the key of its colour. */
-  phase?: number;
-  severity: string | null;
-}
-
-/**
- * The minimap's drawing transform: a uniform letterboxed fit, CENTRED in the
- * widget. Drawing, the viewport rectangle and click-to-jump all go through this
- * one object — they used to disagree, so a click landed nowhere near the dot
- * under the cursor (MLV-R1-008).
- */
-export interface MinimapFit {
-  scale: number;
-  ox: number;
-  oy: number;
-  w: number;
-  h: number;
-  contentW: number;
-  contentH: number;
-}
-
-export function minimapFit(w: number, h: number, contentW: number, contentH: number): MinimapFit {
-  const cw = Math.max(1, contentW);
-  const ch = Math.max(1, contentH);
-  const scale = Math.min(w / cw, h / ch);
-  return { scale, ox: (w - cw * scale) / 2, oy: (h - ch * scale) / 2, w, h, contentW: cw, contentH: ch };
-}
-
-/** Widget coordinates (viewBox units) -> world coordinates, clamped to content. */
-export function minimapToWorld(fit: MinimapFit, vx: number, vy: number): { x: number; y: number } {
-  return {
-    x: clamp((vx - fit.ox) / fit.scale, 0, fit.contentW),
-    y: clamp((vy - fit.oy) / fit.scale, 0, fit.contentH),
-  };
-}
-
-/** World coordinates -> widget coordinates. The inverse of minimapToWorld. */
-export function minimapFromWorld(fit: MinimapFit, x: number, y: number): { x: number; y: number } {
-  return { x: fit.ox + x * fit.scale, y: fit.oy + y * fit.scale };
-}
-
-export class Minimap {
-  readonly root: HTMLElement;
-  private svgEl: SVGElement;
-  private nodesG: SVGElement;
-  private viewRect: SVGElement;
-  private toggleBtn: HTMLButtonElement;
-  private collapsedState = false;
-  private w = 200;
-  private h = 130;
-  private fit: MinimapFit = minimapFit(200, 130, 1, 1);
-
-  constructor(onJump: (x: number, y: number) => void, onToggle?: (collapsed: boolean) => void) {
-    this.root = el('div', 'mlv-minimap');
-    // VIEW-12. The minimap is a DUPLICATE of a canvas that is already fully
-    // navigable — one focus stop, `aria-activedescendant` roving, a live region
-    // announcing every selection — so it is hidden from assistive tech rather
-    // than described twice.
-    this.root.setAttribute('aria-hidden', 'true');
-    // The widget sits on top of live diagram, so it must be dismissable
-    // (UX_DESIGN section 1: "collapsible to a 28 px chevron tab") — MLV-R2-W12.
-    this.toggleBtn = iconButton('mlv-btn mlv-btn--icon mlv-minimap__toggle', 'Collapse minimap');
-    this.toggleBtn.appendChild(uiIcon('chevron', 12));
-    this.toggleBtn.setAttribute('aria-expanded', 'true');
-    // ...and an `aria-hidden` subtree may not hold a tab stop, so this chevron
-    // is the POINTER affordance only. The keyboard's copy of it is the labelled
-    // "Minimap" toggle in the toolbar, which is before the canvas in DOM order
-    // instead of the tab stop after it that this button used to be (VIEW-12).
-    this.toggleBtn.tabIndex = -1;
-    on(this.toggleBtn, 'click', (ev: MouseEvent) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      this.setCollapsed(!this.collapsedState);
-      if (onToggle) onToggle(this.collapsedState);
-    });
-    this.root.appendChild(this.toggleBtn);
-    this.svgEl = svg('svg', { class: 'mlv-minimap__svg', viewBox: '0 0 200 130', 'aria-hidden': 'true' });
-    this.nodesG = svg('g');
-    this.viewRect = svg('rect', { class: 'mlv-minimap__view', x: 0, y: 0, width: 0, height: 0, rx: 2 });
-    this.svgEl.appendChild(this.nodesG);
-    this.svgEl.appendChild(this.viewRect);
-    this.root.appendChild(this.svgEl);
-    this.svgEl.addEventListener('pointerdown', (ev: Event) => {
-      const e = ev as PointerEvent;
-      const box = (this.svgEl as unknown as HTMLElement).getBoundingClientRect();
-      // The widget is drawn in viewBox units; convert the click into those units
-      // first, then invert the SAME transform the dots were drawn with.
-      const vx = box.width ? ((e.clientX - box.left) / box.width) * this.w : 0;
-      const vy = box.height ? ((e.clientY - box.top) / box.height) * this.h : 0;
-      const world = minimapToWorld(this.fit, vx, vy);
-      onJump(world.x, world.y);
-    });
-  }
-
-  get collapsed(): boolean {
-    return this.collapsedState;
-  }
-
-  setCollapsed(next: boolean): void {
-    this.collapsedState = next;
-    if (next) this.root.classList.add('is-collapsed');
-    else this.root.classList.remove('is-collapsed');
-    this.toggleBtn.setAttribute('aria-expanded', next ? 'false' : 'true');
-    const label = next ? 'Expand minimap' : 'Collapse minimap';
-    this.toggleBtn.title = label;
-    this.toggleBtn.setAttribute('aria-label', label);
-  }
-
-  render(dots: MinimapDot[], contentW: number, contentH: number): void {
-    this.fit = minimapFit(this.w, this.h, contentW, contentH);
-    const { scale, ox, oy } = this.fit;
-    while (this.nodesG.firstChild) this.nodesG.removeChild(this.nodesG.firstChild);
-    for (const d of dots) {
-      const r = svg('rect', {
-        class: 'mlv-minimap__node' + (d.severity ? ' mlv-minimap__node--issue' : ''),
-        x: round2(ox + d.x * scale),
-        y: round2(oy + d.y * scale),
-        width: round2(Math.max(2, d.w * scale)),
-        height: round2(Math.max(2, d.h * scale)),
-        rx: 1,
-      });
-      r.setAttribute('data-stage', d.stage);
-      if (d.phase !== undefined) stampPhase(r, d.phase);
-      if (d.severity) r.setAttribute('data-sev', d.severity);
-      this.nodesG.appendChild(r);
-    }
-  }
-
-  setViewport(vp: Viewport, viewW: number, viewH: number): void {
-    const { scale, ox, oy } = this.fit;
-    const topLeft = minimapFromWorld(this.fit, -vp.x / vp.zoom, -vp.y / vp.zoom);
-    const w = (viewW / vp.zoom) * scale;
-    const h = (viewH / vp.zoom) * scale;
-    const x = clamp(topLeft.x, ox, ox + this.fit.contentW * scale);
-    const y = clamp(topLeft.y, oy, oy + this.fit.contentH * scale);
-    this.viewRect.setAttribute('x', String(round2(x)));
-    this.viewRect.setAttribute('y', String(round2(y)));
-    this.viewRect.setAttribute('width', String(round2(Math.max(0, Math.min(w, ox + this.fit.contentW * scale - x)))));
-    this.viewRect.setAttribute('height', String(round2(Math.max(0, Math.min(h, oy + this.fit.contentH * scale - y)))));
-  }
-}
-
-function round2(v: number): number {
-  return Math.round(v * 100) / 100;
 }

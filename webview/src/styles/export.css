@@ -3,7 +3,7 @@
  *
  * `grep '@media print' webview/src` found
  * nothing before this file, so Ctrl+P gave the current VIEWPORT at the current
- * ZOOM with the fixed toolbar, rail, minimap and zoom cluster painted over it —
+ * ZOOM with the fixed toolbar, rail, minimap (since viewer M3 the phase index) and zoom cluster painted over it —
  * a page of chrome and a corner of diagram. Here the chrome is removed, the
  * page-fill chain that clips the canvas is released, and the canvas transform
  * is dropped so the world prints at the natural size the layout already gave it
@@ -26,7 +26,8 @@
   .mlv-walkbar,
   .mlv-status,
   .mlv-rail,
-  .mlv-minimap,
+  .mlv-phaseindex,
+  .mlv-overview,
   .mlv-zoom,
   .mlv-skiplink,
   .mlv-legend,

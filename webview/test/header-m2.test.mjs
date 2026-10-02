@@ -138,7 +138,9 @@ test('at 900 px search folds behind an icon and the chip keeps the revision; sti
   // The ... menu stands in for nothing at this width: the row has room for every control.
   openMenu(ctx);
   // Viewer M3: Review is always in the menu too (the header's button folds first on a short row).
-  assert.deepEqual(menuItems(ctx), ['review', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
+  // Viewer M3 step 13 (deliberate): the Phase overview item (Shift+0) follows it, and the phase
+  // index's item replaces the overview map's.
+  assert.deepEqual(menuItems(ctx), ['review', 'overview', 'legend', 'flow', 'phaseindex', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
   ctx.app.destroy();
 });
 
@@ -148,7 +150,7 @@ test('at 541 px only the title, the severity toggles, "not observed", ... and Re
   assert.deepEqual(headerShows(ctx), ['title', 'high', 'medium', 'not observed', 'more', 'Refine…']);
   const menu = openMenu(ctx);
   assert.equal(menu.hidden, false);
-  assert.deepEqual(menuItems(ctx), ['search', 'about', 'review', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
+  assert.deepEqual(menuItems(ctx), ['search', 'about', 'review', 'overview', 'legend', 'flow', 'phaseindex', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
   assert.equal($(ctx, '[data-more-item="about"] .mlv-moremenu__label').textContent, 'About revision r7 · claude-code');
   assert.equal($(ctx, '[data-more-item="rail"] .mlv-moremenu__label').textContent, 'Bottom panel', 'at 541 px the rail is the bottom sheet');
   // The menu's Search opens the field in the title's place.
@@ -237,8 +239,10 @@ test('the ... menu is a menu button: arrows, Home and End move; Escape and Tab c
   keydown(ctx, button, 'ArrowDown');
   assert.equal(menu.hidden, false);
   assert.equal(button.getAttribute('aria-expanded'), 'true');
-  // Viewer M3: the menu starts with Review the claims.
+  // Viewer M3: the menu starts with Review the claims, then (step 13) the Phase overview.
   assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'review');
+  keydown(ctx, ctx.document.activeElement, 'ArrowDown');
+  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'overview');
   keydown(ctx, ctx.document.activeElement, 'ArrowDown');
   assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'legend');
   keydown(ctx, ctx.document.activeElement, 'End');
@@ -265,7 +269,7 @@ test('the ... menu is a menu button: arrows, Home and End move; Escape and Tab c
   ctx.app.destroy();
 });
 
-test('each ... item does what it says: legend, flow, overview map, rail, fit, exports, shortcuts', async () => {
+test('each ... item does what it says: legend, flow, phase index, phase overview, rail, fit, exports, shortcuts', async () => {
   const ctx = await mount(doc(), { width: 1440 });
   const pick = (id) => {
     openMenu(ctx);
@@ -279,13 +283,22 @@ test('each ... item does what it says: legend, flow, overview map, rail, fit, ex
   assert.equal(pick('legend').getAttribute('aria-checked'), 'false');
   assert.equal(pick('flow').getAttribute('aria-checked'), 'false');
   assert.equal(ctx.app.getState().flow, false);
-  // Viewer M2 live fix: this small document draws no minimap, so its item is disabled, unchecked,
-  // and says why (m2-live.test.mjs toggles it on a document that has one).
-  const minimap = pick('minimap');
-  assert.equal(minimap.disabled, true);
-  assert.equal(minimap.getAttribute('aria-checked'), 'false');
-  assert.equal(minimap.querySelector('.mlv-moremenu__note').textContent, 'Shown when 30 or more cards are drawn');
-  assert.equal(ctx.app.getState().minimapCollapsed, false, 'a disabled item does nothing');
+  // Viewer M3 step 13 (deliberate): the phase index replaced the overview map. This document has
+  // two phases, so the index is drawn and its item hides and shows it (phase-overview.test.mjs
+  // covers the disabled item of a one-phase document).
+  assert.equal(pick('phaseindex').getAttribute('aria-checked'), 'false');
+  assert.equal(ctx.app.getState().phaseIndex, 'hidden');
+  assert.equal($(ctx, '.mlv-phaseindex').hidden, true);
+  assert.equal(pick('phaseindex').getAttribute('aria-checked'), 'true');
+  assert.equal(ctx.app.getState().phaseIndex, undefined, 'absent at its default');
+  assert.equal(ctx.app.getState().minimapCollapsed, undefined, 'the minimap\'s key is no longer written');
+  // The Phase overview item opens it over the canvas, and reads "Close the phase overview" then.
+  pick('overview');
+  assert.equal(ctx.app.view.overviewOpen, true);
+  openMenu(ctx);
+  assert.equal($(ctx, '[data-more-item="overview"] .mlv-moremenu__label').textContent, 'Close the phase overview');
+  $(ctx, '[data-more-item="overview"]').click();
+  assert.equal(ctx.app.view.overviewOpen, false);
   assert.equal(pick('rail').getAttribute('aria-checked'), 'false');
   assert.equal($(ctx, '.mlv-rail').hidden, true);
   ctx.app.view.viewport.set({ x: 5, y: 5, zoom: 2 });
@@ -297,7 +310,7 @@ test('each ... item does what it says: legend, flow, overview map, rail, fit, ex
   assert.ok($(ctx, '.mlv-sheet') && !$(ctx, '.mlv-sheet').hidden, 'the shortcut sheet opens');
   // Every item names itself; the exports are the whole diagram, and nothing else is offered.
   assert.deepEqual($$(ctx, '.mlv-moremenu__item').map((item) => item.querySelector('.mlv-moremenu__label').textContent), [
-    'Search steps and findings', 'About revision r7 · claude-code', '3 not observed (1 step, 1 connection, 1 finding)', 'Review the claims', 'Legend', 'Connection flow animation', 'Overview map', 'Side panel',
+    'Search steps and findings', 'About revision r7 · claude-code', '3 not observed (1 step, 1 connection, 1 finding)', 'Review the claims', 'Phase overview', 'Legend', 'Connection flow animation', 'Phase index', 'Side panel',
     'Fit the whole diagram', 'Zoom to the selection', 'Export SVG…', 'Export PNG…', 'Copy SVG', 'Keyboard shortcuts',
   ]);
   assert.equal($(ctx, '[data-more-item="zoomsel"]').disabled, true, 'nothing selected, nothing to zoom to');
@@ -410,7 +423,8 @@ test('the shortcut sheet lists the find key and no scope keys', async () => {
   assert.deepEqual(rows.filter((row) => row[0] === '[ ]').map((row) => row[1]), ['In the review walk: previous / next quote of the claim']);
   const sheet = $(ctx, '.mlv-sheet').textContent;
   assert.doesNotMatch(sheet, /scope/i);
-  assert.match(sheet, /Close the menu, this sheet, the Refine popover or the legend, end the review walk, collapse the bottom panel/);
+  // Viewer M3 step 13 (deliberate): the phase index's open list and the phase overview join the cascade.
+  assert.match(sheet, /Close the menu, this sheet, the Refine popover, the phase list or the legend, leave the phase overview, end the review walk, collapse the bottom panel/);
   assert.match(sheet, /About \/ Findings \/ Selection \/ Outline/);
   ctx.app.destroy();
 });

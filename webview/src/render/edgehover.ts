@@ -30,7 +30,7 @@ import type { ViewportController } from './canvas.js';
 export const EDGE_PICK_PX = 10;
 
 /** Anything on this list owns its own pixels outright; cables never win there. */
-const OPAQUE = '.mlv-node, .mlv-group, .mlv-minimap, .mlv-zoom, .mlv-tooltip, .mlv-toasts, .mlv-state';
+const OPAQUE = '.mlv-node, .mlv-group, .mlv-phaseindex, .mlv-overview, .mlv-zoom, .mlv-tooltip, .mlv-toasts, .mlv-state';
 
 export interface EdgeHoverHost {
   canvas: HTMLElement;

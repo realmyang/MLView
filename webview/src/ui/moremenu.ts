@@ -1,5 +1,5 @@
 /**
- * The header's ... menu (viewer M2): the review walk (viewer M3), the view toggles, the whole-diagram
+ * The header's ... menu (viewer M2): the review walk and the phase overview (viewer M3), the view toggles, the whole-diagram
  * fit, the exports and the shortcut sheet, plus whatever the header has no room for: search and the revision below 620 px,
  * and, in a row too narrow for its controls, the revision and the "not observed" toggle.
  *
@@ -22,9 +22,10 @@ export type MoreItemId =
   | 'about'
   | 'exceptions'
   | 'review'
+  | 'overview'
   | 'legend'
   | 'flow'
-  | 'minimap'
+  | 'phaseindex'
   | 'rail'
   | 'fit'
   | 'zoomsel'
@@ -53,9 +54,12 @@ const ITEMS: ItemSpec[] = [
   // Viewer M3: the review walk, always here (the header's Review button folds first when the row
   // is short); "End the review" while it runs.
   { id: 'review', label: 'Review the claims', icon: 'review', keys: 'R', group: true },
+  // Viewer M3: every phase as a block of its step titles; Shift+0 does the same.
+  { id: 'overview', label: 'Phase overview', icon: 'phases', keys: 'Shift+0' },
   { id: 'legend', label: 'Legend', icon: 'legend', keys: 'L', check: true, group: true },
   { id: 'flow', label: 'Connection flow animation', icon: 'flow', keys: 'A', check: true },
-  { id: 'minimap', label: 'Overview map', icon: 'minimap', check: true },
+  // Viewer M3: the labelled phase index replaced the overview map (the minimap).
+  { id: 'phaseindex', label: 'Phase index', icon: 'phaseindex', check: true },
   // Viewer M2 live fix: `b` on the canvas; Ctrl/Cmd+B also toggled the workbench's side bar.
   { id: 'rail', label: 'Side panel', icon: 'rail', keys: 'B', check: true },
   { id: 'fit', label: 'Fit the whole diagram', icon: 'fit', group: true },
@@ -82,12 +86,15 @@ export interface MoreMenuState {
   exceptionsOn: boolean;
   legendOpen: boolean;
   flowOn: boolean;
-  minimapShown: boolean;
+  /** Viewer M3: the reader has not hidden the phase index. */
+  phaseIndexShown: boolean;
   /**
-   * Viewer M2 live fix: why the minimap is not drawn now (too few cards, no room beside the code,
-   * a short canvas), or null. The item is then disabled, unchecked, and says why.
+   * Why the phase index is not drawn (fewer than two phases), or null. The item is then disabled,
+   * unchecked, and says why (the viewer M2 live fix's rule for the map it replaced).
    */
-  minimapUnavailable: string | null;
+  phaseIndexUnavailable: string | null;
+  /** Viewer M3: the phase overview is open (the item reads "Close the phase overview"). */
+  overviewOpen: boolean;
   railOpen: boolean;
   /** Viewer M3: the review walk is running (the item reads "End the review"). */
   walking: boolean;
@@ -122,7 +129,7 @@ export class MoreMenu {
     const uid = 'mlv-more' + ++menuSeq;
 
     this.button = iconButton('mlv-btn mlv-btn--icon mlv-btn--more', 'More actions');
-    this.button.title = 'More: legend, flow, fit, export, shortcuts';
+    this.button.title = 'More: review, phase overview, legend, fit, export, shortcuts';
     this.button.appendChild(uiIcon('more', 16));
     this.button.setAttribute('aria-haspopup', 'menu');
     this.button.setAttribute('aria-expanded', 'false');
@@ -169,7 +176,7 @@ export class MoreMenu {
       if (spec.folded) item.setAttribute('data-folded', '1');
       item.appendChild(uiIcon(spec.icon, 14));
       add(item, el('span', 'mlv-moremenu__label', spec.label));
-      if (spec.id === 'minimap') add(item, el('span', 'mlv-moremenu__note')).hidden = true;
+      if (spec.id === 'phaseindex') add(item, el('span', 'mlv-moremenu__note')).hidden = true;
       if (spec.keys) add(item, el('kbd', 'mlv-moremenu__keys', keyLabel(spec.keys))).setAttribute('aria-hidden', 'true');
       on(item, 'click', (ev: MouseEvent) => {
         ev.preventDefault();
@@ -245,19 +252,29 @@ export class MoreMenu {
         if (label) label.textContent = s.railMode === 'sheet' ? 'Bottom panel' : 'Side panel';
         item.title = s.railMode === 'sheet' ? 'Open or collapse the bottom panel' : 'Show or hide the side panel';
       }
+      if (id === 'overview') {
+        const label = item.querySelector('.mlv-moremenu__label');
+        if (label) label.textContent = s.overviewOpen ? 'Close the phase overview' : 'Phase overview';
+        item.title = s.overviewOpen
+          ? 'Back to the diagram where you were (Escape)'
+          : 'Every phase as a block of its step titles, with the connections between phases; choose one to go there';
+        item.disabled = !s.canExport;
+      }
       if (spec.check) {
-        const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'minimap' ? s.minimapShown && !s.minimapUnavailable : id === 'exceptions' ? s.exceptionsOn : s.railOpen;
+        const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'phaseindex' ? s.phaseIndexShown && !s.phaseIndexUnavailable : id === 'exceptions' ? s.exceptionsOn : s.railOpen;
         item.setAttribute('aria-checked', on_ ? 'true' : 'false');
       }
-      if (id === 'minimap') {
-        // Viewer M2 live fix: never checked while the map is not drawn; the reason is on the item.
+      if (id === 'phaseindex') {
+        // Never checked while the index is not drawn; the reason is on the item.
         const note = item.querySelector<HTMLElement>('.mlv-moremenu__note');
         if (note) {
-          note.textContent = s.minimapUnavailable || '';
-          note.hidden = !s.minimapUnavailable;
+          note.textContent = s.phaseIndexUnavailable || '';
+          note.hidden = !s.phaseIndexUnavailable;
         }
-        item.disabled = !!s.minimapUnavailable;
-        item.title = s.minimapUnavailable ? 'Overview map: ' + s.minimapUnavailable.charAt(0).toLowerCase() + s.minimapUnavailable.slice(1) : 'Show or hide the overview map';
+        item.disabled = !!s.phaseIndexUnavailable;
+        item.title = s.phaseIndexUnavailable
+          ? 'Phase index: ' + s.phaseIndexUnavailable.charAt(0).toLowerCase() + s.phaseIndexUnavailable.slice(1)
+          : 'Show or hide the phase index: each phase with its findings and steps, the phases in view marked';
       }
       if (id === 'zoomsel') item.disabled = !s.hasSelection;
       if (EXPORTS.indexOf(id) >= 0) item.disabled = !s.canExport;

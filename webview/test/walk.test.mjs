@@ -12,7 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { loadBundle, recordingBridge, WEBVIEW_ROOT } from './helpers.mjs';
+import { loadBundle, recordingBridge, shapedWorkflow, VIT_SHAPE, WEBVIEW_ROOT, YOLO_SHAPE } from './helpers.mjs';
 
 const CSS = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -22,106 +22,8 @@ const eq = (actual, expected, message) => (message === undefined ? assert.deepEq
 
 /* ── synthetic documents ─────────────────────────────────────────────── */
 
-function lcg(seed) {
-  let s = seed >>> 0;
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
-
-/**
- * A document with a given shape: phases, steps (some in groups, listed out of phase order),
- * connections, findings citing several steps (in several phases) or connections, a number of
- * inferred or unresolved claims of each kind, steps without quotes, and notebook-cell quotes.
- */
-function shapedWorkflow(spec) {
-  const rand = lcg(spec.seed);
-  const pick = (n) => Math.floor(rand() * n);
-  const phases = Array.from({ length: spec.phases }, (_, i) => ({ id: 'p' + i, label: 'Phase ' + i }));
-  const phaseOf = (i) => 'p' + Math.min(spec.phases - 1, Math.floor((i * spec.phases) / spec.nodes));
-  const nodes = Array.from({ length: spec.nodes }, (_, i) => ({ id: 'n' + i, label: 'Step ' + i, phase: phaseOf(i), kind: 'operation', basis: 'observed', evidence: [] }));
-  // Groups: a group step and its children, all in the group's phase.
-  for (const [g, size] of spec.groups.entries()) {
-    const phase = 'p' + (g % spec.phases);
-    const members = nodes.filter((n) => n.phase === phase).slice(0, size + 1);
-    assert.ok(members.length === size + 1, 'phase ' + phase + ' has room for a group of ' + size);
-    const [head, ...children] = members;
-    head.kind = 'group';
-    for (const child of children) child.parent = head.id;
-  }
-  const evidence = [];
-  const cite = (count) => {
-    const ids = [];
-    for (let k = 0; k < count; k++) {
-      const id = 'ev' + evidence.length;
-      const notebook = rand() < spec.notebookShare;
-      const line = 1 + pick(40);
-      evidence.push(notebook
-        ? { id, file: 'notes.ipynb', cell: pick(30), line: 1 + pick(5), endLine: 1 + pick(5) + 5, quote: 'cell_code_' + id + '()' }
-        : { id, file: 'src/file' + pick(4) + '.py', line, endLine: line + pick(3), quote: 'code_' + id + '()' });
-      ids.push(id);
-    }
-    return ids;
-  };
-  const steps = nodes.slice();
-  for (let i = 0; i < spec.notObserved.steps; i++) steps[(i * 7 + 3) % steps.length].basis = i % 2 ? 'unresolved' : 'inferred';
-  let empty = spec.emptyEvidence;
-  for (const node of nodes) {
-    // A step without quotes is either a group head or unresolved (the contract's only two cases).
-    if (empty > 0 && (node.kind === 'group' || node.basis === 'unresolved')) {
-      empty--;
-      continue;
-    }
-    node.evidence = cite(1 + pick(spec.maxEvidence));
-  }
-  assert.equal(empty, 0, 'the fixture places every step without quotes');
-  const edges = [];
-  for (let i = 0; i < spec.edges; i++) {
-    let source = pick(spec.nodes);
-    let target = pick(spec.nodes);
-    if (target === source) target = (source + 1) % spec.nodes;
-    edges.push({ id: 'c' + i, source: 'n' + source, target: 'n' + target, label: 'flow ' + i, kind: i % 5 ? 'data' : 'control', basis: 'observed', evidence: cite(1 + pick(spec.maxEvidence)) });
-  }
-  for (let i = 0; i < spec.notObserved.connections; i++) edges[(i * 11 + 2) % edges.length].basis = i % 3 ? 'inferred' : 'unresolved';
-  const severities = ['high', 'medium', 'low'];
-  const findings = spec.findings.map((f, i) => {
-    const nodeIds = [];
-    while (nodeIds.length < f.nodes) {
-      const id = 'n' + pick(spec.nodes);
-      if (!nodeIds.includes(id)) nodeIds.push(id);
-    }
-    const edgeIds = [];
-    while (edgeIds.length < (f.edges || 0)) {
-      const id = 'c' + pick(spec.edges);
-      if (!edgeIds.includes(id)) edgeIds.push(id);
-    }
-    return { id: 'f' + i, title: 'Finding ' + i, message: 'Synthetic finding ' + i + '.', severity: severities[i % 3], nodeIds, edgeIds,
-      basis: i < spec.notObserved.findings ? 'inferred' : 'observed', evidence: cite(1) };
-  });
-  // Document order is not drawn order: list the steps rotated, so later phases come first.
-  const rotated = nodes.slice(Math.floor(spec.nodes / 3)).concat(nodes.slice(0, Math.floor(spec.nodes / 3)));
-  return {
-    workflowVersion: '1.0', title: spec.title, producer: { kind: 'host-llm', host: 'claude-code', model: 'synthetic' },
-    revision: { id: spec.revision || 'syn-r1' },
-    request: { question: 'How is the model trained?', scope: 'src/' },
-    phases, nodes: rotated, edges, findings, evidence,
-    coverage: { status: 'scoped', summary: 'Synthetic coverage.', inspectedFiles: ['notes.ipynb', 'src/file0.py'], limitations: [] },
-  };
-}
-
-/** The vit-cc shape: 79 claims = 31 + 41 + 7, of which 7 are not observed (0 + 3 + 4). */
-const VIT_SHAPE = {
-  seed: 7, title: 'Synthetic: the vit-cc shape', phases: 6, nodes: 31, groups: [4, 4], edges: 41,
-  findings: [{ nodes: 3 }, { nodes: 3 }, { nodes: 3 }, { nodes: 1 }, { nodes: 3 }, { nodes: 2 }, { nodes: 3 }],
-  notObserved: { steps: 0, connections: 3, findings: 4 }, emptyEvidence: 0, notebookShare: 0.84, maxEvidence: 2,
-};
-/** The yolov5-cc2 shape: 176 claims = 59 + 113 + 4, of which 16 are not observed (4 + 10 + 2). */
-const YOLO_SHAPE = {
-  seed: 5, title: 'Synthetic: the yolov5-cc2 shape', phases: 4, nodes: 59, groups: [12, 8], edges: 113,
-  findings: [{ nodes: 5 }, { nodes: 2, edges: 1 }, { nodes: 2 }, { nodes: 1 }],
-  notObserved: { steps: 4, connections: 10, findings: 2 }, emptyEvidence: 2, notebookShare: 0, maxEvidence: 12,
-};
+// The shaped synthetic documents (`shapedWorkflow`, VIT_SHAPE, YOLO_SHAPE) moved to helpers.mjs in
+// viewer M3 step 13, so the phase overview's tests read the same shapes.
 
 /** A small document for the order rules, with groups, a cross-phase parent and homeless findings. */
 function orderDoc() {
