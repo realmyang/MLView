@@ -101,7 +101,12 @@ Click a node, edge or finding to select it and inspect its basis and evidence;
 a click never opens source. Enter, a double-click (on a step, connection,
 finding or Outline step; a double-click on a group collapses it) or a quote's
 **Open** link in the Selection tab opens the cited range beside the diagram, selects and highlights the whole
-range, and keeps focus in the diagram so the keyboard keeps working. Alt+Enter
+range, and keeps focus in the diagram so the keyboard keeps working. The
+source opens in an editor group you already have, never the diagram's own:
+the group already showing that file, else the one the last jump used, else
+the one you last worked in, else the group nearest the diagram; only a diagram
+alone in the window opens a new group beside it. Text files and notebooks go
+to the same group. Alt+Enter
 (or Alt+click on an Open link) also moves focus to the editor. A notebook
 citation selects its cell; the cell's lines are highlighted when VS Code has
 that cell's editor ready. Supporting and
@@ -152,9 +157,16 @@ strip until a selection opens it to about half the height, with the selected
 card kept in view above it. Drag its handle to resize it; the chevron or
 Escape collapses it, and Escape gives the focus back to the diagram. From
 620 px wide the Selection tab has two columns (the claim on the left, the
-quotes and actions on the right). Ctrl+1 to Ctrl+4 choose About, Findings,
-Selection and Outline. With VS Code's screen-reader optimisation on, a
-selection is announced by its claim and nothing animates.
+quotes and actions on the right). On the diagram, `t` moves the focus to the
+panel's current tab (opening the panel), and the tab strip's arrow keys choose
+About, Findings, Selection or Outline; `b` shows or hides the side panel, or
+opens or collapses the bottom one. When the diagram resizes or the panel
+changes shape and the selected card was in view but no longer is, the diagram
+pans just far enough to show it again, without zooming; a card you had moved
+out of view stays where it is. A panel hidden behind another tab and shown
+again keeps its tab, its selection and an open bottom panel. With VS Code's
+screen-reader optimisation on, a selection is announced by its claim and
+nothing animates.
 
 On the diagram, observed claims carry no basis mark. An inferred step or
 connection has a dashed border or line and an `inferred` tag; an unresolved
@@ -162,8 +174,10 @@ one has a dotted border or line and a `? unresolved` tag. Line style shows
 this certainty, not the connection's kind, which the hover card and the
 Selection tab name. The header's **N not observed** toggle fades the observed
 claims so the others stand out. Each phase is coloured by its place in the
-document. Finding badges read F1, F2… in document order; a new revision can
-renumber them, so the Selection tab shows the real id beside the number, and
+document, in tones that keep clear of the warning and error colours. Finding
+badges read F1, F2… in document order; a new revision can renumber them, so
+the Selection tab shows the real id with the number (a finding listed on a
+step shows it on a line under its title), and
 Refine and Challenge prompts use the real id. A lane heading carries the
 phase's number and name, its step count, its findings by severity and their
 total ("5 findings touch this phase"): a finding that cites two phases counts
@@ -187,8 +201,13 @@ severity toggles (each with its count), **N not observed**, a **⋯** menu and
 and the revision move into the **⋯** menu; a row still too full folds **N not
 observed** into it as well, so **Refine…** stays in view. The menu also holds the legend, the
 flow animation, the overview map, the side or bottom panel, **Fit the whole diagram**,
-zoom to the selection, the SVG and PNG exports and the shortcut sheet.
-Ctrl/Cmd+F (or Ctrl/Cmd+K, or `/`) focuses search; each result shows its
+zoom to the selection, the SVG and PNG exports and the shortcut sheet. The
+overview map item is disabled, with the reason, when the map is not drawn: in
+a panel 900 px wide or narrower, a diagram under 350 px tall, or with fewer
+than 30 cards. Ctrl+F (Cmd+F on macOS), or `/` on the diagram, focuses
+search; the viewer's other keys are single keys, so VS Code's own Ctrl and Cmd
+shortcuts keep working, and the shortcut sheet prints them for your platform.
+Each search result shows its
 title and, under it, where it is cited. The status bar counts steps and
 connections, shows the coverage status with its limitations, and says
 whether the cited files are unchanged (muted text) or changed or missing (a

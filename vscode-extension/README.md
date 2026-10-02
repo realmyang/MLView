@@ -59,11 +59,17 @@ and what it comes from and feeds. Selecting a finding frames every step it
 cites. Below about 1260 px wide the rail is a bottom sheet under the diagram:
 a 32 px tab strip until a selection opens it to about half the height, with
 the selected card kept in view; drag its handle to resize it, and use the
-chevron or Escape to collapse it. Ctrl+1 to Ctrl+4 choose the tabs. Notebook
-cells are numbered from 0, as the artifact records them.
+chevron or Escape to collapse it. `t` moves the focus to the rail's tabs and
+the arrow keys choose one; `b` shows or hides the rail. A resize or a rail
+change that hides the selected card pans just enough to show it again, and a
+panel shown again after being hidden keeps its selection and an open sheet.
+Notebook cells are numbered from 0, as the artifact records them.
 Enter, a double-click (on a step, connection, finding or Outline step) or a
 quote's **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
-stays in the diagram. Alt+Enter (or Alt+click on an Open link) also moves
+stays in the diagram. The source goes to an editor group you already have
+(the one showing the file, else the last jump's, else the one you last used),
+never the diagram's own; a new group opens beside only a diagram alone in the
+window. Alt+Enter (or Alt+click on an Open link) also moves
 focus to the editor. For a notebook citation the cell is selected and
 revealed; its lines are highlighted when VS Code has the cell's editor ready.
 In High Contrast themes the highlighted lines are outlined with the theme's
@@ -80,12 +86,16 @@ document if it fits at 62% or more, otherwise the first phase at 90%); `0`
 returns there, and **Fit the whole diagram** shows everything. Zoomed out,
 cards show only their titles, at about 11 px.
 The header is one row of about 36 px: the title, the assistant and revision,
-search (Ctrl/Cmd+F), the severity toggles, **N not observed**, a **⋯** menu
+search (Ctrl+F, or Cmd+F on macOS), the severity toggles, **N not observed**, a **⋯** menu
 and **Refine…**, which names the step, connection or finding it will refine.
 Below 620 px wide only the title, the severity toggles, **N not observed**,
 **⋯** and **Refine…** stay in the row; search and the revision move into the
 **⋯** menu, which also holds the legend, the flow animation, the overview map,
 the side or bottom panel, **Fit the whole diagram**, the exports and the shortcut sheet.
+The overview map item is disabled, with the reason, when the map is not drawn
+(at 900 px wide or narrower, under 350 px tall, or below 30 cards). The
+viewer's other keys are single keys, so VS Code's Ctrl and Cmd shortcuts are
+left alone; the shortcut sheet prints the keys for your platform.
 The status bar reads, for example, "31 steps · 41 connections",
 "Coverage: scoped · 6 limitations" (which opens About), the source
 freshness, and the zoom.

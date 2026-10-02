@@ -46,7 +46,9 @@ Viewer M1 protocol details:
   **Add folder to workspace** and **Open folder**, which post
   `{ type: 'workspaceHint', action: 'add' | 'open' }`. The host picks the folder.
 - `openLocation` opens beside the panel with focus kept there; `focus: true`
-  (Alt+Enter, Alt+click) asks the host to move focus to the editor.
+  (Alt+Enter, Alt+click) asks the host to move focus to the editor. The host
+  picks an existing editor group other than the panel's own (since the M2
+  live-check fixes, `navigationColumn` in `vscode-extension/src/authoredPanel.ts`).
 - A click selects only. Enter, a double-click and the Selection pane's Open
   links open the cited range of a step, connection, finding or Outline step; a
   double-click on a group collapses it. The first click of a double-click
@@ -176,9 +178,9 @@ golden is byte-identical):
   `s`, Shift+S, `[` and `]` keys, the phase chips and `Filters.stages`. A
   saved `ViewState` with `scope` or `filters.stages` still loads; both are
   ignored and not written back.
-- Ctrl/Cmd+F, like Ctrl/Cmd+K and `/`, focuses search from anywhere in the
-  root (the extension sets no `enableFindWidget`, so the webview has no find
-  bar of its own). Search rows print the title first and the location under
+- Ctrl/Cmd+F focuses search from anywhere in the root, and `/` from the
+  canvas (the extension sets no `enableFindWidget`, so the webview has no find
+  bar of its own; Ctrl/Cmd+K did the same until the live-check fixes). Search rows print the title first and the location under
   it, cut from the start; `.mlv-result__count` heads the list.
 - Chrome icons are 19 inline SVG paths in `src/icons.ts` (`uiIcon`), drawn in
   the codicon style; there is no icon font, so the CSP is unchanged.
@@ -258,8 +260,8 @@ byte-identical):
   (`aria-pressed="false"`) is struck through with a dashed border, never
   faded. `.mlv-root .mlv-btn--primary` takes `--mlv-on-accent` over the
   button reset; high contrast gives it `button.border` or `contrastBorder`.
-- `App.modalOpen()` keeps Ctrl/Cmd+F and Ctrl/Cmd+K inside the shortcut sheet
-  and the Refine… popover. `App.activateHit` selects a step with
+- `App.modalOpen()` keeps Ctrl/Cmd+F inside the shortcut sheet and the
+  Refine… popover. `App.activateHit` selects a step with
   `showClaim`; `showRailForClaim` marks an already-open rail as chosen, so
   `autoRail` keeps it open into the sheet.
 - The Selection pane has a `group` kind: `subtreeIssues` for "Findings in
@@ -288,6 +290,44 @@ byte-identical):
   specificity). `test/m2-review.test.mjs` holds one regression test per
   review finding; it models the header's widths and which elements have
   boxes where jsdom lays nothing out.
+
+Viewer M2 live-check fixes (no contract change, no new setting; the golden is
+byte-identical):
+
+- `ViewportController.revealRect(rect, margin = 16)` (`src/render/canvas.ts`)
+  pans the least distance that brings a world rectangle wholly into the
+  visible area, at the same zoom. `CanvasView.handleResize` uses it when the
+  selection was wholly visible before a size change and is not after: it
+  accepts the new size (no refit of the first view) and reveals the
+  selection. A selection already out of view, or no selection, keeps the old
+  behaviour (`onResize`).
+- The overview map's width rule is `CanvasView.setPanelWidth(width)`, which
+  sets `.mlv-minimap.is-narrow` at `MINIMAP_NARROW_W` (900 px,
+  `src/canvas/host.ts`) or less, in place of a media query.
+  `CanvasView.minimapUnavailable()` returns the reason the map is not drawn
+  (fewer than 30 cards, `is-narrow`, `is-short`) or `null`; the ⋯ menu's
+  `minimap` item is disabled and unchecked while it is not null and prints
+  the reason in `.mlv-moremenu__note`.
+- Keys: the only Ctrl/Cmd chord the viewer answers is `Mod+F`
+  (`handleCanvasKey` in `src/ui/keymap.ts` returns false for the others, so
+  they reach the workbench). `b` toggles the rail (was Ctrl+B) and `t` calls
+  `App.focusRailTabs()` (replaces Ctrl+1 to Ctrl+4 and
+  `KeyCommands.selectRailTab`). `keyLabel()` in `src/ui/platform.ts` prints a
+  keymap string for the platform (`Mod+` as Ctrl+ or ⌘, and ⌃ ⌥ ⇧ on macOS);
+  the shortcut sheet, the ⋯ menu and the search button use it.
+- A finding listed on a step (`appendFindings` in `src/ui/selection.ts`)
+  prints its real id as `.mlv-insp__issue-id.mlv-mono` under the title,
+  not beside it.
+- `ViewState.sheetOpen` is written (with `workflowRevision`) only while the
+  rail is an open bottom sheet. A remount keeps the saved selection
+  (`sanitizeSelection` in `src/ui/commands.ts`) and an open sheet in
+  `restoredSelection` / `restoredSheet` and applies them in the first
+  `setWorkflow` for the same revision, as for `railTab`; a selection whose id
+  the revision lacks is dropped there.
+- Phase tones 2 and 3 changed in `src/styles/tokens.css` and
+  `src/export/palette.ts` (light #0A693C, #A0388F; dark #4CA871, #D684C5).
+- `test/m2-live.test.mjs` holds the regression tests for fixes 1, 4, 5, 6
+  and 7; the hue test for fix 3 is in `test/calm-canvas.test.mjs`.
 
 Viewer M1 cleanup (no contract change):
 

@@ -143,6 +143,28 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M2, live-check fixes: a live check of the branch found
+seven problems, now fixed. When the panel resizes or the rail changes shape
+and a selection that was in view no longer is, the diagram pans the least
+distance that shows it again, at the same zoom; a selection the reader moved
+away stays put. A jump opens the source in an existing editor group other than
+the panel's own (the group showing the file, the previous jump's, the last one
+used, then the nearest), so beside a notebook it no longer opens a third group;
+only a diagram alone in the window opens one beside it. Phase tones 2 and 3
+moved off the warning amber and the error red (no tone within 30 degrees of
+hue of either). The ⋯ menu's **Overview map** is disabled and unchecked, with
+the reason, whenever the map is not drawn. The viewer no longer answers
+Ctrl/Cmd+B, Ctrl/Cmd+K or Ctrl+1 to Ctrl+4, which VS Code also acted on: `b`
+shows or hides the panel, `t` goes to the panel's tabs, Ctrl+F (Cmd+F on
+macOS) and `/` focus search, and keys are labelled for the platform. A
+finding's id on a step's pane is a line under its title. A hidden panel shown
+again keeps its selection and an open bottom sheet (`sheetOpen` in the saved
+view). No contract change, no new setting and no geometry change. Checked by
+local jsdom and mock `vscode` tests, each written to fail before its fix, and
+in an isolated VS Code 1.139 Extension Development Host on macOS driven over
+the DevTools protocol; not on Windows or Linux, with a screen reader or as a
+usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, review fixes: Tab reaches the header at every width
 (its tab stop skips controls the stylesheet hides) and the header row always
 fits with **Refine…** in view, folding the revision chip, then "not observed"

@@ -9,10 +9,13 @@ truth lives in [docs/STATUS.md](docs/STATUS.md) and
 ## Unreleased — viewer M2: readable at your width
 
 The viewer's second milestone: a diagram you can read in the panel beside your
-code. These changes are checked by local tests and headless-Chrome screenshots
-of a simulated host only; none of it has been tried in a live VS Code window,
-with a screen reader, or as a usability check. No contract change, no new
-setting, and the version is unchanged.
+code. Up to the review fixes these changes were checked by local tests and
+headless-Chrome screenshots of a simulated host only. A live check in an
+isolated VS Code 1.139 Extension Development Host on macOS, with keys and
+clicks sent over the DevTools protocol, then found the problems the live-check
+fixes below correct, and those fixes were checked the same way. None of it has
+been tried with a screen reader, on Windows or Linux, or as a usability check.
+No contract change, no new setting, and the version is unchanged.
 
 Calmer cards (the one deliberate geometry change):
 - Cards no longer carry a `basis=observed` chip row, and connection labels no
@@ -48,6 +51,8 @@ A calm canvas (layout unchanged; the geometry golden is byte-identical):
   on the lane's left edge and on each card's left edge. Every phase is
   coloured now; before, only the eight analyzer-era phase ids had a colour, so
   most authored phases were grey. Colour is otherwise used only for problems.
+  (Tones 2 and 3 changed in the live-check fixes below, to keep clear of the
+  warning and error hues.)
 - Connections and card borders are easier to see: at least 3:1 against the
   canvas in Dark Modern, Light Modern and Dark High Contrast (WCAG 1.4.11),
   computed from VS Code 1.139's theme colours. Connections went from 1.86-3.59:1
@@ -63,7 +68,8 @@ A calm canvas (layout unchanged; the geometry golden is byte-identical):
   replaced with the header row.
 - Finding badges name findings `F1`, `F2`… in document order (`F2 F5 +1` when a
   step has several). A new revision can renumber them; the hover card, the
-  Findings list and the Inspector show the real id beside the number, and
+  Findings list and the Inspector show the real id with the number (under
+  the title for a finding listed on a step, since the live-check fixes), and
   Refine and Challenge prompts use the real id.
 - Every count names its unit: "31 steps · 41 connections", "7 findings",
   "6 coverage limitations", "medium · 2 findings", "5 steps" on a lane or a
@@ -178,8 +184,9 @@ is byte-identical):
   changed or missing files. "Unchanged" means the quoted lines still exist as
   published, not that they support the claims. The old chip row's folded
   "notes about this run" are gone; the limitations are counted here, once.
-- Ctrl/Cmd+F, as well as Ctrl/Cmd+K and `/`, focuses search from anywhere in
-  the viewer and opens a folded field. Results show the title first and the
+- Ctrl+F (Cmd+F on macOS) focuses search from anywhere in the viewer, and `/`
+  from the diagram, and opens a folded field (Ctrl/Cmd+K did too until the
+  live-check fixes below). Results show the title first and the
   location under it (cut from the start, so the file name and line stay),
   headed by a count with its units ("2 matches: 1 step, 1 finding"). A
   finding's Inspector shows its title once. The shortcut sheet and the legend
@@ -252,9 +259,11 @@ geometry golden is byte-identical):
   the Selection pane has two columns: the claim, its findings and its
   connections on the left, the quotes and the actions on the right; narrower,
   one column. The sheet is a labelled region, not a dialog; the diagram stays
-  within four Tab stops of the top. Ctrl+1 to Ctrl+4 pick About, Findings,
-  Selection and Outline; in the sheet they open it and move the focus to the
-  tab. The ⋯ menu's rail item reads "Side panel" or "Bottom panel".
+  within four Tab stops of the top. `t` moves the focus to the panel's current
+  tab, opening the panel first, and the tab strip's arrow keys pick About,
+  Findings, Selection or Outline (this step shipped Ctrl+1 to Ctrl+4, which the
+  live-check fixes below replaced). The ⋯ menu's rail item reads "Side panel"
+  or "Bottom panel".
 - Measured with the screenshot harness (headless Chrome, a simulated host,
   vit from Claude Code and dino from Copilot): at 900x800 and 541x798, a click
   on a step used to slide a 360 px drawer over the right of the canvas (two
@@ -309,8 +318,8 @@ a screen reader; the geometry golden is byte-identical):
 - Beside the code the status bar keeps a stale-files warning whole ("1 of 18
   cited files changed"); the coverage item gives way first and drops its
   "Coverage:" prefix (the full text stays in its name).
-- Ctrl/Cmd+F and Ctrl/Cmd+K no longer pull the focus out of the shortcut
-  sheet or the Refine… popover.
+- Ctrl/Cmd+F (and Ctrl/Cmd+K, until the live-check fixes removed it) no
+  longer pulls the focus out of the shortcut sheet or the Refine… popover.
 - Selecting from the canvas shows the claim again, as in M1: a click on a
   card or connection, a search hit for a step, a link in the Selection pane
   and the host's reveal all switch the rail to Selection; a click and a
@@ -369,6 +378,95 @@ a screen reader; the geometry golden is byte-identical):
 - Earlier bullets in this section that the later steps superseded now
   describe what ships, and the compactness claim names the documents that
   grew taller.
+
+Live-check fixes (a live check of the branch in an isolated VS Code 1.139
+Extension Development Host on macOS, at about 1430, 900 and 541 px, driven
+over the DevTools protocol; each fix has a regression test, checked to fail on
+the build before the fix: `webview/test/m2-live.test.mjs`, the hue test in
+`webview/test/calm-canvas.test.mjs` and the "live fix 2" tests in
+`vscode-extension/test/verification-loop.test.js`; "checked again live" below
+means the same kind of host and driver, not a screen reader or a usability
+check; the geometry golden is byte-identical):
+- A selection the layout hid is shown again. With the diagram alone at about
+  1430 px and the first view untouched, a card selected beside the docked rail
+  ended under the open sheet when Enter opened the source beside the panel and
+  halved it: the first view was refitted for the new size, anchored on phase 1.
+  Now, when the panel resizes or the rail changes shape (docked to the sheet,
+  the sheet opening, collapsing or being dragged) and a selection that was
+  wholly in view no longer is, the diagram pans the least distance that brings
+  it back, 16 px inside the edge it comes in from, at the same zoom, and is
+  not refitted. A selection the reader had already moved out of view stays
+  where it is, and nothing moves except on such a change. Checked again live:
+  from 1382 to 691 px the selected card ended wholly above the open sheet.
+- A jump reuses an editor group. At 541 px beside a notebook, Enter on a .py
+  citation opened a third editor group and the diagram dropped to 271 px,
+  which clipped **Refine…**: a notebook's cell editors report no column, so
+  M1's rule fell through to "beside". The source now opens in an existing
+  group other than the panel's own: the group already showing the cited file,
+  else the group of the previous jump while it exists, else the group last
+  used outside the panel, else the open group nearest the panel. Only a
+  diagram alone in the window opens a group beside it. Text files and
+  notebooks go to the same group, focus stays in the diagram, and the cited
+  range is still selected and highlighted. Checked again live: the .py file
+  opened as a tab in the notebook's group, and the diagram kept its 541 px
+  and **Refine…**.
+- Phase colours keep clear of the warnings. Tone 2 (#C9A56B dark, #8D6E2F
+  light), the third phase's, was 2-14 degrees of hue (HSL and OKLCH) from
+  `editorWarning.foreground`, the amber the stale mark is mixed from, so a
+  stale card in that phase read as one colour. Tone 2 is now a
+  green (#4CA871 dark, #0A693C light), and tone 3, which sat 30 degrees of hue
+  from the error red in Dark Modern, a magenta (#D684C5, #A0388F). A test
+  computes from the screenshot harness's theme table (Dark Modern, Light
+  Modern, Dark High Contrast) that no tone is within 30 degrees of HSL or
+  OKLCH hue of `editorWarning.foreground`, the stale mark or
+  `editorError.foreground`, and that no two tones are closer than 0.06 in
+  OKLab (the closest pairs, among the unchanged teal, cyan, slate and blue
+  tones, are 0.067-0.069 apart, as before); the 3:1
+  contrast test still passes. The SVG export uses the same tones. Tones 5 and
+  7 stay near the low-severity blue, which was not part of this fix.
+- The ⋯ menu's **Overview map** tells the truth. At 900 px wide or narrower
+  the map is not drawn, yet the item showed it checked. The item is now
+  disabled and unchecked whenever the map is not drawn, with the reason on a
+  second line: no room at that width, a canvas under 350 px tall, or fewer
+  than 30 cards. The width rule moved from a media query into the viewer (the
+  `is-narrow` class), so the map and the menu cannot disagree. Checked again
+  live at 541 px.
+- Keys that VS Code leaves alone, labelled for the platform. A focused
+  webview hands every key to the workbench as well. Measured live on macOS:
+  Cmd+B toggled the side bar as well as the viewer's panel; Cmd+K focused the
+  search and started a workbench chord, so the next key went to the chord;
+  Ctrl+2 brought the diagram's group to its second tab, hiding the diagram
+  (VS Code's Open Editor at Index; Cmd+1 to Cmd+8 focus editor groups). By
+  VS Code 1.139's own keybinding table, Ctrl+B, Ctrl+K and Ctrl+1 to Ctrl+8 do
+  the same on Windows and Linux, and Alt+1 to Alt+9 open an editor by index.
+  The viewer now answers no Ctrl or Cmd chord but the find key: Ctrl+F
+  (Cmd+F on macOS) and `/` focus search; `b` shows or hides the side panel or
+  opens or collapses the bottom one (it was Ctrl+B); `t` moves the focus to
+  the panel's current tab, opening the panel, and the tab strip's arrow keys
+  pick a tab (it replaced Ctrl+1 to Ctrl+4). Ctrl/Cmd+K is gone. The
+  shortcut sheet, the ⋯ menu and the search button print the keys for the
+  platform (⌘F, ⇧0, ⌥Enter on macOS). Checked again live on macOS: Cmd+B
+  toggled only the side bar, `b` only the panel, Cmd+K only started the
+  chord, `t` focused the tab and Cmd+F the search. Windows and Linux were not
+  tried.
+- A finding's id under "Findings on this step" is one line. It sat in a
+  narrow column right of the title and broke letter by letter
+  ("f-plot-/not-/random"); it is now a muted monospace line under the title.
+  The F-label stays beside the title, and the finding's own pane keeps the id
+  beside its F-label.
+- Reopening a hidden panel keeps the selection and an open bottom sheet.
+  VS Code rebuilds a hidden panel's page when it is shown again; the tab came
+  back, but the selection and the open sheet did not. The saved view now
+  records an open sheet (`sheetOpen`, absent when the sheet is collapsed or
+  the rail docked), and a remount of the same revision restores the selection
+  and the sheet with the tab. A selection saved for another revision, of a
+  kind the viewer does not have, or for an id the revision lacks is dropped.
+  Checked again live at 541 px: hidden behind another tab (the page was
+  destroyed) and shown again, the panel came back with the step selected, the
+  sheet open and the Selection tab. In jsdom the build before the fix already
+  kept the selection across a remount, so why the earlier live run lost it
+  was not established; the restore is now explicit and pinned by a test.
+- Not changed: the first-view thresholds; the deferral above (A11Y-7) stands.
 
 ## Unreleased — viewer M1: verification loop and cleanup
 
