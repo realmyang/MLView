@@ -161,6 +161,18 @@ jsdom tests and headless-Chrome screenshots of a simulated host only, not in
 live VS Code, with a screen reader or as a usability check
 ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M2, step 6 (a readable first view): the diagram opens whole
+when it fits at 62% or more, otherwise on its first phase at 90% (or the whole
+first phase when that fits at 75% or more); a view saved for the same revision
+still wins. On the public shakedown artifacts the first paint went from
+17-59% (2.1-7.1 px titles) to 84-90% (11.0-11.7 px titles) at 541, 900 and
+1440 px, measured with the screenshot harness. Key `0` returns to that view;
+the toolbar's Fit button is now **Fit the whole diagram**. Zoomed out below
+62%, cards show only their title at about 11 px, capped to fit the card,
+which keeps titles at 10 px or more down to about 35% without laying the
+diagram out again. No contract change, no new setting and no geometry change.
+Local jsdom tests and headless-Chrome screenshots only, not live VS Code.
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

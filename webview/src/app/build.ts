@@ -44,7 +44,7 @@ export function buildAppUi(app: App): void {
     onSearchKey: (ev) => app.search.handleKey(ev),
     onToggleRail: () => app.toggleRail(),
     onSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
-    onFit: () => app.view.fit(),
+    onFitWhole: () => app.view.fitWhole(),
     onZoom: (dir) => app.view.zoomStep(dir),
     onStage: (stageId) => app.toggleStage(stageId),
     onClearFilters: () => app.clearFilters(),

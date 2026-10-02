@@ -242,17 +242,21 @@ test('the minimap is not drawn over a canvas under 350 px tall', async () => {
 });
 
 test('a large resize refits a viewport nobody moved, and never one the reader moved', async () => {
+  // Viewer M2: the refit re-runs the readable view. At 541x420 phase 1 of this fixture (646x390)
+  // fits at 0.763, so it is fitted; at 1382x600 it would fit at 1.4, so it opens at 0.9.
   const ctx = await mount(rendererRegressionWorkflow(48));
-  sizeCanvas(ctx, { w: 300, h: 450 });
+  sizeCanvas(ctx, { w: 541, h: 420 });
   ctx.app.view.fit();
   const narrow = ctx.app.getState().viewport.zoom;
-  sizeCanvas(ctx, { w: 300, h: 440 });
+  assert.ok(narrow >= 0.75 && narrow < 0.9, `phase 1 fitted (${narrow})`);
+  sizeCanvas(ctx, { w: 541, h: 410 });
   resize(ctx);
   assert.equal(ctx.app.getState().viewport.zoom, narrow, 'a 10 px settle keeps the picture');
   sizeCanvas(ctx, { w: 1382, h: 600 });
   resize(ctx);
   const wide = ctx.app.getState().viewport.zoom;
   assert.ok(wide > narrow, `widening refits (${narrow} -> ${wide})`);
+  assert.equal(wide, 0.9, 'READABLE_ZOOM');
   ctx.document.querySelector('button[aria-label="Zoom in"]').click();
   const zoomed = ctx.app.getState().viewport.zoom;
   sizeCanvas(ctx, { w: 541, h: 450 });
@@ -261,23 +265,33 @@ test('a large resize refits a viewport nobody moved, and never one the reader mo
   ctx.app.destroy();
 });
 
-test('Fit after widening re-runs the first-paint plan; after zooming out below the floor it still fits the whole', async () => {
+test('key 0 re-runs the readable view for the canvas it has now; "Fit the whole diagram" fits the whole', async () => {
+  // Viewer M2. Before, one control ("Fit to view", and key 0) re-ran the first paint, or fitted the
+  // whole document once the reader had zoomed out below 50 % (HOSTS-UX-FITZOOM). Key 0 is now the
+  // readable view from any zoom, and the toolbar button is named for the whole-document fit.
   const ctx = await mount(rendererRegressionWorkflow(48));
-  const fitButton = () => ctx.document.querySelector('button[aria-label="Fit to view"]');
+  const canvas = ctx.document.querySelector('.mlv-canvas');
+  const press = (key) => canvas.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  const fitWhole = () => ctx.document.querySelector('button[aria-label="Fit the whole diagram"]');
+  assert.equal(ctx.document.querySelector('button[aria-label="Fit to view"]'), null, 'the old name is gone');
+  assert.match(fitWhole().title, /press 0 for the readable view/);
   sizeCanvas(ctx, { w: 400, h: 300 });
   ctx.app.view.fit();
-  const small = ctx.app.getState().viewport.zoom;
-  assert.ok(small < 0.5, 'the fixture opens below MIN_FIT_ZOOM in a small canvas');
-  sizeCanvas(ctx, { w: 1382, h: 431 });
-  fitButton().click();
-  const refit = ctx.app.getState().viewport.zoom;
-  assert.ok(refit >= small, `Fit after widening must not zoom out (${small} -> ${refit})`);
-  const firstPaint = refit;
-  // HOSTS-UX-FITZOOM still holds for a reader who zoomed out past the floor.
+  assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'phase 1 does not fit at 0.75 here, so it opens at READABLE_ZOOM');
   for (let i = 0; i < 8; i++) ctx.document.querySelector('button[aria-label="Zoom out"]').click();
   assert.ok(ctx.app.getState().viewport.zoom < 0.5);
-  fitButton().click();
-  assert.ok(ctx.app.getState().viewport.zoom <= firstPaint, 'below the floor Fit shows the whole document');
+  press('0');
+  assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'key 0 from below the old floor reads again');
+  sizeCanvas(ctx, { w: 1382, h: 431 });
+  press('0');
+  const widened = ctx.app.getState().viewport;
+  assert.equal(widened.zoom, 0.9, 'after widening, key 0 re-runs the plan for the new size and never zooms out');
+  assert.equal(widened.x, (1382 - ctx.app.view.frameData.width * 0.9) / 2, 'a document narrower than the canvas is centred');
+  fitWhole().click();
+  const whole = ctx.app.getState().viewport.zoom;
+  assert.equal(whole, 0.15, 'the whole 3464 px tall fixture in a 431 px canvas fits at the zoom floor');
+  press('0');
+  assert.equal(ctx.app.getState().viewport.zoom, 0.9);
   ctx.app.destroy();
 });
 
@@ -449,7 +463,9 @@ test('an authored title is truncated once: whole label in the DOM, wrapped to th
   for (const n of ['2', '3']) {
     assert.equal(declarationsFor(css, `.mlv-node__title--wrap[data-lines="${n}"]`)['-webkit-line-clamp'], n, 'the clamp matches the reserved lines');
   }
-  assert.equal(declarationsFor(css, '.mlv-canvas[data-lod=compact] .mlv-node__title--wrap[data-lines="3"]')['-webkit-line-clamp'], '5', 'compact cards give the title two more lines');
+  // Viewer M2: the compact level's clamp (two lines, three for a three-line title, counter-scaled
+  // to the card's box) moved to readable-view.test.mjs, which reads screen and print rules apart.
+
   assert.equal(parseFloat(card.style.height) - parseFloat(short.style.height), 36, 'two extra 18 px title lines are reserved');
   // The SVG export draws the same lines.
   ctx.document.querySelector('.mlv-btn--exportmenu').click();

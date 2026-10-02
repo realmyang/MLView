@@ -138,6 +138,14 @@ findings touching that phase, so a finding that cites two phases counts in
 both. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
 again, and VS Code's Reduce Motion setting turns the animation off.
 
+The diagram opens readable: the whole document if it fits at 62% zoom or
+more, otherwise the first phase at 90% (or all of the first phase, when it
+fits at 75% or more). Reopening the same revision keeps where you were. Press
+`0` to return to that first view from any zoom; the toolbar's **Fit the whole
+diagram** shows everything, and Shift+0 (Overview) also folds every group.
+Zoomed out below 62%, cards show only their titles, at about 11 px on screen
+down to about 35% zoom; the full title is in the hover card.
+
 Use **Outline → Text relationships** to enumerate connections without relying
 on the canvas. All shows relationships in the current scope; Incoming and
 Outgoing use the selected node, and Unresolved shows relationships involving

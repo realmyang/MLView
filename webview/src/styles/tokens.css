@@ -72,6 +72,9 @@
   --mlv-fs-14: 14px;
   --mlv-fs-16: 16px;
   --mlv-fs-20: 20px;
+  /* Viewer M2: a compact-level card title on screen (node.css); the --mlv-z bucket rounding keeps
+   * it between 10 and 12.5 px. */
+  --mlv-compact-title: 11.2px;
   --mlv-lh-tight: 1.35;
   --mlv-lh-body: 1.5;
   --mlv-fw-regular: 450;

@@ -15,6 +15,7 @@ export interface KeyCommands {
   escape(): void;
   cycleIssue(backwards: boolean): boolean;
   zoom(direction: number): void;
+  /** `0`: the readable view (viewer M2), the first paint again. */
   fit(): void;
   toggleFocusMode(): void;
   zoomToSelection(): void;
@@ -63,8 +64,10 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['Alt+Enter'], action: 'openFocus', description: 'Open the cited source and move focus to the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection' },
-  { keys: ['0'], action: 'fit', description: 'Fit the whole diagram' },
-  { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit' },
+  // Viewer M2: key 0 is the readable first view; the whole document is the toolbar's "Fit the whole
+  // diagram" button (and Shift+0, which also folds the groups).
+  { keys: ['0'], action: 'fit', description: 'Readable view: the whole diagram if it fits at reading size, otherwise phase 1' },
+  { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit the whole diagram' },
   { keys: ['+', '='], action: 'zoomIn', description: 'Zoom in' },
   { keys: ['-', '_'], action: 'zoomOut', description: 'Zoom out' },
   { keys: ['z'], action: 'zoomToSelection', description: 'Zoom to the selection' },

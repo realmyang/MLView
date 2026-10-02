@@ -75,6 +75,61 @@ A calm canvas (layout unchanged; the geometry golden is byte-identical):
 - The screenshot harness gained `focus-settled`, `exceptions` and `legend`
   states, and finds the severity chips by `data-severity`.
 
+A readable first view, and readable titles zoomed out (layout unchanged; the
+geometry golden is byte-identical):
+- The diagram opens at a zoom where you can read the cards. If the whole
+  document fits at 62% or more, it opens whole, as before. Otherwise it opens
+  on the first phase at 90% (card titles about 11.7 px on screen), with the
+  phase's top-left corner and the routing channel on its left in view; if the
+  whole first phase fits at 75% or more, it is fitted instead. A view saved
+  for the same revision still comes back as you left it.
+- First-paint zoom, measured with the screenshot harness on public shakedown
+  artifacts at 1440x900, 900x800 and 541x798 (the measured beside-the-code
+  width): vit (Claude Code) 48%, 40%, 17% -> 90%, 90%, 90%; yolov5 (Claude
+  Code) 47%, 39%, 23% -> 84%, 90%, 90%; dino (Copilot) 59%, 50%, 35% -> 86%,
+  90%, 90%. Card titles on screen went from 5.8, 4.8 and 2.1 px (vit) and
+  5.7, 4.7 and 2.7 px (yolov5) to 11.0-11.7 px at every width. The repository
+  sample opens at 90% at all three widths (was 71%, 56%, 50%). The trade-off:
+  the first view shows the first phase, not the whole document. At 541 px the
+  canvas is only about 480 px tall under today's header, so 1 to 6 whole
+  cards are in view.
+- Press `0` to come back to that view from any zoom. Before, `0` fitted the
+  whole document once you had zoomed out below 50%. The toolbar's "Fit to
+  view" button is now **Fit the whole diagram** and always shows the whole
+  document with its groups as they are; Shift+0 (Overview) still folds every
+  group first.
+- Zoomed out (below 62%), a card shows only its title, sized to be read:
+  about 11 px on screen, on two lines (three for a long title), never spilling
+  out of its card or cut through a line; the full title is in the hover card.
+  Titles stay at 10 px or more down to about 35% zoom (43% for a step with no
+  evidence, whose card is shorter); further out they shrink with the card.
+  On the public artifacts they measured 10.1-12.2 px from 52% down to 36%,
+  8.6-8.9 px at 30% and 5.0-5.2 px at 17%; before, they were 6.3 px at 52%,
+  4.3 px at 36% and 2.1 px at 17%. Zooming never lays the diagram out again:
+  titles change size only when the zoom crosses one of the steps the canvas
+  already uses for its constant-size marks.
+- First tried as specified, titles held at 11 px at every zoom with the lines
+  they need. On the real layout that failed: from 43% down every title
+  overflowed its card and was cut through a line, and at 25% a card showed
+  about a tenth of its title. Capping the size to what fits the card's own box
+  is what makes it work.
+- At that level the `inferred` and `? unresolved` tags hang from the card's
+  bottom edge instead of sitting across it, where they covered the title's
+  last line.
+- Between 62% and 77% zoom (full detail) card titles are still 8-10 px; full
+  detail is unchanged in this step.
+- Cost, measured in headless Chrome at 900x800 from Chrome's main-thread
+  counters (script, style and layout), descriptive and not a CI budget: a
+  wheel-zoom event costs 0.2 ms (median); crossing a zoom step costs 2.8-6.4 ms
+  on vit and yolov5 (2.7-4.9 ms without the compact-title change), 6.1-8.7 ms
+  on the synthetic 120-step document, and 40-60 ms on a synthetic 1,000-step
+  document, with one 73 ms outlier in four runs (38-49 ms without it).
+  Hovering a card costs 3-4 ms on the public artifacts, 5-7 ms on the 120-step
+  document and 26-32 ms at 1,000 steps, with or without it.
+- The screenshot harness gained `compact` (zoom out below 62%) and `whole`
+  (Fit the whole diagram) states and a `titles` fact: on-screen title size,
+  lines shown and how many titles end clamped.
+
 ## Unreleased — viewer M1: verification loop and cleanup
 
 Step 1 of the viewer's first milestone: check a claim against its source

@@ -100,6 +100,35 @@ Viewer M1 Inspector content (no protocol change):
     borders, phase tones, basis borders and faded text from the harness's
     theme table (`tools/screenshots/themes.js`) and tokens.css, and covers
     the marks, the F labels, the units, the toggle and the motion rules.
+- Viewer M2 readable first view (no geometry change; the golden is
+  byte-identical, and the viewport is not part of it):
+  - `readablePlan(frame, w, h)` in `render/canvas.ts` is pure: the whole
+    document, centred, when `fitPlan` (now only the whole-document fit, capped
+    at 1.2) gives `LOD_FULL_ZOOM` (0.62) or more; otherwise phase 1 (the first
+    lane, widened left by `frame.channelW`) fitted when that zoom is
+    `PHASE_FIT_MIN_ZOOM` (0.75) or more, capped at `READABLE_ZOOM` (0.9), else
+    anchored top-left at 0.9. A document narrower or shorter than the canvas
+    at that zoom is centred on that axis. `ViewportController.fit()` runs it
+    (first paint, key 0, a refit on resize); `fitWhole()` is the toolbar's
+    **Fit the whole diagram** and Overview. A projection still fits whole.
+    The old top-anchored tall branch (`TALL_SCREENS`, `MIN_FIT_ZOOM`) is gone.
+    `App.setWorkflow` still restores a viewport saved for the same revision.
+  - Compact level (`data-lod="compact"`, below 0.62): node.css hides the icon
+    tile, detail, file:line and chips, makes `.mlv-node__main` a size
+    container, and sets the title to
+    `min(var(--mlv-compact-title) / var(--mlv-z), 100cqh / (lines x 1.15))`
+    with `--mlv-compact-title: 11.2px`, clamped to 2 lines (3 when
+    `data-lines="3"`). The `--mlv-z` bucket rounding keeps the counter-scaled
+    size between 10 and 12.5 px; the `cqh` cap keeps the lines inside the box
+    `layout/cardmetrics.ts` reserved, so nothing is laid out again and no
+    per-card style is written. The basis tag hangs below the card at this
+    level. `export.css` restores the full card for print.
+  - `test/readable-view.test.mjs` compiles `render/canvas.ts` with esbuild for
+    the pure plan cases, checks first paint, key 0, Fit the whole diagram and
+    a restored viewport on the bundle, and recomputes the compact title size
+    over every compact zoom from the shipped stylesheet's numbers and the card
+    heights `cardHeight` reserves (10 px or more down to 0.35 for a one-line
+    title with a file:line row; never more lines than the box holds).
 - The Inspector shows the title, the phase label and kind, one basis chip, a
   sentence for an inferred or unresolved basis, the full detail, the findings
   on the item with **What to change** (the finding's `suggestion`), the source
@@ -148,12 +177,17 @@ node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/sh
 
 - States: `initial`, `select-node`, `hover-node`, `hover-connection`,
   `focus-mode`, `focus-settled` (focus mode, then 7 s for the flow to
-  settle), `exceptions` (the "not observed" toggle on), `legend`, `filter`,
-  `search`, `finding` (a finding with its suggestion), `stale`,
-  `stale-selected` and `narrow-selected` (900x800). Pick some with
+  settle), `exceptions` (the "not observed" toggle on), `legend`, `compact`
+  (`-` pressed until the zoom is under 62%), `whole` (**Fit the whole
+  diagram**), `filter`, `search`, `finding` (a finding with its suggestion),
+  `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
   `--states`. `index.json` records, per shot, how many connections are lit
-  and moving, whether the flow has settled, the canvas box and the toolbar
-  and status bar heights.
+  and moving, whether the flow has settled, the canvas box, the toolbar and
+  status bar heights, the zoom, and `titles`: for the step titles wholly in
+  the canvas, their size on screen (computed font size times the canvas
+  scale, measured from the box), the lines shown, how many end clamped and
+  the share of characters the shown lines hold. Use `--size 541x798` for the
+  measured beside-the-code width.
 - Inputs: by default `samples/configured_training.mlview.json` (read only)
   and a synthetic 120-step document built from `tools/benchmark-model.mjs`.
   `--artifact` and `--workspace` open your own; with a workspace, cited files

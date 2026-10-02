@@ -21,7 +21,8 @@ export interface ChromeCallbacks {
   onSearchKey(ev: KeyboardEvent): void;
   onToggleRail(): void;
   onSeverity(sev: Severity): void;
-  onFit(): void;
+  /** Viewer M2: the whole document; key 0 is the readable view. */
+  onFitWhole(): void;
   onZoom(dir: number): void;
   /** Open the scope picker (FEATURES 3.7). */
   onScope(): void;
@@ -256,9 +257,13 @@ export class Chrome {
     on(zoomIn, 'click', () => cb.onZoom(1));
     this.toolbar.appendChild(zoomIn);
 
-    const fit = iconButton('mlv-btn mlv-btn--icon', 'Fit to view');
+    // Viewer M2: named for what it does. It used to be "Fit to view", which re-ran the first paint
+    // (or the whole document below 50 %); the first paint is now the readable view on key 0, and
+    // this button is the way to see the whole document with its groups as they are.
+    const fit = iconButton('mlv-btn mlv-btn--icon mlv-btn--fitwhole', 'Fit the whole diagram');
+    fit.title = 'Fit the whole diagram (press 0 for the readable view)';
     fit.appendChild(uiIcon('fit'));
-    on(fit, 'click', () => cb.onFit());
+    on(fit, 'click', () => cb.onFitWhole());
     this.toolbar.appendChild(fit);
 
     this.exportSlot = add(this.toolbar, el('span', 'mlv-toolbar__exportslot'));

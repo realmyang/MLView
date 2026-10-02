@@ -39,6 +39,8 @@ const STATES = {
   'focus-settled': 'clicked a step card, pressed F, then waited 7 s for the flow to settle',
   'exceptions': 'turned on the "not observed" toggle, which fades the observed claims',
   'legend': 'pressed L to open the legend',
+  'compact': 'pressed - until the zoom was under 62 % (the compact level of detail)',
+  'whole': 'clicked "Fit the whole diagram"',
   'filter': 'turned off the lowest severity that has findings (a phase chip when there are none)',
   'search': 'typed a word from a step label into the search box',
   'finding': 'clicked a finding with a suggestion in the Findings list',
@@ -329,6 +331,48 @@ function pageHelpers() {
       const r = rect(status);
       return { x: r.x + r.w * 0.75, y: r.y + r.h / 2 };
     },
+    /**
+     * Step card titles wholly inside the canvas: how big they are on screen (the computed font size
+     * times the scale the canvas transform applies, measured from the box rather than read from the
+     * zoom readout), how many lines each shows, how many end clamped, and how many characters the
+     * shown lines hold. A rendering measurement, not a readability judgement.
+     */
+    titles() {
+      const m = main();
+      const sizes = [];
+      const lines = [];
+      let clamped = 0;
+      let chars = 0;
+      let total = 0;
+      for (const t of document.querySelectorAll('.mlv-node[data-node-id] .mlv-node__title')) {
+        if (!shown(t) || !t.offsetWidth) continue;
+        const r = t.getBoundingClientRect();
+        if (r.x < m.x || r.y < m.y || r.x + r.width > m.x + m.w || r.y + r.height > m.y + m.h) continue;
+        const scale = r.width / t.offsetWidth;
+        const style = getComputedStyle(t);
+        const font = parseFloat(style.fontSize);
+        const lh = parseFloat(style.lineHeight) || font * 1.35;
+        sizes.push(Math.round(font * scale * 10) / 10);
+        const shownLines = Math.max(1, Math.round(t.clientHeight / lh));
+        lines.push(shownLines);
+        const isClamped = t.scrollHeight > t.clientHeight + 1 || t.scrollWidth > t.clientWidth + 1;
+        if (isClamped) clamped++;
+        // The characters the shown lines can hold: all of them unless the title is clamped, then
+        // the share of its full height that is shown.
+        const text = (t.textContent || '').length;
+        total += text;
+        chars += isClamped ? Math.round(text * Math.min(1, t.clientHeight / Math.max(1, t.scrollHeight))) : text;
+      }
+      sizes.sort((a, b) => a - b);
+      const at = (q) => (sizes.length ? sizes[Math.min(sizes.length - 1, Math.floor(q * sizes.length))] : null);
+      return {
+        visible: sizes.length,
+        screenPx: { min: sizes.length ? sizes[0] : null, median: at(0.5), max: sizes.length ? sizes[sizes.length - 1] : null },
+        lines: lines.length ? { min: Math.min(...lines), max: Math.max(...lines) } : null,
+        clamped,
+        charsShown: total ? Math.round((chars / total) * 100) / 100 : null,
+      };
+    },
     severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter(shown)
       .map((c, i) => ({ i, severity: c.getAttribute('data-severity'), count: Number(txt(c.querySelector('.mlv-chip__count'))) || 0 })),
     facts() {
@@ -367,6 +411,7 @@ function pageHelpers() {
         },
         exceptions: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-exceptions') === 'on',
         tooltip: tip ? txt(tip).slice(0, 300) : null,
+        titles: this.titles(),
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
       };
@@ -565,6 +610,30 @@ try {
       await sleep(500);
       await rest();
       return { frames, did: 'pressed L' };
+    },
+    async 'compact'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      // Focus the canvas without clicking: a click could select a card and, beside the code, open
+      // the rail drawer over the cards being measured.
+      await evaluate(`(document.querySelector('.mlv-canvas') || document.body).focus()`);
+      let presses = 0;
+      while (presses < 12 && (parseFloat(await evaluate(`(document.querySelector('.mlv-zoom__level') || {}).textContent || '100'`)) || 100) >= 62) {
+        await key('-');
+        presses++;
+        await sleep(150);
+      }
+      await sleep(400);
+      await rest();
+      return { frames, did: `pressed - ${presses} time(s)` };
+    },
+    async 'whole'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const button = await evaluate(`window.__shots.pointOf('button[aria-label="Fit the whole diagram"]')`);
+      if (!button) return { skip: 'no "Fit the whole diagram" button (the viewer predates it)' };
+      await click(button.x, button.y);
+      await sleep(600);
+      await rest();
+      return { frames, did: 'clicked "Fit the whole diagram"' };
     },
     async 'exceptions'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);

@@ -258,15 +258,50 @@
   50% { box-shadow: var(--mlv-sh-2), 0 0 0 7px color-mix(in srgb, var(--mlv-accent) 30%, transparent); }
 }
 
-/* level of detail — boxes are always laid out at full size, only paint changes */
+/*
+ * Level of detail: boxes are always laid out at full size, only paint changes, so zooming never
+ * lays the diagram out again.
+ *
+ * Viewer M2, the compact level (below 62 %): the card shows its title only, at a readable size.
+ * The icon tile, detail, file:line and chips go, and the title is counter-scaled through --mlv-z
+ * (render/canvas.ts writes it in buckets about 25 % apart, so text reflows only when a bucket edge
+ * is crossed) to 11.2 px on screen, which the bucket rounding keeps between 10 and 12.5 px. It is
+ * capped so its lines fit the card's own box: `100cqh` is the content height of
+ * `.mlv-node__main`, made a size container here, so the title never overflows its card or ends in
+ * a half-cut line. Two lines, three for a title that reserved three. Titles stay at 10 px or more
+ * down to about 35 % (43 % on the shorter card of a step with no evidence); further out the cap
+ * holds them to their card and they shrink with it (test/readable-view.test.mjs).
+ *
+ * The literal counter-scale (11 px at every zoom, the lines it needs) was tried on this layout
+ * first: at 43 % every card's title overflowed its box and was cut mid-line, and at 25 % a card
+ * showed about a tenth of its title, so the cap is what makes counter-scaling work here.
+ */
 .mlv-canvas[data-lod="compact"] .mlv-node__sub,
 .mlv-canvas[data-lod="compact"] .mlv-node__loc,
-.mlv-canvas[data-lod="compact"] .mlv-node__chips {
+.mlv-canvas[data-lod="compact"] .mlv-node__chips,
+.mlv-canvas[data-lod="compact"] .mlv-node__iconbox {
   display: none;
 }
 
+.mlv-canvas[data-lod="compact"] .mlv-node__main {
+  container-type: size;
+  align-items: center;
+  padding: 2px 8px;
+}
+
 .mlv-canvas[data-lod="compact"] .mlv-node__title {
-  font-size: var(--mlv-fs-12);
+  font-size: min(calc(var(--mlv-compact-title) / var(--mlv-z, 1)), calc(100cqh / 2.3));
+  line-height: 1.15;
+}
+
+/*
+ * The title now reaches the card's bottom edge, where the inferred / unresolved tag straddled it
+ * and covered half the last line; at this level the tag hangs from that edge instead, still the
+ * same size on screen.
+ */
+.mlv-canvas[data-lod="compact"] .mlv-node > .mlv-basis-tag {
+  transform-origin: 0 0;
+  transform: translateY(-1px) scale(calc(1 / var(--mlv-z, 1)));
 }
 
 .mlv-canvas[data-lod="compact"] .mlv-edge-label {
@@ -417,8 +452,9 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
  * reserved for it (`layout/cardmetrics.ts` titleLines, written as `data-lines`
  * by render/nodes.ts) and is clamped there with ONE ellipsis. The old path cut
  * the label to 34 characters in the middle and then again at the end. Below
- * the detail threshold the rows under the title are not drawn, so the same box
- * holds two more title lines.
+ * the detail threshold the rows under the title are not drawn and the title is
+ * drawn larger, in two lines (three when it reserved three) that fit the box
+ * (viewer M2; the level-of-detail rules above).
  */
 .mlv-node__title--wrap {
   display: -webkit-box;
@@ -432,8 +468,12 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
 
 .mlv-node__title--wrap[data-lines="2"] { -webkit-line-clamp: 2; line-clamp: 2; }
 .mlv-node__title--wrap[data-lines="3"] { -webkit-line-clamp: 3; line-clamp: 3; }
-.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap { -webkit-line-clamp: 3; line-clamp: 3; }
-.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap[data-lines="2"] { -webkit-line-clamp: 4; line-clamp: 4; }
-.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap[data-lines="3"] { -webkit-line-clamp: 5; line-clamp: 5; }
+/* Viewer M2: the compact title's lines (see the level-of-detail rules above). */
+.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap { -webkit-line-clamp: 2; line-clamp: 2; }
+.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap[data-lines="3"] {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  font-size: min(calc(var(--mlv-compact-title) / var(--mlv-z, 1)), calc(100cqh / 3.45));
+}
 
 

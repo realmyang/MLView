@@ -251,7 +251,8 @@ export class CanvasView {
     // VIEW-03. Pure geometry over the frame and the routes, so it costs one
     // O(labels) pass with grid bucketing and moves no box.
     this.labelPlan = planLabels(this.frameData, this.routes);
-    this.viewport.setContent(this.frameData.width, this.frameData.height);
+    // Viewer M2: the frame too, so the readable first view can anchor on phase 1.
+    this.viewport.setContent(this.frameData.width, this.frameData.height, this.frameData);
     // A SCOPE is small by construction, so the "fit the width and let them pan
     // down" rule written for a whole workspace does not apply to it: it opened a
     // report scoped to evaluation with the evaluation lane below the fold
@@ -662,8 +663,14 @@ export class CanvasView {
     this.viewport.zoomAt(dir > 0 ? 1.2 : 1 / 1.2, size.w / 2, size.h / 2);
   }
 
+  /** The readable view (viewer M2, key 0 and the first paint): see `ViewportController.fit`. */
   fit(): void {
     this.viewport.fit();
+  }
+
+  /** The whole document, groups as they are (the toolbar's "Fit the whole diagram"). */
+  fitWhole(): void {
+    this.viewport.fitWhole();
   }
 
   zoomToNode(id: string): void {

@@ -73,7 +73,10 @@ inferred (dashed, with an `inferred` tag) and unresolved (dotted, with a
 **N not observed** toggle fades the rest. Each phase is coloured by its place
 in the document; colour is otherwise used only for problems. Finding badges
 read F1, F2… in document order; the Inspector and Refine prompts keep the
-real finding id. Saved source
+real finding id. The diagram opens at a zoom where cards can be read: the
+whole document when it fits at 62% or more, otherwise the first phase at 90%.
+Press `0` to return to that view, or use **Fit the whole diagram** to see
+everything; zoomed out, cards show just their titles at about 11 px. Saved source
 edits mark the steps, connections, findings and quotes that cite the changed
 files, and block jumps into those files; malformed updates retain the last
 valid diagram. When the workspace root is a parent of the folder the diagram
