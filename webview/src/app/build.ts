@@ -21,6 +21,7 @@ import { buildShell, claimPage } from '../ui/shell.js';
 import { ShortcutSheet } from '../ui/shortcuts.js';
 import { SearchController } from '../ui/searchcontroller.js';
 import { HostNotice } from '../ui/hostnotice.js';
+import { WalkBar } from '../ui/walkbar.js';
 import { runExport } from './exporting.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import { syncCollapsed } from './documents.js';
@@ -56,17 +57,48 @@ export function buildAppUi(app: App): void {
     onShortcuts: () => app.toggleShortcuts(true),
     // The menu reads the state as it opens (the selection changes without a chrome repaint).
     onMenuOpen: () => renderChrome(app),
+    // Viewer M3: the header's Review button and the ... menu's item start or end the walk.
+    onReview: () => app.walk.toggle(),
   }, shell.zoomBar);
 
   // The header is the first thing after the skip link; the ... menu's panel goes on the app root,
   // so the header's roving toolbar (VIEW-12) keeps its single tab stop.
   app.root.appendChild(app.chrome.header);
+  // Viewer M3: the review walk's bar, shown only while the walk runs. It goes at the foot of the
+  // diagram column, after the canvas in the document: directly above the bottom sheet's tabs (or,
+  // with the side panel, along the bottom of the diagram). So the canvas keeps its place within
+  // four Tab presses of the top, and Tab from the canvas reaches the walk's controls, then the
+  // claim in the sheet.
+  app.walkBar = new WalkBar({
+    onFilter: (filter) => app.walk.setFilter(filter),
+    onExit: () => {
+      app.walk.stop();
+      focusCanvas(app);
+    },
+    onKey: (ev) => {
+      const key = ev.key;
+      if (key === 'j' || key === 'J') return app.walk.step(1);
+      if (key === 'k' || key === 'K') return app.walk.step(-1);
+      if (key === ']') return app.walk.stepQuote(1);
+      if (key === '[') return app.walk.stepQuote(-1);
+      if (key === 'u' || key === 'U') return app.walk.jump('notObserved', ev.shiftKey);
+      if (key === 'n' || key === 'N' || key === 'p' || key === 'P') return app.walk.jump('findings', key === 'p' || key === 'P');
+      return false;
+    },
+  });
   // Viewer M1: the host's banner after the mount (stale files, the root hint, a refused update).
   // It moves under the header when it is first shown (App.showHostNotice).
-  app.notice = new HostNotice({ onWorkspaceHint: (action) => app.bridge.post({ v: 1, type: 'workspaceHint', action }) });
+  app.notice = new HostNotice({
+    onWorkspaceHint: (action) => app.bridge.post({ v: 1, type: 'workspaceHint', action }),
+    // Viewer M3: the stale notice's "Review affected claims" walks the claims that cite those files.
+    onReviewAffected: () => {
+      if (app.walk.start('changed')) focusCanvas(app);
+    },
+  });
   app.root.appendChild(app.notice.root);
   app.root.appendChild(shell.body);
   shell.body.appendChild(shell.main);
+  shell.main.appendChild(app.walkBar.root);
 
   app.search = new SearchController(app.chrome.searchInput, app.chrome.results, {
     index: () => app.index,
@@ -102,7 +134,10 @@ export function buildAppUi(app: App): void {
     onShowIssue: (id) => app.focusIssue(id),
     onChallenge: () => openComposer(app, 'challenge'),
     onRefine: () => openComposer(app, null),
-    onOpen: (loc, focusEditor) => app.openLocation(loc, focusEditor),
+    // Viewer M3: an Open link of the claim the walk is on opens it as the walk's quote.
+    onOpen: (loc, focusEditor) => {
+      if (!app.walk.openQuote(loc, !!focusEditor)) app.openLocation(loc, focusEditor);
+    },
     onResize: (w) => app.setRailWidth(w),
     onSelectLane: (laneId) => app.selectLane(laneId),
     onToggleCollapse: (id) => {
@@ -110,7 +145,12 @@ export function buildAppUi(app: App): void {
     },
     onShowLimitations: () => app.showAbout({ at: 'limitations', focus: true }),
     onSheetToggle: () => app.toggleRail(),
-    onSheetCollapse: () => app.collapseSheet(true),
+    // Viewer M3: Escape inside the open sheet ends a running walk first (one Escape always ends it)
+    // and gives the focus back to the diagram; otherwise it collapses the sheet, as in M2.
+    onSheetCollapse: () => {
+      if (app.walk.stop()) focusCanvas(app);
+      else app.collapseSheet(true);
+    },
     onSheetResize: (fraction) => app.setSheetFraction(fraction),
     sheetFraction: () => app.sheetFraction,
     sheetFractionMax: () => app.sheetFractionMax(),
@@ -138,6 +178,15 @@ export function buildAppUi(app: App): void {
   app.root.appendChild(app.liveEl);
   app.setRailWidth(app.railWidth);
   app.setRailOpen(app.railOpen);
+}
+
+/** Give the keyboard back to the diagram. */
+function focusCanvas(app: App): void {
+  try {
+    app.view.canvasEl.focus();
+  } catch (_e) {
+    /* the canvas may already be torn down */
+  }
 }
 
 /** What the canvas is allowed to ask of the application. */

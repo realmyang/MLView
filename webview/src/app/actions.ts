@@ -11,7 +11,31 @@
 import { STALE_TEXT } from '../freshness.js';
 import { fileLine } from '../dom.js';
 import type { App } from '../app.js';
-import type { Loc, RelatedLoc } from '../types.js';
+import type { Loc, RelatedLoc, UiToHost } from '../types.js';
+
+type OpenFrame = Extract<UiToHost, { type: 'openLocation' }>;
+
+/**
+ * The `openLocation` frame for a cited range. Preserve the frozen legacy frame byte-for-byte:
+ * authored evidence adds identifiers only when it actually has them. The review walk (viewer M3)
+ * adds `seq`, `walk` and a request id to the same frame.
+ */
+export function locationFrame(loc: Loc | RelatedLoc): OpenFrame {
+  const message: OpenFrame = {
+    v: 1,
+    type: 'openLocation',
+    file: loc.file,
+    absFile: loc.absFile,
+    line: loc.line,
+    col: loc.col,
+    endLine: loc.endLine,
+    endCol: loc.endCol,
+    preview: true,
+  };
+  if (loc.evidenceId) message.evidenceId = loc.evidenceId;
+  if (loc.evidenceId && loc.cell !== undefined) message.cell = loc.cell;
+  return message;
+}
 
 /**
  * Ask the host to open a cited range beside the panel (viewer M1). The host selects and
@@ -33,21 +57,7 @@ export function openLocation(app: App, loc: Loc | RelatedLoc, focusEditor = fals
   // the active editor. Persist synchronously before handing control to the
   // host; the ordinary debounced save can be lost with the document.
   app.bridge.saveState(app.getState());
-  const message: any = {
-    v: 1,
-    type: 'openLocation',
-    file: loc.file,
-    absFile: loc.absFile,
-    line: loc.line,
-    col: loc.col,
-    endLine: loc.endLine,
-    endCol: loc.endCol,
-    preview: true,
-  };
-  // Preserve the frozen legacy frame byte-for-byte. Authored evidence adds
-  // identifiers only when it actually has them.
-  if (loc.evidenceId) message.evidenceId = loc.evidenceId;
-  if (loc.evidenceId && loc.cell !== undefined) message.cell = loc.cell;
+  const message = locationFrame(loc);
   if (focusEditor) message.focus = true;
   app.bridge.post(message);
   // What the host is asked to do, not a claim that it did it (VW-10).

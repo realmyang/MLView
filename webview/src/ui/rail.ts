@@ -16,6 +16,7 @@ import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
 import type { RelationMode } from './outline.js';
 import { renderSelectionPane } from './selection.js';
+import type { WalkMark } from './selection.js';
 import { renderAboutPane } from './about.js';
 import type { Issue, Loc, MLEdge, MLNode, RailTab, RelatedLoc, StaleReason, WorkflowDocument } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
@@ -81,6 +82,8 @@ export interface RailState {
   document: WorkflowDocument | null;
   /** Viewer M2: the Selection pane's columns (two in a sheet at least 620 px wide). */
   columns: 1 | 2;
+  /** Viewer M3: the review walk's quote mark for the Selection pane, while it shows the walk's claim. */
+  walk?: WalkMark | null;
 }
 
 /** The tabs, in order. The Selection tab keeps the id `inspector` (saved view states use it). */
@@ -494,6 +497,7 @@ export class Rail {
       columns: s.columns,
       document: s.document,
       staleReason: s.staleReason,
+      walk: s.walk || null,
     }, {
       onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onShowNode: (id) => this.cb.onShowNode(id),

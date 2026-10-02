@@ -1,6 +1,6 @@
 /**
- * The header's ... menu (viewer M2): the view toggles, the whole-diagram fit, the exports and the
- * shortcut sheet, plus whatever the header has no room for: search and the revision below 620 px,
+ * The header's ... menu (viewer M2): the review walk (viewer M3), the view toggles, the whole-diagram
+ * fit, the exports and the shortcut sheet, plus whatever the header has no room for: search and the revision below 620 px,
  * and, in a row too narrow for its controls, the revision and the "not observed" toggle.
  *
  * The standard menu-button pattern, as the export menu it replaces used it (VW-03): the trigger is
@@ -21,6 +21,7 @@ export type MoreItemId =
   | 'search'
   | 'about'
   | 'exceptions'
+  | 'review'
   | 'legend'
   | 'flow'
   | 'minimap'
@@ -49,6 +50,9 @@ const ITEMS: ItemSpec[] = [
   { id: 'search', label: 'Search steps and findings', icon: 'search', keys: 'Mod+F', folded: true },
   { id: 'about', label: 'About this revision', icon: 'info', folded: true },
   { id: 'exceptions', label: 'Not observed', icon: 'notobserved', check: true, folded: true },
+  // Viewer M3: the review walk, always here (the header's Review button folds first when the row
+  // is short); "End the review" while it runs.
+  { id: 'review', label: 'Review the claims', icon: 'review', keys: 'R', group: true },
   { id: 'legend', label: 'Legend', icon: 'legend', keys: 'L', check: true, group: true },
   { id: 'flow', label: 'Connection flow animation', icon: 'flow', keys: 'A', check: true },
   { id: 'minimap', label: 'Overview map', icon: 'minimap', check: true },
@@ -85,6 +89,8 @@ export interface MoreMenuState {
    */
   minimapUnavailable: string | null;
   railOpen: boolean;
+  /** Viewer M3: the review walk is running (the item reads "End the review"). */
+  walking: boolean;
   /** Viewer M2: the rail item is "Side panel" while docked and "Bottom panel" as a sheet. */
   railMode: 'docked' | 'sheet';
   hasSelection: boolean;
@@ -225,6 +231,14 @@ export class MoreMenu {
         const label = item.querySelector('.mlv-moremenu__label');
         if (label) label.textContent = s.exceptionsLabel;
         item.title = s.exceptionsOn ? 'The observed claims are faded; choose to show them again' : 'Fade the observed claims so these stand out';
+      }
+      if (id === 'review') {
+        const label = item.querySelector('.mlv-moremenu__label');
+        if (label) label.textContent = s.walking ? 'End the review' : 'Review the claims';
+        item.title = s.walking
+          ? 'End the review walk (Escape); it remembers its place for this revision'
+          : 'Walk the claims one by one, each opened and highlighted in the editor beside; focus stays here';
+        item.disabled = !s.canExport;
       }
       if (id === 'rail') {
         const label = item.querySelector('.mlv-moremenu__label');

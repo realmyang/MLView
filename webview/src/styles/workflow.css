@@ -163,3 +163,141 @@
 .mlv-minimap.is-narrow {
   display: none;
 }
+
+/*
+ * Viewer M3: the review walk's bar, a band at the foot of the diagram column, shown only while the
+ * walk runs: directly above the bottom sheet's tabs, or with the side panel (1260 px and wider)
+ * along the bottom of the diagram. It is after the canvas in the document, so the canvas stays
+ * within four Tab presses of the top and Tab goes canvas, walk controls, sheet. Wide: the place and the filters, the key hint and Exit on one
+ * row, the editor line under them. Narrow (data-layout="narrow", under 620 px): "3/16", the filters
+ * and Exit on one row; the row may wrap below about 400 px rather than scroll sideways. Plain text
+ * colours; colour only marks a quote the host did not open. No motion.
+ */
+.mlv-walkbar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px var(--mlv-s4) 5px var(--mlv-s5);
+  border-top: 1px solid var(--mlv-border);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.4;
+}
+.mlv-walkbar[hidden] { display: none; }
+.mlv-walkbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mlv-s2) var(--mlv-s4);
+  min-width: 0;
+}
+.mlv-walkbar__pos {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mlv-walkbar__mark { display: inline-flex; color: var(--mlv-stale-ink); }
+.mlv-walkbar__mark[hidden] { display: none; }
+.mlv-walkbar__tools {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mlv-s2) var(--mlv-s4);
+  min-width: 0;
+}
+.mlv-walkbar__filters { display: inline-flex; flex-wrap: wrap; gap: var(--mlv-s2); }
+.mlv-walkbar__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 var(--mlv-s3);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mlv-walkbar__filter[hidden] { display: none; }
+.mlv-walkbar__filter:hover { border-color: var(--mlv-border-strong); }
+/* The chosen filter: a stronger border and weight, not colour alone. */
+.mlv-walkbar__filter[aria-pressed="true"] {
+  border-color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-semi);
+}
+.mlv-walkbar__fcount { color: var(--mlv-text-2); font-variant-numeric: tabular-nums; }
+.mlv-walkbar__filter[aria-pressed="true"] .mlv-walkbar__fcount { color: var(--mlv-text); }
+.mlv-walkbar__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s2) var(--mlv-s4);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+.mlv-walkbar__keys[hidden] { display: none; }
+.mlv-walkbar__key { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.mlv-walkbar__exit { margin-left: auto; min-height: 22px; padding: 0 var(--mlv-s3); }
+.mlv-walkbar__editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+.mlv-walkbar__editor[hidden] { display: none; }
+.mlv-walkbar__editor[data-walk-status="blocked"],
+.mlv-walkbar__editor[data-walk-status="failed"] { color: var(--mlv-text); }
+.mlv-walkbar__editoricon { display: inline-flex; flex: none; padding-top: 1px; color: var(--mlv-stale-ink); }
+.mlv-walkbar__editoricon[hidden] { display: none; }
+.mlv-walkbar[data-layout="narrow"] { padding: 3px var(--mlv-s3); }
+.mlv-walkbar[data-layout="narrow"] .mlv-walkbar__exitlabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* The header's Review button: an icon and a word; pressed while the walk runs. */
+.mlv-header__review {
+  flex: none;
+  height: 24px;
+  min-height: 0;
+  padding: 0 var(--mlv-s3);
+  gap: 5px;
+}
+.mlv-header__review[aria-pressed="true"] { border-color: var(--mlv-text-2); }
+
+/*
+ * The walk's quote in the Selection pane: a focus-coloured left rule (the line the editor beside
+ * is asked for) and one line under its head saying what the editor shows, or why nothing was
+ * opened. Not colour alone: the line says it in words.
+ */
+.mlv-quote.is-walk {
+  margin-left: calc(-1 * var(--mlv-s3));
+  padding-left: calc(var(--mlv-s3) - 2px);
+  border-left: 2px solid var(--mlv-focus);
+}
+.mlv-quote__walk {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 3px 0 0 calc(1.4em + var(--mlv-s3));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+.mlv-quote.is-walk[data-walk-status="blocked"] .mlv-quote__walk,
+.mlv-quote.is-walk[data-walk-status="failed"] .mlv-quote__walk { color: var(--mlv-text); }
+.mlv-quote__walk .mlv-uicon { flex: none; margin-top: 1px; color: var(--mlv-stale-ink); }

@@ -38,6 +38,14 @@ export interface CommandPort {
   focusRailTabs(): void;
   toggleShortcuts(): void;
   cycleConnections(backwards: boolean): boolean;
+  /** Viewer M3: the review walk (see `KeyCommands`). */
+  walking(): boolean;
+  review(): void;
+  walkStep(delta: number): boolean;
+  walkQuote(delta: number): boolean;
+  walkNotObserved(backwards: boolean): boolean;
+  /** Viewer M3: `n` / `p` while the walk runs: the next or previous finding in the walk's order. */
+  walkFindings(backwards: boolean): boolean;
 }
 
 /** Every rail tab, in strip order: About, Findings, Selection, Outline (viewer M2). */
@@ -64,6 +72,8 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     focusSearch: () => port.focusSearch(),
     escape: () => port.dismissTopmost(),
     cycleIssue: (backwards) => {
+      // Viewer M3: while the review walk runs, n / p move the walk to the next or previous finding.
+      if (port.walking()) return port.walkFindings(backwards);
       const issues = port.visibleIssues();
       if (!issues.length) return false;
       const current = port.selectedIssueId();
@@ -91,5 +101,10 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     focusRailTabs: () => port.focusRailTabs(),
     toggleShortcuts: () => port.toggleShortcuts(),
     cycleConnections: (backwards) => port.cycleConnections(backwards),
+    walking: () => port.walking(),
+    review: () => port.review(),
+    walkStep: (delta) => port.walkStep(delta),
+    walkQuote: (delta) => port.walkQuote(delta),
+    walkNotObserved: (backwards) => port.walkNotObserved(backwards),
   };
 }

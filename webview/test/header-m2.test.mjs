@@ -96,6 +96,7 @@ function headerShows(ctx) {
   }
   const exceptions = header.querySelector('.mlv-chip--exceptions');
   if (visible(ctx, exceptions)) parts.push(visible(ctx, exceptions.querySelector('.mlv-chip__detail')) ? 'not observed (breakdown)' : 'not observed');
+  if (visible(ctx, header.querySelector('.mlv-header__review'))) parts.push('Review');
   if (visible(ctx, header.querySelector('.mlv-btn--more'))) parts.push('more');
   if (visible(ctx, header.querySelector('.mlv-workflow__refine'))) parts.push('Refine…');
   return parts;
@@ -113,7 +114,7 @@ const menuItems = (ctx) => $$(ctx, '.mlv-moremenu__item').filter((item) => visib
 test('at 1440 px the header row holds every control, with the "not observed" breakdown', async () => {
   const ctx = await mount(doc(), { width: 1440 });
   assert.equal($(ctx, '.mlv-header').getAttribute('data-layout'), 'full');
-  assert.deepEqual(headerShows(ctx), ['title', 'host · revision', 'search field', 'high', 'medium', 'not observed (breakdown)', 'more', 'Refine…']);
+  assert.deepEqual(headerShows(ctx), ['title', 'host · revision', 'search field', 'high', 'medium', 'not observed (breakdown)', 'Review', 'more', 'Refine…']);
   assert.equal($(ctx, '.mlv-header__title').textContent, 'Fine-tune a classifier on CIFAR-10 with mixed precision');
   assert.equal($(ctx, '.mlv-header__title').title, 'Fine-tune a classifier on CIFAR-10 with mixed precision');
   assert.equal($(ctx, '.mlv-header__prov').textContent, 'claude-code · r7');
@@ -124,7 +125,7 @@ test('at 1440 px the header row holds every control, with the "not observed" bre
 test('at 900 px search folds behind an icon and the chip keeps the revision; still one row of controls', async () => {
   const ctx = await mount(doc(), { width: 900 });
   assert.equal($(ctx, '.mlv-header').getAttribute('data-layout'), 'mid');
-  assert.deepEqual(headerShows(ctx), ['title', 'revision', 'search icon', 'high', 'medium', 'not observed', 'more', 'Refine…']);
+  assert.deepEqual(headerShows(ctx), ['title', 'revision', 'search icon', 'high', 'medium', 'not observed', 'Review', 'more', 'Refine…']);
   // The breakdown folds into the accessible name and the tooltip.
   assert.equal($(ctx, '.mlv-chip--exceptions').getAttribute('aria-label'), '3 not observed (1 step, 1 connection, 1 finding)');
   // The icon opens the field and focuses it; leaving it empty folds it again.
@@ -136,7 +137,8 @@ test('at 900 px search folds behind an icon and the chip keeps the revision; sti
   assert.equal($(ctx, '.mlv-header').getAttribute('data-search'), 'closed');
   // The ... menu stands in for nothing at this width: the row has room for every control.
   openMenu(ctx);
-  assert.deepEqual(menuItems(ctx), ['legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
+  // Viewer M3: Review is always in the menu too (the header's button folds first on a short row).
+  assert.deepEqual(menuItems(ctx), ['review', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
   ctx.app.destroy();
 });
 
@@ -146,7 +148,7 @@ test('at 541 px only the title, the severity toggles, "not observed", ... and Re
   assert.deepEqual(headerShows(ctx), ['title', 'high', 'medium', 'not observed', 'more', 'Refine…']);
   const menu = openMenu(ctx);
   assert.equal(menu.hidden, false);
-  assert.deepEqual(menuItems(ctx), ['search', 'about', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
+  assert.deepEqual(menuItems(ctx), ['search', 'about', 'review', 'legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
   assert.equal($(ctx, '[data-more-item="about"] .mlv-moremenu__label').textContent, 'About revision r7 · claude-code');
   assert.equal($(ctx, '[data-more-item="rail"] .mlv-moremenu__label').textContent, 'Bottom panel', 'at 541 px the rail is the bottom sheet');
   // The menu's Search opens the field in the title's place.
@@ -177,7 +179,7 @@ test('resizing the panel moves controls between the row and the menu, and the st
   assert.ok(visible(ctx, $(ctx, '.mlv-status .mlv-zoom__value, .mlv-status .mlv-zoom')));
   ctx.resize(1100);
   assert.equal($(ctx, '.mlv-header').getAttribute('data-layout'), 'wide');
-  assert.deepEqual(headerShows(ctx), ['title', 'host · revision', 'search field', 'high', 'medium', 'not observed', 'more', 'Refine…']);
+  assert.deepEqual(headerShows(ctx), ['title', 'host · revision', 'search field', 'high', 'medium', 'not observed', 'Review', 'more', 'Refine…']);
   assert.ok(visible(ctx, $(ctx, '.mlv-status .mlv-zoom__btn')));
   ctx.app.destroy();
 });
@@ -235,15 +237,16 @@ test('the ... menu is a menu button: arrows, Home and End move; Escape and Tab c
   keydown(ctx, button, 'ArrowDown');
   assert.equal(menu.hidden, false);
   assert.equal(button.getAttribute('aria-expanded'), 'true');
-  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'legend');
+  // Viewer M3: the menu starts with Review the claims.
+  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'review');
   keydown(ctx, ctx.document.activeElement, 'ArrowDown');
-  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'flow');
+  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'legend');
   keydown(ctx, ctx.document.activeElement, 'End');
   assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'shortcuts');
   keydown(ctx, ctx.document.activeElement, 'ArrowDown');
-  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'legend', 'the arrows wrap');
+  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'review', 'the arrows wrap');
   keydown(ctx, ctx.document.activeElement, 'Home');
-  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'legend');
+  assert.equal(ctx.document.activeElement.getAttribute('data-more-item'), 'review');
   const esc = keydown(ctx, ctx.document.activeElement, 'Escape');
   assert.equal(esc.defaultPrevented, true);
   assert.equal(menu.hidden, true);
@@ -294,7 +297,7 @@ test('each ... item does what it says: legend, flow, overview map, rail, fit, ex
   assert.ok($(ctx, '.mlv-sheet') && !$(ctx, '.mlv-sheet').hidden, 'the shortcut sheet opens');
   // Every item names itself; the exports are the whole diagram, and nothing else is offered.
   assert.deepEqual($$(ctx, '.mlv-moremenu__item').map((item) => item.querySelector('.mlv-moremenu__label').textContent), [
-    'Search steps and findings', 'About revision r7 · claude-code', '3 not observed (1 step, 1 connection, 1 finding)', 'Legend', 'Connection flow animation', 'Overview map', 'Side panel',
+    'Search steps and findings', 'About revision r7 · claude-code', '3 not observed (1 step, 1 connection, 1 finding)', 'Review the claims', 'Legend', 'Connection flow animation', 'Overview map', 'Side panel',
     'Fit the whole diagram', 'Zoom to the selection', 'Export SVG…', 'Export PNG…', 'Copy SVG', 'Keyboard shortcuts',
   ]);
   assert.equal($(ctx, '[data-more-item="zoomsel"]').disabled, true, 'nothing selected, nothing to zoom to');
@@ -402,10 +405,12 @@ test('the shortcut sheet lists the find key and no scope keys', async () => {
   // Viewer M2 live fix: the find key for the platform (jsdom is not macOS) and `/`; no K.
   assert.ok(keys.includes('Ctrl+F /'), keys.join(' | '));
   assert.equal(keys.some((k) => /K$|K /.test(k)), false, 'no Ctrl+K or Cmd+K');
-  assert.equal(keys.some((k) => /^s Shift\+S$|^\[ \]$/.test(k)), false, 'the scope keys are gone');
+  assert.equal(keys.some((k) => /^s Shift\+S$/.test(k)), false, 'the scope keys are gone');
+  // Viewer M3: [ and ] came back for the review walk's quotes, not for a scope.
+  assert.deepEqual(rows.filter((row) => row[0] === '[ ]').map((row) => row[1]), ['In the review walk: previous / next quote of the claim']);
   const sheet = $(ctx, '.mlv-sheet').textContent;
   assert.doesNotMatch(sheet, /scope/i);
-  assert.match(sheet, /Close the menu, this sheet, the Refine popover or the legend, collapse the bottom panel/);
+  assert.match(sheet, /Close the menu, this sheet, the Refine popover or the legend, end the review walk, collapse the bottom panel/);
   assert.match(sheet, /About \/ Findings \/ Selection \/ Outline/);
   ctx.app.destroy();
 });

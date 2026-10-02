@@ -182,6 +182,54 @@ test('the walk end clears the highlight and drops a walk open still on its way; 
   assert.equal(vscode.__recorded.decorationTypes[1].disposed, true, 'closing the panel cleared the highlight');
 });
 
+test('a walk clear (a claim with nothing to open) clears the highlight and drops a walk open on its way', async () => {
+  const { document, files } = twoFiles();
+  const { panel } = await open({ raw: document, files });
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => vscode.__recorded.decorationTypes.length === 1, 'the open did not highlight');
+  panel.fire({ v: 1, type: 'walk', state: 'clear' });
+  assert.equal(vscode.__recorded.decorationTypes[0].disposed, true, 'the clear removed the highlight');
+  // The walk goes on: the next open highlights again.
+  walkOpen(panel, 'e2', 2);
+  await h.waitFor(() => vscode.__recorded.decorationTypes.length === 2, 'the next open did not highlight');
+  assert.equal(vscode.__recorded.decorationTypes[1].disposed, false);
+});
+
+test('a walk clear drops a notebook open waiting for its cell editor', async () => {
+  const { panel } = await openNotebookPanel({ cellEditors: false });
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => vscode.__recorded.shownNotebooks.length === 1, 'the notebook open did not start');
+  panel.fire({ v: 1, type: 'walk', state: 'clear' });
+  await h.waitFor(() => openResults(panel).length === 1, 'the open was not answered', 3000);
+  assert.equal(openResults(panel)[0].outcome, 'cancelled');
+});
+
+test('a blocked walk open clears the previous claim\'s highlight; a blocked ordinary open keeps it', async () => {
+  const { document, files } = twoFiles();
+  // other.py is missing on disk, so its evidence is blocked; source.py is fresh.
+  const { panel } = await open({ raw: document, files: { 'source.py': files['source.py'] } });
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => vscode.__recorded.decorationTypes.length === 1, 'the fresh open did not highlight');
+  // An ordinary open of the missing file (Enter, an Open link) keeps the highlight, as in M2.
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e2', requestId: 'plain1' });
+  await h.waitFor(() => openResults(panel).length === 2, 'the ordinary open was not answered');
+  assert.equal(openResults(panel)[1].outcome, 'blocked');
+  assert.equal(vscode.__recorded.decorationTypes[0].disposed, false, 'an ordinary blocked open leaves the highlight');
+  // The walk's own open of it clears it: the editor no longer shows the earlier claim's lines.
+  walkOpen(panel, 'e2', 2);
+  await h.waitFor(() => openResults(panel).length === 3, 'the walk open was not answered');
+  assert.equal(openResults(panel)[2].outcome, 'blocked');
+  assert.equal(vscode.__recorded.decorationTypes[0].disposed, true, 'a blocked walk open clears the highlight');
+  assert.equal(shown().length, 1, 'the missing file was never opened');
+  // Unknown evidence from the walk clears it too (nothing to show for it).
+  walkOpen(panel, 'e', 3);
+  await h.waitFor(() => vscode.__recorded.decorationTypes.length === 2, 'the fresh open did not highlight again');
+  walkOpen(panel, 'nope', 4);
+  await h.waitFor(() => openResults(panel).length === 5, 'the unknown open was not answered');
+  assert.equal(openResults(panel)[4].reason, 'unknown');
+  assert.equal(vscode.__recorded.decorationTypes[1].disposed, true);
+});
+
 test('the walk end drops a notebook open waiting for its cell editor', async () => {
   const { panel } = await openNotebookPanel({ cellEditors: false });
   walkOpen(panel, 'e', 1);

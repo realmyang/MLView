@@ -41,6 +41,8 @@ function commandPort(app: App): CommandPort {
     openSelection: (focusEditor) => {
       const sel = app.selection;
       if (!sel) return false;
+      // Viewer M3: in the review walk, Enter opens the walk's current quote of this claim again.
+      if (app.walk.active && app.walkOwns(sel)) return app.walk.reopen(focusEditor);
       const loc = app.locOf(sel);
       if (loc) app.openLocation(loc, focusEditor);
       return true;
@@ -59,6 +61,12 @@ function commandPort(app: App): CommandPort {
     legendOpen: () => app.legendOpen,
     closeLegend: () => app.setLegend(false),
     toggleFlow: () => app.setFlow(!app.flowOn),
+    walking: () => app.walk.active,
+    endWalk: () => app.walk.stop(),
+    review: () => app.walk.toggle(),
+    walkStep: (delta) => app.walk.step(delta),
+    walkQuote: (delta) => app.walk.stepQuote(delta),
+    walkJump: (kind, backwards) => app.walk.jump(kind, backwards),
   });
 }
 

@@ -1169,10 +1169,11 @@ class AuthoredPanel implements vscode.Disposable {
             await this.openEvidence(m, requestId);
             return;
         }
-        // Viewer M3: the review walk ended. Its highlight goes, and a walk open still on its way
-        // (a notebook waiting for its cell editor) no longer lands.
+        // Viewer M3: the review walk ended (`end`), or moved to a claim it opens nothing for
+        // (`clear`: no quote, or a claim the reader only selected). Its highlight goes, and a walk
+        // open still on its way (a notebook waiting for its cell editor) no longer lands.
         if (m.type === 'walk') {
-            if (m.state === 'end')
+            if (m.state === 'end' || m.state === 'clear')
                 this.endWalk();
             return;
         }
@@ -1316,6 +1317,8 @@ class AuthoredPanel implements vscode.Disposable {
         const shown = this.lastValid;
         const evidence = shown?.document.evidence.find(x => x.id === id);
         if (!shown || !evidence) {
+            if (walk)
+                this.clearHighlight();
             answer({ outcome: 'blocked', reason: 'unknown', message: blockedOpenText('unknown', ''), warning: '' });
             return;
         }
@@ -1340,6 +1343,11 @@ class AuthoredPanel implements vscode.Disposable {
         // stepping through changed files); the webview shows the reason in its walk bar instead.
         if (outcome.outcome === 'blocked' && !walk && outcome.warning)
             void vscode.window.showWarningMessage(outcome.warning);
+        // Viewer M3 (step 11): a blocked walk open also clears the previous claim's highlight, so
+        // the editor beside never shows an earlier claim's lines while the walk says this claim's
+        // file was not opened. A blocked Enter, double-click or Open link keeps it, as in M2.
+        if (outcome.outcome === 'blocked' && walk)
+            this.clearHighlight();
         answer(outcome);
     }
     private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, options: { focus: boolean; highlight: boolean }, markBehind: () => void): Promise<JumpOutcome> {
@@ -1439,7 +1447,10 @@ class AuthoredPanel implements vscode.Disposable {
         for (const [rel, signature] of signatures)
             this.jumpChecks.files.set(rel, { signature, stale: stale.find(s => s.rel === rel) });
     }
-    /** Viewer M3: the walk ended. Its highlight is cleared and an open still on its way is dropped. */
+    /**
+     * Viewer M3: the walk ended, or moved to a claim with nothing to open. Its highlight is cleared
+     * and an open still on its way is dropped.
+     */
     private endWalk(): void {
         this.jumpSeq++;
         this.clearHighlight();

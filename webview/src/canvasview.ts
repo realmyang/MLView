@@ -686,6 +686,23 @@ export class CanvasView {
     else if (!this.viewport.isVisible(union)) this.viewport.centerOn(union);
   }
 
+  /**
+   * Viewer M3, a step of the review walk: below the detail threshold, zoom to reading size on the
+   * step or the connection's two ends (`revealNode`, `revealEdge`); at reading size, pan the least
+   * distance that shows it whole (`revealRect`), so stepping through neighbours does not swing the
+   * picture to centre every card. The visible area is the canvas above the bottom sheet.
+   */
+  revealTarget(target: { kind: 'node' | 'edge'; id: string }): void {
+    const rect = this.targetRect(target);
+    if (!rect) return;
+    if (this.viewport.vp.zoom < LOD_FULL_ZOOM) {
+      if (target.kind === 'node') this.revealNode(target.id, false);
+      else this.revealEdge(target.id);
+      return;
+    }
+    if (!this.viewport.isVisible(rect)) this.viewport.revealRect(rect);
+  }
+
   /** The laid-out rect of a node's visible card, or of both ends of a connection. */
   private targetRect(target: { kind: 'node' | 'edge'; id: string }): { x: number; y: number; w: number; h: number } | null {
     if (!this.index || !this.frameData) return null;

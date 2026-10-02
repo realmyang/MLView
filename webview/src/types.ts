@@ -257,6 +257,23 @@ export interface ViewState {
    * `railTab` and, since the same fix, `selection`.
    */
   sheetOpen?: boolean;
+  /**
+   * Viewer M3: the review walk's place for `workflowRevision`: its filter, the claim it is on, the
+   * quote of that claim, and whether it was running. Absent until the walk has been started, and
+   * restored on a remount only when `workflowRevision` matches; another revision starts fresh. It
+   * records no verdict and no "checked" mark, only the position.
+   */
+  walk?: WalkViewState;
+}
+
+/** Viewer M3: the review walk's saved place (`ViewState.walk`). */
+export interface WalkViewState {
+  filter: 'notObserved' | 'findings' | 'changed' | 'all';
+  claim: Sel;
+  /** The claim's quote (0-based) the walk last showed; absent at 0. */
+  quote?: number;
+  /** The walk was running; absent when it was not. */
+  active?: boolean;
 }
 
 /** A Refine composer's reader-visible state. */
@@ -365,8 +382,13 @@ export type UiToHost =
    * instead); `highlight: false` selects the range without the whole-range decoration.
    */
   | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean; seq?: number; requestId?: string; walk?: boolean; highlight?: boolean }
-  /** Viewer M3: the review walk ended; the host clears the cited-range highlight and drops a walk open still on its way. */
-  | { v: 1; type: 'walk'; state: 'end' }
+  /**
+   * Viewer M3: the review walk ended (`end`), or it moved to a claim it opens nothing for (`clear`:
+   * a claim with no quote, or one it only selected). Either way the host clears the cited-range
+   * highlight and drops a walk open still on its way, so the editor never shows an earlier claim's
+   * lines as if they were this one's.
+   */
+  | { v: 1; type: 'walk'; state: 'end' | 'clear' }
   /** Viewer M1: the workspace-root hint's two actions. The host owns the folder. */
   | { v: 1; type: 'workspaceHint'; action: 'add' | 'open' }
   /**

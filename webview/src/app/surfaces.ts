@@ -10,6 +10,7 @@
 
 import { emptyCounts, normalizeSeverity } from '../markers.js';
 import { freshnessStatus } from '../freshness.js';
+import { isNotObserved } from '../walk.js';
 import type { App } from '../app.js';
 import type { NotObservedCounts } from '../ui/chrome.js';
 import type { IssueCounts, Severity } from '../types.js';
@@ -21,10 +22,10 @@ import type { IssueCounts, Severity } from '../types.js';
 export function notObservedCounts(app: App): NotObservedCounts {
   const out: NotObservedCounts = { steps: 0, connections: 0, findings: 0 };
   if (!app.graph) return out;
-  const exception = (basis: string | undefined) => !!basis && basis !== 'observed';
-  for (const node of app.graph.nodes) if (exception(node.basis)) out.steps++;
-  for (const edge of app.graph.edges) if (exception(edge.basis)) out.connections++;
-  for (const issue of app.graph.issues) if (exception(issue.basis)) out.findings++;
+  // Viewer M3: the same predicate as the review walk's Not observed filter, so the two counts agree.
+  for (const node of app.graph.nodes) if (isNotObserved(node.basis)) out.steps++;
+  for (const edge of app.graph.edges) if (isNotObserved(edge.basis)) out.connections++;
+  for (const issue of app.graph.issues) if (isNotObserved(issue.basis)) out.findings++;
   return out;
 }
 
@@ -60,6 +61,7 @@ export function renderChrome(app: App): void {
     notObserved,
     exceptionsOn: app.exceptionsOn,
     railMode: app.railMode,
+    walking: !!app.walk && app.walk.active,
   });
 }
 
@@ -85,5 +87,6 @@ export function renderRail(app: App): void {
     staleReason: (file) => app.freshness.reasonOf(file),
     document: app.graph ? app.workflowDocument : null,
     columns: app.paneColumns,
+    walk: app.walk ? app.walk.paneMark() : null,
   });
 }

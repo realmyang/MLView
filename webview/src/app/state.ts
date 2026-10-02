@@ -70,6 +70,9 @@ export function snapshotState(app: App): ViewState {
     if (composer) state.composer = composer;
     // Viewer M2 live fix: an open bottom sheet, absent when it is collapsed or the rail is docked.
     if (app.railMode === 'sheet' && app.railOpen) state.sheetOpen = true;
+    // Viewer M3: the review walk's place (filter, claim, quote, running), absent before a walk.
+    const walk = app.walk.viewState();
+    if (walk) state.walk = walk;
   }
   return state;
 }

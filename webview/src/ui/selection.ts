@@ -34,6 +34,8 @@ import { edgeKindText } from '../render/edges.js';
 import { issueStaleReasons, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
 import { allElsewhere, staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
+import { walkQuoteText } from '../walk.js';
+import type { WalkOpenStatus } from '../walk.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { Issue, Loc, MLEdge, MLNode, RelatedLoc, Sel, StaleReason, WorkflowDocument } from '../types.js';
 
@@ -55,6 +57,17 @@ export interface SelectionPaneState {
   /** The displayed revision: its published hashes decide "unchanged" against "not checked". */
   document: WorkflowDocument | null;
   staleReason?(file: string): StaleReason | undefined;
+  /**
+   * Viewer M3: while the review walk shows this claim, which of its quotes the walk asked the
+   * editor for, and what became of it (`applyWalkMark`).
+   */
+  walk?: WalkMark | null;
+}
+
+/** Viewer M3: the review walk's quote in the pane and what the editor beside shows for it. */
+export interface WalkMark {
+  quote: number;
+  status: WalkOpenStatus;
 }
 
 export interface SelectionPaneCallbacks {
@@ -96,6 +109,41 @@ export function renderSelectionPane(panel: HTMLElement, s: SelectionPaneState, c
   } else {
     add(root, el('p', 'mlv-empty-note', 'Select a step, a connection or a finding to read its claim beside its evidence.'));
   }
+  applyWalkMark(panel, s.walk || null);
+}
+
+/**
+ * Viewer M3: mark the review walk's quote in the pane under `container`: a left rule on that quote
+ * (`.mlv-quote.is-walk`, `data-walk-status`) and one line under it saying what the editor beside
+ * shows: opening, highlighted, or why it was not opened (the host's reason). Any older mark goes.
+ * Updated in place when the host answers, so the pane keeps its scroll and focus. `reveal` (the
+ * walk moved to another quote of the same claim, `[` or `]`) scrolls the pane the least distance
+ * that shows the marked quote, at once (no smooth scroll, so reduced motion needs nothing more).
+ */
+export function applyWalkMark(container: HTMLElement | null, mark: WalkMark | null, reveal = false): void {
+  if (!container) return;
+  for (const old of Array.from(container.querySelectorAll('.mlv-quote.is-walk'))) {
+    old.classList.remove('is-walk');
+    old.removeAttribute('data-walk-status');
+    const line = old.querySelector('.mlv-quote__walk');
+    if (line) line.remove();
+  }
+  if (!mark) return;
+  const quotes = container.querySelectorAll('.mlv-sel .mlv-insp__source-evidence > .mlv-quote');
+  const li = quotes[mark.quote] as HTMLElement | undefined;
+  if (!li) return;
+  li.classList.add('is-walk');
+  li.setAttribute('data-walk-status', mark.status.state);
+  const text = walkQuoteText(mark.status);
+  if (text) {
+    const line = el('p', 'mlv-quote__walk');
+    if (mark.status.state === 'blocked' || mark.status.state === 'failed') line.appendChild(uiIcon('warning', 12));
+    add(line, el('span', '', text));
+    const head = li.querySelector('.mlv-quote__head');
+    if (head && head.nextSibling) li.insertBefore(line, head.nextSibling);
+    else li.appendChild(line);
+  }
+  if (reveal && typeof li.scrollIntoView === 'function') li.scrollIntoView({ block: 'nearest' });
 }
 
 /** The claim column and the evidence column; one container when the pane has one column. */

@@ -221,6 +221,8 @@ function emulateRow(ctx) {
     add('.mlv-chip--sev', 44);
     add('.mlv-header__unit', 50);
     add('.mlv-chip--exceptions', 150);
+    // Viewer M3: the Review button (an icon and a word), shown from 620 px until the row folds.
+    add('.mlv-header__review', 78);
     add('.mlv-btn--more', 26);
     add('.mlv-workflow__refine', 70, 0);
     return total;

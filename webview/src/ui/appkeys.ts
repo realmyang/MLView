@@ -9,7 +9,8 @@
  * nothing else calls them:
  *
  *  - THE Escape cascade, in this exact order — shortcut sheet -> the Refine…
- *    popover -> legend -> the open bottom panel (viewer M2) -> focus mode -> selection -> blur.
+ *    popover -> legend -> the review walk (viewer M3) -> the open bottom panel (viewer M2) ->
+ *    focus mode -> selection -> blur.
  *    One owner writes that order ONCE
  *    (CONTRACTS v1.1 §10.1, which is where v1.0 §11.13 now lives); whichever
  *    rung fires also stops the flow it owned.
@@ -56,6 +57,14 @@ export interface KeyContext {
   /** Viewer M2: collapse the open bottom panel to its tab strip; false when there is none. */
   collapseSheet(): boolean;
   announce(text: string): void;
+  /** Viewer M3: the review walk. */
+  walking(): boolean;
+  /** End the walk; false when it was not running. */
+  endWalk(): boolean;
+  review(): void;
+  walkStep(delta: number): boolean;
+  walkQuote(delta: number): boolean;
+  walkJump(kind: 'notObserved' | 'findings', backwards: boolean): boolean;
 }
 
 export function commandPortFor(ctx: KeyContext): CommandPort {
@@ -71,6 +80,10 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
       // above focus mode because it is the shallower thing on screen: dismissing
       // it must never also throw away the focus or selection underneath.
       else if (ctx.legendOpen()) ctx.closeLegend();
+      // Viewer M3: the review walk ends before anything it opened is closed: the claim it was on
+      // stays selected and the bottom panel stays open on it. One Escape ends it, whatever else is
+      // on screen below it, so it never takes two presses to leave the walk.
+      else if (ctx.endWalk()) return true;
       // Viewer M2: the open bottom panel collapses to its tab strip before anything on the canvas
       // is undone: the selection it shows stays selected.
       else if (ctx.collapseSheet()) return true;
@@ -131,6 +144,13 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     toggleShortcuts: () => ctx.toggleShortcuts(),
 
     cycleConnections: (backwards) => cycleConnections(ctx, backwards),
+
+    walking: () => ctx.walking(),
+    review: () => ctx.review(),
+    walkStep: (delta) => ctx.walkStep(delta),
+    walkQuote: (delta) => ctx.walkQuote(delta),
+    walkNotObserved: (backwards) => ctx.walkJump('notObserved', backwards),
+    walkFindings: (backwards) => ctx.walkJump('findings', backwards),
   };
 }
 

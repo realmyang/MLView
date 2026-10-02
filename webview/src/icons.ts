@@ -189,6 +189,8 @@ const UI_PATHS: Record<string, string> = {
   minimap: 'M2.4 3.6h11.2v8.8H2.4ZM8.4 7.4h4.4v4.4H8.4Z',
   /** VIEW-07: a picture in a frame — "export the diagram". */
   image: 'M2.4 3.4h11.2v9.2H2.4ZM2.4 10.6 5.8 7.4l2.4 2.2 2.2-2 3.2 3M10.3 5.3a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1Z',
+  /** Viewer M3: the review walk: a pointer at the first of three rows. */
+  review: 'M2.4 3.2 4.8 5.4 2.4 7.6M7.2 5.4h6.4M7.2 9.4h6.4M2.6 13h11',
   /** The shortcut sheet: a keyboard. */
   keyboard: 'M1.8 4.2h12.4v7.6H1.8ZM4.2 6.6h.1M6.7 6.6h.1M9.2 6.6h.1M11.7 6.6h.1M4.8 9.4h6.4',
 };

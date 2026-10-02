@@ -474,3 +474,124 @@ export async function authoredEscapeHandshake() {
     rmSync(wire.root, { recursive: true, force: true });
   }
 }
+
+/**
+ * Viewer M3, roadmap steps 11 and 12 together: the review walk in the built viewer driving the
+ * real host. `r` on the diagram starts the walk on the claims not observed; after the pause each
+ * step's quote is opened beside the panel with the focus kept on the diagram and its lines
+ * highlighted; a claim with no quotes clears the highlight; one Escape ends the walk, clears the
+ * highlight and does not reach VS Code. On a stale revision, the notice's "Review affected claims"
+ * walks the claims citing the changed file: the host answers blocked, opens nothing and raises no
+ * notification, and the viewer shows the host's reason. Mock `vscode` and JSDOM: not a live check.
+ */
+export async function authoredWalkHandshake() {
+  const walkDocument = () => {
+    const document = baseDocument();
+    document.nodes.push({ id: 'save', label: 'Save checkpoint', phase: 'loop', basis: 'unresolved', evidence: [] });
+    document.edges.push({ id: 'persist', source: 'update', target: 'save', label: 'weights', basis: 'observed', evidence: ['e2'] });
+    return { ...document, verification: { files: { 'source.py': sha256(SOURCE) }, publishedAt: '2026-09-25T00:00:00Z' } };
+  };
+  const walkResults = (wire) => wire.hostPosts.filter((m) => m.type === 'actionResult' && m.action === 'openLocation');
+
+  // A fresh revision: the walk opens, highlights, clears and ends.
+  let wire = await openWire(walkDocument(), { 'source.py': SOURCE });
+  try {
+    const forwarded = [];
+    const page = mountPage(wire, (win) => win.addEventListener('keydown', (ev) => forwarded.push(ev.key)));
+    await waitFor(() => $(page, '[data-node-id="loss"]'), 'the viewer did not mount');
+    const { window } = page;
+    const press = (key, target = window.document.activeElement) => {
+      const event = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const canvas = $(page, '.mlv-canvas');
+    canvas.focus();
+    assert.equal(press('r').defaultPrevented, true);
+    assert.equal(page.app.walk.active, true);
+    // Not observed: the inferred connection, the inferred finding and the unresolved step.
+    assert.equal($(page, '.mlv-walkbar__postext').textContent, 'Claim 1 of 3 · Not observed');
+    assert.deepEqual(plain(page.app.selection), { kind: 'edge', id: 'step' });
+    await waitFor(() => walkResults(wire).length === 1, 'the host did not answer the walk\'s first open');
+    const request = page.outgoing.filter((m) => m.type === 'openLocation').at(-1);
+    assert.equal(request.walk, true);
+    assert.equal(request.seq, 1);
+    assert.deepEqual(plain(walkResults(wire)[0]), { v: 1, type: 'actionResult', requestId: request.requestId, action: 'openLocation', outcome: 'done', seq: 1 });
+    const shown = vscode.__recorded.shownDocuments;
+    assert.equal(shown.length, 1);
+    assert.equal(shown[0].options.preserveFocus, true, 'the editor opens beside with the focus kept');
+    assert.equal(vscode.__recorded.decorationTypes.length, 1, 'the cited lines are highlighted');
+    assert.equal(vscode.__recorded.decorationTypes[0].disposed, false);
+    await waitFor(() => $(page, '.mlv-walkbar__editor').getAttribute('data-walk-status') === 'done', 'the bar did not show the done answer');
+    assert.equal($(page, '.mlv-walkbar__editortext').textContent, 'In the editor beside: source.py · line 2, highlighted. Focus stays here.');
+    assert.equal(window.document.activeElement, canvas, 'the keyboard stayed on the diagram');
+
+    // The finding, then the step with no quotes: the walk asks the host to clear the highlight.
+    press('j');
+    await waitFor(() => walkResults(wire).length === 2, 'the host did not answer the second open');
+    assert.equal(walkResults(wire)[1].seq, 2);
+    assert.deepEqual(plain(page.app.selection), { kind: 'issue', id: 'risk' });
+    press('j');
+    assert.deepEqual(plain(page.app.selection), { kind: 'node', id: 'save' });
+    assert.equal($(page, '.mlv-walkbar__editortext').textContent, 'This claim cites no lines, so nothing is opened for it.');
+    await waitFor(() => page.outgoing.some((m) => m.type === 'walk' && m.state === 'clear'), 'the walk did not ask for a clear');
+    await waitFor(() => vscode.__recorded.decorationTypes.every((type) => type.disposed), 'the host kept the highlight of the earlier claim');
+
+    // One Escape ends the walk; VS Code never sees it.
+    press('k');
+    await waitFor(() => walkResults(wire).length === 3, 'the host did not answer the step back');
+    await waitFor(() => vscode.__recorded.decorationTypes.some((type) => !type.disposed), 'the step back did not highlight');
+    const event = press('Escape');
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(page.app.walk.active, false, 'one Escape ended the walk');
+    assert.equal($(page, '.mlv-walkbar').hidden, true);
+    assert.ok(page.app.selection, 'the claim stays selected');
+    assert.deepEqual(forwarded.filter((key) => key === 'Escape'), [], 'the Escape did not reach VS Code');
+    await waitFor(() => vscode.__recorded.decorationTypes.every((type) => type.disposed), 'the walk\'s end did not clear the highlight');
+    // The place is kept in the webview's state for this revision, and nothing else is recorded.
+    page.app.saveSoon.flush?.();
+    page.app.bridge.saveState(page.app.getState());
+    assert.deepEqual(plain(wire.state.walk), { filter: 'notObserved', claim: { kind: 'issue', id: 'risk' } });
+    assert.equal(wire.state.workflowRevision, 'r1');
+    assert.equal(vscode.__recorded.messages.filter((m) => m[0] === 'warn' || m[0] === 'error').length, 0, 'no notification');
+    process.stdout.write('  PASS  review walk → opens beside with the focus kept and highlights → a claim with no quotes clears it → Escape ends it\n');
+  } finally {
+    wire.controller.dispose();
+    for (const page of wire.pages) page.window.close();
+    rmSync(wire.root, { recursive: true, force: true });
+  }
+
+  // A stale revision: "Review affected claims" walks the claims citing source.py; nothing opens.
+  wire = await openWire(walkDocument(), { 'source.py': SOURCE + '# edited after publication\n' });
+  try {
+    const page = mountPage(wire);
+    const notice = () => $(page, '.mlv-hostnotice');
+    await waitFor(() => $(page, '[data-node-id="loss"]') && notice() && !notice().hidden, 'the stale revision did not mount with its notice');
+    await waitFor(() => $(page, '[data-notice-action="review"]'), 'the notice did not offer "Review affected claims"');
+    const action = $(page, '[data-notice-action="review"]');
+    assert.equal(action.textContent, 'Review affected claims');
+    const notifications = () => vscode.__recorded.messages.filter((m) => m[0] === 'warn' || m[0] === 'error').length;
+    const before = notifications();
+    action.click();
+    assert.equal(page.app.walk.active, true);
+    assert.equal(page.app.walk.filter, 'changed');
+    // Every claim but the unresolved step cites source.py: 2 steps, 2 connections, 1 finding.
+    assert.equal($(page, '.mlv-walkbar__postext').textContent, 'Claim 1 of 5 · Changed files');
+    assert.equal($(page, '.mlv-walkbar__editortext').textContent, 'source.py: changed since publishing; not opened.', 'said at once');
+    await waitFor(() => walkResults(wire).length === 1, 'the host did not answer the stale open');
+    const result = walkResults(wire)[0];
+    assert.equal(result.outcome, 'blocked');
+    assert.equal(result.seq, 1);
+    assert.equal(vscode.__recorded.shownDocuments.length, 0, 'the changed file was never opened');
+    assert.equal(notifications(), before, 'and the walk raised no notification (the one on load says the revision is stale)');
+    // The host's own words replace the viewer's (one quote, so no "Quote 1 of 1").
+    await waitFor(() => $(page, '.mlv-walkbar__editortext').textContent === result.message, () => 'the bar did not show the host\'s reason: ' + $(page, '.mlv-walkbar__editortext').textContent + ' / ' + result.message);
+    assert.match(result.message, /source\.py/);
+    assert.match(page.window.document.querySelector('.mlv-root > [aria-live]').textContent, /^Not opened: /);
+    process.stdout.write('  PASS  stale revision → "Review affected claims" → blocked by the host, nothing opened, the reason in the bar\n');
+  } finally {
+    wire.controller.dispose();
+    for (const page of wire.pages) page.window.close();
+    rmSync(wire.root, { recursive: true, force: true });
+  }
+}
