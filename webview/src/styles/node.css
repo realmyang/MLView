@@ -129,37 +129,35 @@
   border-color: color-mix(in srgb, var(--mlv-sev) 55%, var(--mlv-border));
 }
 
-.mlv-node.is-lowconf {
-  border-style: dashed;
-  opacity: 0.85;
-}
-
+/*
+ * Viewer M1: a card whose evidence cites a file that changed or went missing since publishing.
+ * Dashed border plus a corner warning mark, so the state never rests on colour alone.
+ */
 .mlv-node.is-stale {
   border-style: dashed;
+  border-color: var(--mlv-stale-ink);
 }
 
-.mlv-node.is-ghost {
-  background: transparent;
-  border: 1.5px dashed color-mix(in srgb, var(--mlv-sev, var(--mlv-text-3)) 70%, transparent);
+.mlv-node__stale {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--mlv-r-pill);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-1);
+  color: var(--mlv-stale-ink);
+}
+
+.mlv-group__header .mlv-node__stale {
+  position: static;
   box-shadow: none;
-}
-
-.mlv-node.is-ghost .mlv-node__title {
-  color: var(--mlv-text-2);
-  font-weight: var(--mlv-fw-medium);
-}
-
-.mlv-node.is-ghost .mlv-node__sub {
-  font-style: italic;
-}
-
-.mlv-node.is-ghost .mlv-node__rail {
-  opacity: 0.5;
-}
-
-.mlv-node.is-dynamic .mlv-node__iconbox {
-  outline: 1px dashed var(--mlv-text-3);
-  outline-offset: 1px;
+  flex: none;
 }
 
 .mlv-node.is-pulse {

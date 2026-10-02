@@ -120,6 +120,75 @@
 }
 
 /*
+ * Viewer M1: the host's banner once the viewer is mounted, under the authored header. Colour only
+ * for problems (a warning or a refused update), always with an icon and the host's words.
+ */
+.mlv-hostnotice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mlv-s3);
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mlv-text);
+  background: var(--mlv-surface-2);
+  border-bottom: 1px solid var(--mlv-border);
+}
+.mlv-hostnotice[hidden] { display: none; }
+.mlv-hostnotice--warn { border-bottom-color: var(--mlv-sev-medium); }
+.mlv-hostnotice--error { border-bottom-color: var(--mlv-sev-high); }
+.mlv-hostnotice__icon { flex: none; display: flex; padding-top: 2px; }
+.mlv-hostnotice--warn .mlv-hostnotice__icon { color: var(--mlv-sev-medium); }
+.mlv-hostnotice--error .mlv-hostnotice__icon { color: var(--mlv-sev-high); }
+.mlv-hostnotice__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* A long rejection (eight issue lines) scrolls inside its own band, as the <pre> did. */
+  max-height: 20vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mlv-hostnotice__actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.mlv-hostnotice__actions[hidden] { display: none; }
+
+/* Viewer M1: freshness in place — the status bar item, the Inspector's quotes and finding chips. */
+.mlv-status__fresh { display: inline-flex; align-items: center; gap: 4px; }
+.mlv-status__fresh.is-warn { color: var(--mlv-text); }
+.mlv-status__fresh.is-warn .mlv-uicon { color: var(--mlv-stale-ink); }
+.mlv-status__fresh.is-checking { color: var(--mlv-text-2); font-style: italic; }
+.mlv-insp__stale-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 6px;
+  font-size: 11px;
+  color: var(--mlv-text);
+}
+.mlv-insp__stale-note .mlv-uicon,
+.mlv-insp__stale .mlv-uicon,
+.mlv-chip--stale .mlv-uicon { flex: none; color: var(--mlv-stale-ink); }
+.mlv-insp__stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--mlv-text);
+}
+.mlv-link.is-stale,
+.mlv-btn.is-stale {
+  cursor: not-allowed;
+  color: var(--mlv-text-2);
+  text-decoration: line-through;
+}
+.mlv-chip--stale { display: inline-flex; align-items: center; gap: 3px; }
+.mlv-sheet__note { margin: 0 0 8px; font-size: 12px; color: var(--mlv-text-2); }
+
+/*
  * The canvas floor (issue 1). With the header able to shrink to nothing, the
  * diagram keeps at least this much height whatever the authored text says;
  * `min()` lets a genuinely short panel still show the status bar.
@@ -176,15 +245,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* Rule configuration and static-analyzer answers have no meaning for authored findings. */
-.mlv-root--workflow .mlv-rail__groupby,
-.mlv-root--workflow [data-copy-ignore],
-.mlv-root--workflow [data-disable-rule],
-.mlv-root--workflow [data-apply-fix],
-.mlv-root--workflow [data-rule-doc],
-.mlv-root--workflow .mlv-insp__fix,
-.mlv-root--workflow .mlv-answers { display: none !important; }
 
 /* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). */
 .mlv-minimap.is-short {

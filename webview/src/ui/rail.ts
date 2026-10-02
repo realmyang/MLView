@@ -6,31 +6,35 @@
  */
 
 import { add, button, clear, el, fileLine, on } from '../dom.js';
-import { cellRef, locTitle } from '../notebook.js';
+import { locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
-import { appendTrustSections, confidenceChip } from './evidence.js';
-import { renderIssuePanel } from './issuelist.js';
+import { basisChip } from './evidence.js';
+import { issueStaleReasons, renderIssuePanel, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
+import { allElsewhere, staleQuotes, STALE_TEXT } from '../freshness.js';
+import { uiIcon } from '../icons.js';
 import { renderOutlineTree } from './outline.js';
 import type { RelationMode } from './outline.js';
-import { appendSuppressActions, stateChip } from './suppress.js';
-import { appendFixSection, hasFix } from './fixes.js';
-import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import { edgeKindText } from '../render/edges.js';
-import type { DiffIndex } from '../diff/overlay.js';
-import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
+import type { Issue, Loc, MLEdge, MLNode, RailTab, RelatedLoc, StaleReason } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
   onTab(tab: RailTab): void;
   onClearFilters(): void;
-  onSelectIssue(id: string): void;
-  onSelectNode(id: string): void;
+  /**
+   * Viewer M1: a click selects; Enter and a double-click open (see `onOpenIssue`, `onOpenNode`).
+   * `ev` is the pointer click, which arms the App's double-click opener (ui/doubleclick.ts).
+   */
+  onSelectIssue(id: string, ev?: MouseEvent): void;
+  onOpenIssue(id: string, focusEditor: boolean): void;
+  onSelectNode(id: string, ev?: MouseEvent): void;
+  onOpenNode(id: string, focusEditor: boolean): void;
   onSelectEdge(id: string): void;
   onChallenge(): void;
-  onOpen(loc: Loc | RelatedLoc): void;
+  /** Open a cited range beside the panel; `focusEditor` (Alt) moves focus to the editor. */
+  onOpen(loc: Loc | RelatedLoc, focusEditor?: boolean): void;
   onResize(width: number): void;
   onToggleRail(): void;
-  onAsk(nodeId: string): void;
   /** The Outline's lane rows jump to a stage. */
   onSelectLane(laneId: string): void;
   /** Left/Right in the Outline collapses the same group the canvas draws. */
@@ -39,19 +43,30 @@ export interface RailCallbacks {
   onClearScope(): void;
   /** Inspector: scope the diagram to the selected unit or step. */
   onScopeToNode(nodeId: string): void;
-  /** The Issues rail's "Group by" control; persisted as ViewState.railGroupBy. */
-  onGroupBy(mode: RailGroupBy): void;
-  /** MLV-P10: copy `# mlview: ignore[CODE]` through the host's clipboard. */
-  onCopyIgnore(code: string): void;
-  /** MLV-P10: ask the host to turn this rule off for the workspace. */
-  onDisableRule(code: string): void;
-  /** H5: ask the host to apply `Issue.fix`, or copy it where it cannot. */
-  onApplyFix(issueId: string): void;
+  /** Viewer M1: open the header's Details at the document-wide limitations, which are listed there once. */
+  onShowLimitations(): void;
+}
+
+/**
+ * Viewer M1: what a matching quote does and does not show (automation-bias research: readers
+ * take a citation as support unless told otherwise). Shown once per Inspector, under the
+ * evidence heading.
+ */
+const EVIDENCE_CAPTION =
+  'A matching quote shows these lines exist unchanged since publishing. Whether they support the claim is for you to judge.';
+
+/**
+ * Viewer M1: a short sentence for the two bases that need one. `observed` needs no explanation.
+ * Worded like the legend's basis rows (ui/legend.ts).
+ */
+function basisNote(basis: string | undefined, noun: 'step' | 'connection'): string {
+  if (basis === 'inferred') return 'Reasoned from the cited code and stated assumptions; the quotes do not show all of it directly.';
+  if (basis === 'unresolved') return 'The evidence does not settle this claim. It does not mean the ' + noun + ' is missing.';
+  return '';
 }
 
 export interface RailState {
   index: GraphIndex | null;
-  canAskAssistant: boolean;
   tab: RailTab;
   issues: Issue[];
   selectedNode: MLNode | null;
@@ -61,20 +76,14 @@ export interface RailState {
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
   keep(issue: Issue): boolean;
-  /** `keep` without the suppression and baseline tests (MLV-P10). */
-  keepBase(issue: Issue): boolean;
   /**
    * Present only under a scope. `total` is PROJECT-LEVEL: the rail must always
    * be able to say how many findings live outside the current view, or a scope
    * reads as a clean bill of health (FEATURES 3.7).
    */
   scope: { shown: number; hidden: number; total: number; where: string } | null;
-  /** How the Issues tab groups its rows (RAIL-GROUP). */
-  groupBy: RailGroupBy;
-  /** VIEW-08: the diff overlay, when one is loaded. */
-  diff: DiffIndex | null;
-  /** H5: true in a host that can actually make an edit. */
-  canApplyFix: boolean;
+  /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
+  staleReason?(file: string): StaleReason | undefined;
 }
 
 let railSeq = 0;
@@ -84,13 +93,6 @@ export class Rail {
   private tabs = new Map<RailTab, HTMLButtonElement>();
   private panels = new Map<RailTab, HTMLElement>();
   private cb: RailCallbacks;
-  /**
-   * Which rule / file groups the user has opened. Session-local by design: only
-   * the MODE is persisted (§11.9's pattern), because a group set is derived from
-   * a document that the next analysis may not contain.
-   */
-  private expanded = new Set<string>();
-  private lastState: RailState | null = null;
   private relationMode: RelationMode = 'outgoing';
   private relationNodeId: string | null = null;
 
@@ -181,7 +183,6 @@ export class Rail {
   }
 
   update(s: RailState): void {
-    this.lastState = s;
     // Every render replaces the panel's DOM, so a row the user is standing on
     // would take the keyboard focus down with it. Put it back on the same row.
     const restoreFocus = this.captureFocus();
@@ -243,55 +244,16 @@ export class Rail {
       index: s.index,
       issues: s.issues,
       keep: s.keep,
-      keepBase: s.keepBase,
       selectedIssueId: s.selectedIssueId,
       scope: s.scope,
-      groupBy: s.groupBy,
-      expanded: this.expanded,
-      diff: s.diff,
-      canApplyFix: s.canApplyFix,
+      staleReason: s.staleReason,
     }, {
-      onSelectIssue: (id) => this.cb.onSelectIssue(id),
-      onOpen: (loc) => this.cb.onOpen(loc),
+      onSelectIssue: (id, ev) => this.cb.onSelectIssue(id, ev),
+      onOpenIssue: (id, focusEditor) => this.cb.onOpenIssue(id, focusEditor),
+      onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onClearFilters: () => this.cb.onClearFilters(),
       onClearScope: () => this.cb.onClearScope(),
-      onGroupBy: (mode) => this.cb.onGroupBy(mode),
-      onToggleGroup: (key) => this.toggleGroup(key),
-      onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
-      onDisableRule: (code) => this.cb.onDisableRule(code),
-      onApplyFix: (id) => this.cb.onApplyFix(id),
     });
-  }
-
-  /**
-   * Expand or collapse one rule / file group. A group that is open BY DEFAULT
-   * (fewer than three occurrences) is closed by remembering its negation, so the
-   * two states are both reachable without persisting a whole open-set.
-   */
-  private toggleGroup(key: string): void {
-    const negated = '!' + key;
-    if (this.expanded.has(key)) {
-      this.expanded.delete(key);
-      this.expanded.add(negated);
-    } else if (this.expanded.has(negated)) {
-      this.expanded.delete(negated);
-      this.expanded.add(key);
-    } else {
-      this.expanded.add(key);
-    }
-    if (this.lastState) this.renderIssues(this.lastState);
-    // The panel's DOM was just replaced, so the header the user activated went
-    // with it. Put the focus back on its replacement, exactly as `captureFocus`
-    // does for a row -- a keyboard user must not be dumped on <body> for
-    // opening a group.
-    const back = this.root.querySelector('[data-group-toggle="' + key + '"]') as HTMLElement | null;
-    if (back) {
-      try {
-        back.focus();
-      } catch (_e) {
-        /* a host may have detached the panel already */
-      }
-    }
   }
 
   private renderInspector(s: RailState): void {
@@ -305,7 +267,7 @@ export class Rail {
     }
     if (s.selectedIssue && s.index) {
       add(panel, el('h4', 'mlv-insp__title', s.selectedIssue.title));
-      panel.appendChild(this.inspectorIssue(s.selectedIssue, s));
+      panel.appendChild(this.inspectorIssue(s.selectedIssue, s, true));
       this.appendChallenge(panel);
       this.renderWorkflowLimitations(panel, s.index);
       return;
@@ -316,121 +278,46 @@ export class Rail {
     }
     // h4 under the panel's h3 (VIEW-12): this used to be an `h2` inside a
     // document whose first heading was an `h3`.
-    add(panel, el('h4', 'mlv-insp__title', node.label || node.qualname));
+    const title = node.label || node.qualname;
+    add(panel, el('h4', 'mlv-insp__title', title));
     const meta = add(panel, el('div', 'mlv-insp__meta'));
-    const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', node.stage));
+    // Viewer M1: the phase's authored label, never its id (the id stays on `data-stage`).
+    const phase = node.phaseLabel || stageLabel(s.index, node.stage);
+    const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', phase));
     stageChip.setAttribute('data-stage', node.stage);
+    stageChip.title = 'Phase: ' + phase;
     // VIEWUI-14: an absent kind reads as `unknown` and the level is the
     // adapter's `unit`/`op`, neither of which the author wrote.
     if (node.kind && node.kind !== 'unknown') add(meta, el('span', 'mlv-chip', node.kind));
-    if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
-    add(meta, el('span', 'mlv-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
-    // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
-    if (node.ghost) add(meta, el('span', 'mlv-chip', 'removed from current revision'));
-    if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
-    if (node.diffStatus && node.diffStatus !== 'unchanged') {
-      const chip = stateChip(
-        meta,
-        'mlv-chip--diff mlv-chip--diff-' + node.diffStatus,
-        node.diffStatus,
-        (node.diffChanged || []).length
-          ? 'Changed against the earlier analysis: ' + (node.diffChanged || []).join(', ')
-          : 'Against the earlier analysis',
-      );
-      chip.setAttribute('data-diff-chip', node.diffStatus);
-    }
-
-    add(panel, el('div', 'mlv-insp__fqn', node.fqn || node.qualname));
+    // Viewer M1: the basis once.
+    const basisChip = add(meta, el('span', 'mlv-chip mlv-insp__basis-chip', node.basis ? 'basis · ' + node.basis : ''));
+    if (node.basis) basisChip.setAttribute('data-basis', node.basis);
+    this.appendBasisNote(panel, node.basis, 'step');
+    // Viewer M1: the claim itself, in full, before anything else. It was only in the hover card.
+    if (node.detail) add(panel, el('p', 'mlv-insp__detail', node.detail));
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
-    // Legacy nodes have one canonical location and retain their established
-    // primary action. Authored nodes carry `evidenceLocs` (including an empty
-    // array for a conceptual group) and use the complete evidence list below.
-    if (node.evidenceLocs === undefined && node.loc.file) {
-      const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
-      const nbCell = cellRef(node.loc);
-      if (nbCell) {
-        openBtn.setAttribute('data-cell', String(nbCell.cell));
-        openBtn.title = locTitle(node.loc);
-      }
-      on(openBtn, 'click', () => this.cb.onOpen(node.loc));
-      actions.appendChild(openBtn);
-    }
-    if (s.canAskAssistant) {
-      const ask = button('mlv-btn', 'Ask about this node');
-      on(ask, 'click', () => this.cb.onAsk(node.id));
-      actions.appendChild(ask);
-    }
-    // "unit" for a definition, "step" for a call-site op: the word has to match
+    // "unit" for a top-level step, "step" for a child: the word has to match
     // what the user is looking at, or the button reads as a different feature.
-    const scopeWord = node.level === 'unit' || node.level === 'stage' ? 'unit' : 'step';
+    const scopeWord = node.level === 'unit' ? 'unit' : 'step';
     const scopeBtn = button('mlv-btn mlv-btn--scope-node', 'Scope to this ' + scopeWord);
     scopeBtn.setAttribute('data-scope-node', node.id);
     on(scopeBtn, 'click', () => this.cb.onScopeToNode(node.id));
     actions.appendChild(scopeBtn);
     this.appendChallenge(actions);
 
-    this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []));
-    this.renderWorkflowLimitations(panel, s.index);
-
-    // ANA-10. The resolved value, and — where the analyzer could not choose —
-    // ALL N alternatives, named. The card has room for three; this is where the
-    // rest live, and where "not resolved" gets its reason.
-    this.renderResolvedConfig(panel, node);
-
-    // VIEW-08. A removed node has no attributes, ports or evidence to show, so
-    // say what it IS rather than drawing four empty sections under it.
-    if (node.diffStatus === 'removed') {
-      add(
-        panel,
-        el(
-          'div',
-          'mlv-empty-note',
-          'This node is in the EARLIER analysis and not in this one. It is drawn from the diff overlay alone, so it carries no findings, ports or evidence here.',
-        ),
-      );
-    }
-
-    const attrKeys = Object.keys(node.attrs || {});
-    if (attrKeys.length) {
-      panel.appendChild(this.heading('Attributes'));
-      const table = add(panel, el('table', 'mlv-table'));
-      const tbody = add(table, el('tbody'));
-      for (const k of attrKeys) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', k));
-        add(tr, el('td', '', node.attrs[k]));
-      }
-    }
-
-    if ((node.consumes || []).length || (node.produces || []).length) {
-      panel.appendChild(this.heading('Ports'));
-      const table = add(panel, el('table', 'mlv-table'));
-      const tbody = add(table, el('tbody'));
-      for (const p of node.consumes || []) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', 'in · ' + p.name));
-        add(tr, el('td', '', (p.tags || []).join(', ')));
-      }
-      for (const p of node.produces || []) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', 'out · ' + p.name));
-        add(tr, el('td', '', (p.tags || []).join(', ')));
-      }
-    }
-
-    if ((node.stageEvidence || []).length) {
-      panel.appendChild(this.heading('Why this stage'));
-      const table = add(panel, el('table', 'mlv-table'));
-      const tbody = add(table, el('tbody'));
-      for (const e of node.stageEvidence) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', e.kind));
-        add(tr, el('td', '', e.detail));
-      }
-    }
-
+    // Viewer M1: claim, then the findings on this step (with what to change), then the evidence.
     this.appendIssues(panel, s.index.issuesOf(node.id, s.keep), s);
+    this.renderEvidenceLocations(panel, node.evidenceLocs || [], s);
+    this.renderWorkflowLimitations(panel, s.index);
+  }
+
+  /** Viewer M1: one sentence under the meta row for an inferred or unresolved claim; nothing for observed. */
+  private appendBasisNote(panel: HTMLElement, basis: string | undefined, noun: 'step' | 'connection'): void {
+    const note = basisNote(basis, noun);
+    if (!note) return;
+    const p = add(panel, el('p', 'mlv-insp__basis', note));
+    p.setAttribute('data-basis', basis || '');
   }
 
   private appendIssues(panel: HTMLElement, issues: Issue[], s: RailState): void {
@@ -444,7 +331,9 @@ export class Rail {
   }
 
   private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex, s: RailState): void {
-    add(panel, el('h4', 'mlv-insp__title', edge.label || edgeKindText(edge.kind) || 'Connection'));
+    // Viewer M1: the label as authored. The canvas label still ends in " · <basis>" until the
+    // card re-record (M2); here the basis chip says it once.
+    add(panel, el('h4', 'mlv-insp__title', edge.authoredLabel || edge.label || edgeKindText(edge.kind) || 'Connection'));
     const source = index.nodeById.get(edge.source);
     const target = index.nodeById.get(edge.target);
     const meta = add(panel, el('div', 'mlv-insp__meta'));
@@ -452,32 +341,60 @@ export class Rail {
     // normalised synonym names what the author wrote as well.
     const kindChip = add(meta, el('span', 'mlv-chip mlv-insp__edgekind', edgeKindText(edge.kind) + (edge.authoredKind ? ' · authored as ' + edge.authoredKind : '')));
     kindChip.setAttribute('data-edge-kind', edge.kind);
-    if (edge.basis) add(meta, el('span', 'mlv-chip mlv-chip--basis', 'basis · ' + edge.basis));
-    add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    if (edge.basis) {
+      const basisChip = add(meta, el('span', 'mlv-chip mlv-chip--basis mlv-insp__basis-chip', 'basis · ' + edge.basis));
+      basisChip.setAttribute('data-basis', edge.basis);
+    }
+    // Where it runs from and to: the one thing the title does not say.
+    add(panel, el('div', 'mlv-insp__fqn mlv-insp__ends', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    this.appendBasisNote(panel, edge.basis, 'connection');
     const actions = add(panel, el('div', 'mlv-insp__actions'));
     this.appendChallenge(actions);
-    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []));
-    this.renderWorkflowLimitations(panel, index);
     // The connection's hover card lists these too; this is the keyboard's and
     // the screen reader's way to them, as the Findings block is for a step.
     this.appendIssues(panel, index.issuesOfEdge(edge.id, s.keep), s);
+    this.renderEvidenceLocations(panel, edge.evidenceLocs || [], s);
+    this.renderWorkflowLimitations(panel, index);
   }
 
+  /**
+   * Viewer M1: the document-wide limitations are listed once, in the header's Details. Every
+   * Inspector repeated all of them (7 of 7 on a connection); now it says how many apply and
+   * links to them.
+   */
   private renderWorkflowLimitations(panel: HTMLElement, index: GraphIndex): void {
-    if (index.graph.schemaVersion !== 'workflow-view/1') return;
-    const limitations = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation');
-    if (!limitations.length) return;
-    panel.appendChild(this.heading('Coverage limitations'));
-    const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__limitations'));
-    for (const limitation of limitations) add(list, el('li', '', limitation.message));
+    const count = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation').length;
+    if (!count) return;
+    const line = add(panel, el('p', 'mlv-insp__limits'));
+    line.setAttribute('data-limitations', String(count));
+    const words = count === 1 ? '1 document-wide limitation applies.' : count + ' document-wide limitations apply.';
+    add(line, el('span', '', words + ' '));
+    const show = button('mlv-link mlv-link--inline mlv-insp__limits-show', 'Show', 'Show the coverage limitations in the header Details');
+    show.setAttribute('aria-label', count === 1 ? 'Show the document-wide limitation' : 'Show the ' + count + ' document-wide limitations');
+    on(show, 'click', () => this.cb.onShowLimitations());
+    line.appendChild(show);
   }
 
-  private renderEvidenceLocations(panel: HTMLElement, locations: Loc[]): void {
+  private renderEvidenceLocations(panel: HTMLElement, locations: Loc[], s: RailState): void {
     if (!locations.length) {
       add(panel, el('div', 'mlv-empty-note mlv-insp__no-evidence', 'No source evidence was authored for this item. Its basis and coverage limitations describe what remains uncertain.'));
       return;
     }
     panel.appendChild(this.heading('Source evidence'));
+    this.appendEvidenceCaption(panel);
+    const reasonOf = (loc: Loc): StaleReason | undefined => (s.staleReason && loc.file ? s.staleReason(loc.file) : undefined);
+    const quotes = staleQuotes(locations, (file) => !!(s.staleReason && s.staleReason(file)));
+    if (quotes.stale) {
+      // Viewer M1: what the marks below mean, in words, before the list. Nothing in MLView checks
+      // a claim, so the note says what the reader can do, not that a check was skipped (COPY-2).
+      const reasons = locations.map(reasonOf).filter((reason): reason is StaleReason => !!reason);
+      const count = quotes.stale + ' of ' + quotes.total + (quotes.total === 1 ? ' quote cites ' : ' quotes cite ');
+      const note = add(panel, el('p', 'mlv-insp__stale-note'));
+      note.appendChild(uiIcon('warning', 12));
+      add(note, el('span', '', allElsewhere(reasons)
+        ? count + 'a file that is not under the workspace root but is unchanged in another folder; those jumps are blocked. The notice above says which folder to add.'
+        : count + 'a file that changed or went missing since publishing; those jumps are blocked. To compare the claim with the code as it is now, ask the assistant for a fresh revision.'));
+    }
     const nav = add(panel, el('div', 'mlv-insp__evidence-nav'));
     const previous = button('mlv-btn', 'Previous evidence');
     const next = button('mlv-btn', 'Next evidence');
@@ -495,24 +412,31 @@ export class Rail {
     const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__source-evidence'));
     for (const loc of locations) {
       const li = add(list, el('li'));
+      const reason = reasonOf(loc);
       const openBtn = button('mlv-link', 'Open ' + fileLine(loc));
       openBtn.setAttribute('data-evidence-id', loc.evidenceId || '');
-      const nbCell = cellRef(loc);
-      if (nbCell) {
-        openBtn.setAttribute('data-cell', String(nbCell.cell));
-        openBtn.title = locTitle(loc);
-      } else if (loc.cell !== undefined && locTitle(loc)) {
+      if (loc.cell !== undefined && locTitle(loc)) {
         // VIEWUI-8: an authored notebook citation names its zero-based cell.
         openBtn.title = locTitle(loc);
       }
-      on(openBtn, 'click', () => {
+      if (reason) {
+        li.classList.add('is-stale');
+        li.setAttribute('data-stale', reason);
+      }
+      wireOpenControl(openBtn, loc, (target, focusEditor) => {
         active = locations.indexOf(loc);
         update();
-        this.cb.onOpen(loc);
-      });
+        this.cb.onOpen(target, focusEditor);
+      }, reason);
       li.appendChild(openBtn);
+      if (reason) li.appendChild(staleBadge(reason));
       if (loc.snippet) add(li, el('pre', 'mlv-banner__detail', loc.snippet));
     }
+  }
+
+  /** Viewer M1: the one-line caption under the evidence heading (see `EVIDENCE_CAPTION`). */
+  private appendEvidenceCaption(parent: HTMLElement): void {
+    add(parent, el('p', 'mlv-insp__caption', EVIDENCE_CAPTION));
   }
 
   private appendChallenge(parent: HTMLElement): void {
@@ -522,108 +446,48 @@ export class Rail {
   }
 
   /**
-   * ANA-10 — "where does this value come from", answered in the Inspector.
-   *
-   * The one-of-N case is a TABLE and not a sentence on purpose: the analyzer
-   * resolved a `getattr` registry to several candidate symbols and genuinely
-   * does not know which one runs, so the honest rendering names all of them and
-   * says which is which. It used to draw two `unknown` boxes.
+   * One finding. `standalone` is the finding's own Inspector, where its evidence heading carries
+   * the caption; inside a step's or connection's Inspector the step's own evidence carries it.
    */
-  private renderResolvedConfig(panel: HTMLElement, node: MLNode): void {
-    const info = resolvedConfig(node);
-    if (!info) return;
-    panel.appendChild(this.heading('Resolved value'));
-    const table = add(panel, el('table', 'mlv-table mlv-table--config'));
-    table.setAttribute('data-config-table', '1');
-    const tbody = add(table, el('tbody'));
-    if (isAlternatives(info)) {
-      const head = add(tbody, el('tr'));
-      add(head, el('th', '', 'one of'));
-      add(head, el('td', '', String(alternativeCount(info))));
-      for (const name of info.alternatives) {
-        const tr = add(tbody, el('tr'));
-        tr.setAttribute('data-config-alternative', name);
-        add(tr, el('th', '', '·'));
-        add(tr, el('td', 'mlv-mono', name));
-      }
-    } else if (info.unresolved) {
-      const tr = add(tbody, el('tr'));
-      add(tr, el('th', '', 'value'));
-      add(tr, el('td', '', 'not resolved' + (info.reason ? ' — ' + info.reason : '')));
-    } else {
-      const tr = add(tbody, el('tr'));
-      add(tr, el('th', '', 'value'));
-      add(tr, el('td', 'mlv-mono', info.value));
-    }
-    if (info.from) {
-      const tr = add(tbody, el('tr'));
-      add(tr, el('th', '', isAlternatives(info) ? 'defined in' : 'read from'));
-      add(tr, el('td', '', info.from));
-    }
-    if (isAlternatives(info)) {
-      add(
-        panel,
-        el(
-          'div',
-          'mlv-empty-note mlv-insp__altnote',
-          'MLView could not tell which of these runs — the name is chosen at run time — so it drew one node for all ' +
-            alternativeCount(info) + ' rather than guessing.',
-        ),
-      );
-    }
-  }
-
-  private inspectorIssue(issue: Issue, s: RailState): HTMLElement {
+  private inspectorIssue(issue: Issue, s: RailState, standalone = false): HTMLElement {
     const box = el('div', 'mlv-insp__issue');
     box.setAttribute('data-issue-id', issue.id);
     const head = add(box, el('div', 'mlv-insp__issue-head'));
     head.appendChild(severityGlyph(issue.severity, 14, ''));
     add(head, el('span', 'mlv-mono', issue.code));
     add(head, el('span', '', issue.title));
-    head.appendChild(confidenceChip(issue));
-    if (issue.suppressed) stateChip(head, 'mlv-chip--suppressed', 'suppressed');
-    if (issue.baselined) stateChip(head, 'mlv-chip--baselined', 'baselined');
-    // VIEW-08: how this finding stands against the earlier analysis.
-    const diffStatus = s.diff ? s.diff.issueStatusOf(issue.id) : null;
-    if (diffStatus === 'new' || diffStatus === 'persisting') {
-      stateChip(
-        head,
-        'mlv-chip--diff mlv-chip--diff-' + diffStatus,
-        diffStatus === 'new' ? 'new vs base' : 'still there',
-        diffStatus === 'new'
-          ? 'The earlier analysis did not report this finding'
-          : 'Both analyses report this finding',
-      ).setAttribute('data-diff-issue', diffStatus);
-    }
+    head.appendChild(basisChip(issue));
     add(box, el('p', 'mlv-insp__line', issue.message));
-    if (issue.fixHint) {
-      box.appendChild(this.heading('Suggested check'));
-      add(box, el('div', 'mlv-insp__fix', issue.fixHint));
-    }
-    // H5. The Inspector is where a reader who has just read the evidence decides
-    // what to do, so the computed edit — its title, its safety and the snippet —
-    // goes here in full, above the two suppression actions.
-    if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
-      if (hasFix(issue)) {
-        appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
-      }
-      appendTrustSections(box, issue);
-      const actions = add(box, el('div', 'mlv-insp__suppress'));
-      appendSuppressActions(actions, issue.code, {
-        onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
-        onDisableRule: (code) => this.cb.onDisableRule(code),
-      });
-    }
+    // Viewer M1: the author's suggestion, labelled as the skill words it. An analyzer-era rule
+    // hid it, under a "Suggested check" heading that stayed visible over nothing.
+    const suggestion = suggestionBlock(issue, 'h5');
+    if (suggestion) box.appendChild(suggestion);
     if ((issue.relatedLocs || []).length) {
       box.appendChild(this.heading('Evidence review'));
+      if (standalone) this.appendEvidenceCaption(box);
+      const stale = issueStaleReasons(issue, s.staleReason);
+      if (stale.length) {
+        box.classList.add('is-stale');
+        const note = add(box, el('p', 'mlv-insp__stale-note'));
+        note.appendChild(uiIcon('warning', 12));
+        add(note, el('span', '', allElsewhere(stale)
+          ? 'This finding ' + staleChipText(stale) + '; those jumps are blocked. The notice above says which folder to add.'
+          : 'This finding ' + staleChipText(stale) + ' since publishing; those jumps are blocked.'));
+      }
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
         const li = add(list, el('li'));
-        const link = el('button', 'mlv-link', (rel.message || rel.role) + ' — ' + fileLine(rel));
+        const reason = s.staleReason && rel.file ? s.staleReason(rel.file) : undefined;
+        const link = el('button', 'mlv-link', (rel.message || rel.role) + ' — ' + fileLine(rel)) as HTMLButtonElement;
         link.type = 'button';
         link.setAttribute('data-evidence-id', rel.evidenceId || '');
-        on(link, 'click', () => this.cb.onOpen(rel));
+        if (reason) {
+          li.classList.add('is-stale');
+          li.setAttribute('data-stale', reason);
+        }
+        wireOpenControl(link, rel, (target, focusEditor) => this.cb.onOpen(target, focusEditor), reason);
         li.appendChild(link);
+        if (reason) li.appendChild(staleBadge(reason));
         if (rel.snippet) add(li, el('pre', 'mlv-banner__detail', rel.snippet));
       }
     }
@@ -660,7 +524,8 @@ export class Rail {
         relationMode: this.relationMode,
       },
       {
-        onSelectNode: (id) => this.cb.onSelectNode(id),
+        onSelectNode: (id, ev) => this.cb.onSelectNode(id, ev),
+        onOpenNode: (id, focusEditor) => this.cb.onOpenNode(id, focusEditor),
         onSelectEdge: (id) => this.cb.onSelectEdge(id),
         onRelationMode: (mode) => { this.relationMode = mode; },
         onSelectLane: (laneId) => this.cb.onSelectLane(laneId),
@@ -668,4 +533,19 @@ export class Rail {
       },
     );
   }
+}
+
+/** A phase's label from the graph's stage list, or its id when it has none. */
+function stageLabel(index: GraphIndex, id: string): string {
+  const stage = (index.graph.stages || []).find((item) => item.id === id);
+  return (stage && stage.label) || id;
+}
+
+/** Why a quote cannot be opened, as an icon and words beside its disabled link (viewer M1). */
+function staleBadge(reason: StaleReason): HTMLElement {
+  const badge = el('span', 'mlv-insp__stale');
+  badge.setAttribute('data-stale', reason);
+  badge.appendChild(uiIcon('warning', 12));
+  add(badge, el('span', '', STALE_TEXT[reason]));
+  return badge;
 }

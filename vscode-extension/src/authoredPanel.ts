@@ -1,14 +1,15 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { createNonce, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine } from './authoredSupport';
+import { createNonce, findRootHint, rootHintJumpText, rootHintText, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine, type RootHint } from './authoredSupport';
 import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './exportDiagram';
 import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
 import { buildRefinementPrompt, REFINE_INTENTS, toPosixRelative, type RefineIntent, type RefineSelection } from './refinePrompt';
 import { displayIssue, displayText } from './displayText';
 import { canonicalJson, jsonDepth, lenientRevision, MAX_JSON_DEPTH, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
-import { ID_PATTERN, MAX_DOCUMENT_BYTES, quoteMatches, trackedFiles, validateWorkflow, validateWorkflowStructure, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
+import { ID_PATTERN, MAX_DOCUMENT_BYTES, MAX_SOURCE_BYTES, quoteMatches, readSourceBytes, trackedFiles, validateWorkflow, validateWorkflowStructure, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
 const RELOAD_DEBOUNCE_MS = 120;
@@ -16,8 +17,132 @@ const DIRTY_THROTTLE_MS = 150;
 const RETRY_DELAYS_MS = [250, 1000, 4000];
 const TRANSIENT_CODES = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE']);
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** How long a jump into a notebook waits for VS Code to create the cited cell's editor. */
+const CELL_EDITOR_WAIT_MS = 500;
+/**
+ * The cited range in the editor beside the panel: the theme's range highlight on every cited
+ * line plus a mark in the overview ruler, so the lines stay visible while focus stays on the
+ * diagram. Built from theme colours only. High Contrast themes leave
+ * `editor.rangeHighlightBackground` undefined and mark a range highlight with
+ * `editor.rangeHighlightBorder` instead (A11Y-1), so the border is set too; outside High Contrast
+ * that colour is undefined and draws nothing.
+ */
+const HIGHLIGHT_STYLE = (): vscode.DecorationRenderOptions => ({
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    borderColor: new vscode.ThemeColor('editor.rangeHighlightBorder'),
+    borderStyle: 'solid',
+    borderWidth: '1px',
+    overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.rangeHighlightForeground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Full,
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
+});
 interface SavedState {
     artifact?: string;
+}
+/**
+ * Extension host restarts. VS Code restarts the extension host inside the same window for
+ * "Developer: Restart Extension Host", for an extension install, update or removal that needs it,
+ * when a single-folder window becomes an untitled multi-root workspace (the root hint's "Add
+ * folder", "Workspaces: Add Folder to Workspace...") and when an untitled workspace is saved
+ * ("Save Workspace As..."). The panels the old host drew keep their tabs, but nothing answers
+ * them any more: VS Code calls a panel serializer only for the tabs it restores when a window
+ * loads, never for a live panel after a restart (checked live in VS Code 1.139).
+ *
+ * So each host keeps a registry of the panels it has open, and the next host in the same window
+ * puts each diagram back in its dead tab's place (`recoverAfterRestart`). The registry lives in
+ * the global state, because a workspace change starts the new host with an empty workspace
+ * state. The global state is shared by every window, so the registry is keyed by
+ * `vscode.env.sessionId`, which stays the same across an extension host restart and changes when
+ * the window reloads (a reload goes through the serializer instead) and between windows:
+ * `{ [sessionId]: { at, panels: [{ artifact, title, column? }] } }`.
+ */
+export const OPEN_PANELS_KEY = 'mlview.openPanels';
+/** Other sessions' entries unchanged for this long are dropped (a window reload leaves one behind). */
+export const OPEN_PANELS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+/** At most this many other sessions are kept, the most recently changed first. */
+export const MAX_OTHER_SESSIONS = 20;
+const MAX_RECORDED_PANELS = 50;
+/**
+ * How long the recovery waits, after activation and after a diagram tab comes to the front of its
+ * group, before it calls that front tab dead: by then VS Code has revived a restored tab through
+ * the serializer, and the panels' view states have caught up with the tabs.
+ */
+export const RECOVERY_SETTLE_MS = 500;
+/**
+ * The view type the tabs API reports for a panel tab. VS Code 1.139 reports it with a
+ * `mainThreadWebview-` prefix; the bare form is accepted too, in case a later release drops it.
+ */
+const AUTHORED_TAB_VIEW_TYPES = new Set([AUTHORED_VIEW_TYPE, `mainThreadWebview-${AUTHORED_VIEW_TYPE}`]);
+/** One open panel in the registry: its artifact, its tab's title and its editor group's column. */
+interface PanelRecord {
+    artifact: string;
+    title: string;
+    column?: number;
+}
+interface SessionRecord {
+    /** When this session's entry last changed (ms since the epoch). */
+    at: number;
+    panels: PanelRecord[];
+}
+function parsePanelRecord(value: unknown): PanelRecord | undefined {
+    if (!value || typeof value !== 'object')
+        return undefined;
+    const item = value as Record<string, unknown>;
+    if (typeof item.artifact !== 'string' || typeof item.title !== 'string')
+        return undefined;
+    return typeof item.column === 'number' && Number.isInteger(item.column) && item.column > 0
+        ? { artifact: item.artifact, title: item.title, column: item.column }
+        : { artifact: item.artifact, title: item.title };
+}
+/** The registry read back from storage; malformed sessions and records are left out. */
+function parseRegistry(value: unknown): Map<string, SessionRecord> {
+    const registry = new Map<string, SessionRecord>();
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+        return registry;
+    for (const [session, raw] of Object.entries(value as Record<string, unknown>)) {
+        const entry = raw as Record<string, unknown> | null;
+        if (!entry || typeof entry !== 'object' || typeof entry.at !== 'number' || !Number.isFinite(entry.at) || !Array.isArray(entry.panels))
+            continue;
+        const panels = entry.panels.slice(0, MAX_RECORDED_PANELS).map(parsePanelRecord).filter((record): record is PanelRecord => record !== undefined);
+        registry.set(session, { at: entry.at, panels });
+    }
+    return registry;
+}
+/**
+ * Drop the other sessions' entries that have not changed for `OPEN_PANELS_TTL_MS` (or are dated
+ * that far ahead, after a clock change), then all but the `MAX_OTHER_SESSIONS` most recent.
+ */
+function pruneRegistry(registry: Map<string, SessionRecord>, own: string, now: number): void {
+    const others = [...registry].filter(([session, entry]) => {
+        if (session === own)
+            return false;
+        if (Math.abs(now - entry.at) <= OPEN_PANELS_TTL_MS)
+            return true;
+        registry.delete(session);
+        return false;
+    });
+    others.sort((a, b) => b[1].at - a[1].at);
+    for (const [session] of others.slice(MAX_OTHER_SESSIONS))
+        registry.delete(session);
+}
+const isAuthoredTab = (tab: vscode.Tab | undefined): tab is vscode.Tab => tab !== undefined && tab.input instanceof vscode.TabInputWebview && AUTHORED_TAB_VIEW_TYPES.has(tab.input.viewType);
+/** What a panel tells its controller (see `OPEN_PANELS_KEY`). */
+interface PanelHooks {
+    /** The panel's title or column changed: update the registry. */
+    changed(): void;
+    /** Write the registry now; resolves once it is stored. */
+    flush(): Promise<void>;
+}
+/**
+ * One source jump: the revision and freshness it was decided against, and its place in the order
+ * of jumps. A jump that a newer one overtook stops before it touches an editor or the highlight
+ * (M1-R2: a notebook jump waiting for its cell editor cleared the highlight of a later jump).
+ */
+interface Jump {
+    revision: string;
+    freshness: number;
+    seq: number;
 }
 /** Outcome of reading the artifact bytes from disk (never from an editor buffer). */
 export type ArtifactRead = { kind: 'bytes'; bytes: Uint8Array } | { kind: 'missing' } | { kind: 'unreadable'; detail: string; transient?: boolean };
@@ -57,6 +182,15 @@ export async function readArtifactFile(fsPath: string): Promise<ArtifactRead> {
 const defaultIo: AuthoredPanelIo = { readArtifact: readArtifactFile };
 const asciiLower = (value: string): string => value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 const isArtifactPath = (value: string): boolean => asciiLower(value).endsWith('.mlview.json');
+/**
+ * An artifact path read back from storage (the webview state or the registry): accepted only
+ * as an absolute *.mlview.json inside a workspace folder.
+ */
+function savedArtifact(value: unknown): ReturnType<typeof workspaceArtifact> {
+    if (typeof value !== 'string' || !path.isAbsolute(value) || !isArtifactPath(value))
+        return undefined;
+    return workspaceArtifact(value);
+}
 /**
  * The artifact at `fsPath` after lexical normalisation, with the workspace folder that contains
  * it; undefined when it lies outside every folder. VS Code's Uri.file and getWorkspaceFolder keep
@@ -176,7 +310,17 @@ export class ValidationScheduler implements vscode.Disposable {
 export class AuthoredDiagramController implements vscode.Disposable {
     private readonly panels = new Map<string, AuthoredPanel>();
     private readonly disposables: vscode.Disposable[] = [];
-    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo) { }
+    private disposed = false;
+    /** The previous host's panels whose dead tab has not been found yet (see `recoverAfterRestart`). */
+    private pending: PanelRecord[] = [];
+    private registryWrites: Promise<void> = Promise.resolve();
+    private tabWatch: vscode.Disposable | undefined;
+    private sweepTimer: TimerHandle | undefined;
+    private sweepWaiters: ((opened: number) => void)[] = [];
+    private sweeps: Promise<number> = Promise.resolve(0);
+    /** Front tabs already reported as dead without a registry entry, so each is logged once. */
+    private readonly unmatched = new WeakSet<vscode.Tab>();
+    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo, private readonly settleMs: number = RECOVERY_SETTLE_MS) { }
     register(): vscode.Disposable[] {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*');
         const registered = [
@@ -191,7 +335,10 @@ export class AuthoredDiagramController implements vscode.Disposable {
             watcher.onDidDelete(uri => this.diskChanged(uri)),
             // Buffer edits never change what is validated; they only update the unsaved-changes status.
             vscode.workspace.onDidChangeTextDocument(event => this.bufferChanged(event.document.uri)),
-            vscode.workspace.onDidChangeNotebookDocument(event => this.bufferChanged(event.notebook.uri))
+            vscode.workspace.onDidChangeNotebookDocument(event => this.bufferChanged(event.notebook.uri)),
+            // A folder added or removed can change which folder owns an artifact (the root hint's
+            // "Add Folder to Workspace"), so every open panel validates again.
+            vscode.workspace.onDidChangeWorkspaceFolders(() => this.foldersChanged())
         ];
         this.disposables.push(...registered);
         return registered;
@@ -221,35 +368,196 @@ export class AuthoredDiagramController implements vscode.Disposable {
             void vscode.window.showErrorMessage('MLView: the generated diagram must belong to an open workspace folder.');
             return;
         }
-        const { folder, key } = target;
-        const existing = this.panels.get(key);
+        const existing = this.panels.get(target.key);
         if (existing) {
             // Re-running the command shows the file as it is, even a revision the panel had refused.
             await existing.reopen();
             return;
         }
-        const panel = vscode.window.createWebviewPanel(AUTHORED_VIEW_TYPE, 'MLView Generated Diagram', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true }, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] });
-        const authored = new AuthoredPanel(panel, target.uri, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator, this.io);
+        await this.create(target, vscode.ViewColumn.Beside).reload();
+    }
+    /** A new panel for `target` in `column`, keeping focus where it is. */
+    private create(target: NonNullable<ReturnType<typeof workspaceArtifact>>, column: vscode.ViewColumn): AuthoredPanel {
+        const panel = vscode.window.createWebviewPanel(AUTHORED_VIEW_TYPE, 'MLView Generated Diagram', { viewColumn: column, preserveFocus: true }, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] });
+        return this.adopt(panel, target);
+    }
+    private adopt(panel: vscode.WebviewPanel, target: NonNullable<ReturnType<typeof workspaceArtifact>>): AuthoredPanel {
+        const { uri, folder, key } = target;
+        const authored: AuthoredPanel = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => {
+            if (this.panels.get(key) === authored) {
+                this.panels.delete(key);
+                // A closed tab leaves the registry. When the host shuts down (`dispose`), the
+                // panels stay registered: their tabs stay open for the next host.
+                void this.recordPanels();
+            }
+        }, this.hooks, this.validator, this.io);
         this.panels.set(key, authored);
-        await authored.reload();
+        void this.recordPanels();
+        return authored;
     }
     private async restore(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
-        const artifact = state && typeof state === 'object' && typeof (state as SavedState).artifact === 'string' ? (state as SavedState).artifact : undefined;
         // The saved state comes from the webview: accept only an absolute *.mlview.json inside a workspace folder.
-        if (!artifact || !path.isAbsolute(artifact) || !isArtifactPath(artifact)) {
-            panel.dispose();
-            return;
-        }
-        const target = workspaceArtifact(artifact);
-        if (!target) {
+        const target = savedArtifact(state && typeof state === 'object' ? (state as SavedState).artifact : undefined);
+        // One panel per artifact: a revived tab whose diagram is already shown (opened, or reopened
+        // in a dead tab's place after an extension host restart, before VS Code revived this tab)
+        // is closed.
+        if (!target || this.panels.has(target.key)) {
             panel.dispose();
             return;
         }
         panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] };
-        const { uri, folder, key } = target;
-        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator, this.io);
-        this.panels.set(key, authored);
-        await authored.reload();
+        await this.adopt(panel, target).reload();
+    }
+    private readonly hooks: PanelHooks = {
+        changed: () => { void this.recordPanels(); },
+        flush: () => this.recordPanels()
+    };
+    /**
+     * Queue a write of this window's registry entry (see `OPEN_PANELS_KEY`): every open panel,
+     * then the previous host's panels whose dead tab is still to be replaced. Writes run one at a
+     * time, each from the state at its turn. Nothing is written once the controller is disposed,
+     * which is how the extension host shuts down: the entry must outlive it.
+     */
+    private recordPanels(): Promise<void> {
+        if (this.disposed)
+            return this.registryWrites;
+        this.registryWrites = this.registryWrites.then(() => this.writeRegistry()).catch((error: unknown) => {
+            this.log.warn(`could not save the open diagrams: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        return this.registryWrites;
+    }
+    private async writeRegistry(): Promise<void> {
+        if (this.disposed)
+            return;
+        const session = vscode.env.sessionId;
+        const now = Date.now();
+        // Read again before each write: other windows write their own entries.
+        const raw = this.ctx.globalState.get<unknown>(OPEN_PANELS_KEY);
+        const registry = parseRegistry(raw);
+        pruneRegistry(registry, session, now);
+        const panels = [...[...this.panels.values()].map(panel => panel.record()), ...this.pending].slice(0, MAX_RECORDED_PANELS);
+        const previous = registry.get(session);
+        if (!panels.length)
+            registry.delete(session);
+        else if (!previous || JSON.stringify(previous.panels) !== JSON.stringify(panels))
+            registry.set(session, { at: now, panels });
+        const value = registry.size ? Object.fromEntries(registry) : undefined;
+        if (JSON.stringify(value) === JSON.stringify(raw))
+            return;
+        await this.ctx.globalState.update(OPEN_PANELS_KEY, value);
+    }
+    /**
+     * Run once at activation (see `OPEN_PANELS_KEY`). When the registry lists panels for this
+     * window's session, an earlier extension host in this window had them open and VS Code
+     * restarted it: their tabs are still open, dead. Each is replaced by a new panel for the same
+     * artifact in the same editor group, which validates against the workspace as it is now (for
+     * the root hint's "Add folder", against the added folder).
+     *
+     * A dead tab cannot be told from a tab VS Code restored at window load and has not shown yet:
+     * the tabs API gives both the same title and view type. But a restored tab comes to life
+     * through the serializer as soon as it comes to the front of its group, so only front tabs
+     * are judged, and only after `RECOVERY_SETTLE_MS`: a diagram tab in front of its group that no
+     * panel of this host shows by then is dead. A tab behind others is left alone until it comes
+     * to the front. A dead tab takes the registry entry with its title, in its group if there is
+     * one; a front tab no entry matches is left alone (Reload Window still revives it). An entry
+     * whose title is on no diagram tab is dropped: the reader closed that tab.
+     *
+     * Returns how many diagrams the first check opened again.
+     */
+    async recoverAfterRestart(): Promise<number> {
+        const raw = this.ctx.globalState.get<unknown>(OPEN_PANELS_KEY);
+        if (raw === undefined)
+            return 0;
+        this.pending = parseRegistry(raw).get(vscode.env.sessionId)?.panels.slice() ?? [];
+        // Also prunes the other sessions' old entries and repairs a malformed value.
+        void this.recordPanels();
+        if (!this.pending.length)
+            return 0;
+        this.log.info(`an earlier extension host in this window had ${this.pending.length} diagram(s) open; replacing their dead tabs`);
+        const changed = (): void => { void this.scheduleSweep(); };
+        this.tabWatch = vscode.Disposable.from(vscode.window.tabGroups.onDidChangeTabs(changed), vscode.window.tabGroups.onDidChangeTabGroups(changed));
+        return this.scheduleSweep();
+    }
+    /** Check the front tabs `settleMs` after the last tab change (see `recoverAfterRestart`). */
+    private scheduleSweep(): Promise<number> {
+        if (this.disposed || !this.tabWatch)
+            return Promise.resolve(0);
+        if (this.sweepTimer !== undefined)
+            clearTimeout(this.sweepTimer);
+        const done = new Promise<number>(resolve => this.sweepWaiters.push(resolve));
+        this.sweepTimer = setTimeout(() => {
+            this.sweepTimer = undefined;
+            const waiters = this.sweepWaiters.splice(0);
+            this.sweeps = this.sweeps.then(() => this.sweep()).catch((error: unknown) => {
+                this.log.warn(`replacing the dead diagram tabs failed: ${error instanceof Error ? error.message : String(error)}`);
+                return 0;
+            });
+            void this.sweeps.then(opened => waiters.forEach(resolve => resolve(opened)));
+        }, this.settleMs);
+        return done;
+    }
+    /** Some panel of this host shows `tab`, the front tab of the group in `column`. */
+    private showsIn(tab: vscode.Tab, column: vscode.ViewColumn): boolean {
+        return [...this.panels.values()].some(panel => panel.showsIn(column, tab.label));
+    }
+    private async sweep(): Promise<number> {
+        if (this.disposed || !this.tabWatch)
+            return 0;
+        const groups = vscode.window.tabGroups.all;
+        const titles = new Set(groups.flatMap(group => group.tabs).filter(isAuthoredTab).map(tab => tab.label));
+        const before = this.pending.length;
+        this.pending = this.pending.filter(entry => titles.has(entry.title));
+        const dead: { tab: vscode.Tab; entry: PanelRecord; column: vscode.ViewColumn }[] = [];
+        for (const group of groups) {
+            const tab = group.activeTab;
+            if (!isAuthoredTab(tab) || this.showsIn(tab, group.viewColumn))
+                continue;
+            const sameTitle = (entry: PanelRecord): boolean => entry.title === tab.label;
+            let index = this.pending.findIndex(entry => sameTitle(entry) && entry.column === group.viewColumn);
+            if (index < 0)
+                index = this.pending.findIndex(sameTitle);
+            if (index < 0) {
+                if (!this.unmatched.has(tab)) {
+                    this.unmatched.add(tab);
+                    this.log.info('a diagram tab in front of its group has no panel and matches no open diagram of the earlier extension host; left as it is');
+                }
+                continue;
+            }
+            dead.push({ tab, entry: this.pending.splice(index, 1)[0]!, column: group.viewColumn });
+        }
+        const opened: AuthoredPanel[] = [];
+        if (dead.length) {
+            // Open the new panels beside the dead tabs before closing those, so their groups stay.
+            // An artifact already shown (opened again since the restart) gets no second panel.
+            for (const { entry, column } of dead) {
+                const target = savedArtifact(entry.artifact);
+                if (target && !this.panels.has(target.key))
+                    opened.push(this.create(target, column));
+            }
+            try {
+                await vscode.window.tabGroups.close(dead.map(item => item.tab), true);
+            }
+            catch (error) {
+                this.log.warn(`could not close the dead diagram tabs: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            this.log.info(`VS Code restarted the extension host: closed ${dead.length} dead diagram tab(s) and opened ${opened.length} diagram(s) again`);
+        }
+        if (dead.length || this.pending.length !== before)
+            void this.recordPanels();
+        if (!this.pending.length)
+            this.stopRecovery();
+        await Promise.all(opened.map(panel => panel.reload()));
+        return opened.length;
+    }
+    /** No dead tab is left to find: stop watching the tabs. */
+    private stopRecovery(): void {
+        this.tabWatch?.dispose();
+        this.tabWatch = undefined;
+        if (this.sweepTimer !== undefined) {
+            clearTimeout(this.sweepTimer);
+            this.sweepTimer = undefined;
+        }
+        this.sweepWaiters.splice(0).forEach(resolve => resolve(0));
     }
     private diskChanged(uri: vscode.Uri): void {
         for (const panel of this.panels.values())
@@ -261,7 +569,14 @@ export class AuthoredDiagramController implements vscode.Disposable {
             if (panel.dependsOn(uri.fsPath))
                 panel.bufferChanged();
     }
+    private foldersChanged(): void {
+        for (const panel of this.panels.values())
+            panel.foldersChanged();
+    }
     dispose(): void {
+        // First, so the panels disposed below stay in the registry for the next host.
+        this.disposed = true;
+        this.stopRecovery();
         for (const p of this.panels.values())
             p.dispose();
         this.panels.clear();
@@ -273,6 +588,37 @@ type ValidationResult = Awaited<ReturnType<typeof validateWorkflow>>;
 type BannerItem = { code: string; text: string };
 type ParsedStructure = ReturnType<typeof validateWorkflowStructure>['document'];
 type ParsedCandidate = Exclude<Candidate, { kind: 'json' }> | (Omit<Extract<Candidate, { kind: 'json' }>, 'result'> & { result: ValidationResult; structural?: ParsedStructure });
+/** Lines `start`..`end` (zero-based), clamped to the document, from column 0 to the end of the last line. */
+function citedRange(document: vscode.TextDocument, start: number, end: number): vscode.Range {
+    const last = Math.max(0, Math.min(end, document.lineCount - 1));
+    const first = Math.max(0, Math.min(start, last));
+    return new vscode.Range(first, 0, last, document.lineAt(last).text.length);
+}
+/** The visible text editor showing `document`, waiting up to `timeoutMs` for VS Code to create it. */
+function visibleEditorFor(document: vscode.TextDocument, timeoutMs: number): Promise<vscode.TextEditor | undefined> {
+    const key = document.uri.toString();
+    const find = (): vscode.TextEditor | undefined => vscode.window.visibleTextEditors.find(editor => editor.document.uri.toString() === key);
+    const found = find();
+    if (found || timeoutMs <= 0)
+        return Promise.resolve(found);
+    return new Promise(resolve => {
+        let settled = false;
+        const finish = (editor: vscode.TextEditor | undefined): void => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            subscription.dispose();
+            resolve(editor);
+        };
+        const subscription = vscode.window.onDidChangeVisibleTextEditors(() => {
+            const editor = find();
+            if (editor)
+                finish(editor);
+        });
+        const timer = setTimeout(() => finish(find()), timeoutMs);
+    });
+}
 const listFiles = (rels: readonly string[]): string => rels.slice(0, 3).map(rel => displayText(rel, 200)).join(', ') + (rels.length > 3 ? `, and ${rels.length - 3} more` : '');
 class AuthoredPanel implements vscode.Disposable {
     private disposed = false;
@@ -284,7 +630,8 @@ class AuthoredPanel implements vscode.Disposable {
     private readonly disposables: vscode.Disposable[] = [];
     private readonly reloads = new ReloadGeneration();
     private readonly scheduler: ValidationScheduler;
-    private readonly artifactRel: string;
+    /** The artifact relative to its workspace folder; changes only when the owning folder does. */
+    private artifactRel: string;
     private validationTail: Promise<void> = Promise.resolve();
     private freshnessVersion = 0;
     private pendingCheck = false;
@@ -298,16 +645,43 @@ class AuthoredPanel implements vscode.Disposable {
     private lastPostedBanner = '';
     private lastPostedFull: string | undefined;
     private lastStaleToast: string | undefined;
-    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private readonly folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
+    /** The stale set last posted to this webview page, as JSON; undefined means none (an empty set). */
+    private lastPostedStale: string | undefined;
+    /** Where the missing cited files exist with their published hashes, when the root is wrong. */
+    private rootHint: RootHint | undefined;
+    /** The whole-range highlight of the last source jump; disposing it clears it from every editor. */
+    private highlight: vscode.TextEditorDecorationType | undefined;
+    /** The number of the latest source jump (see `Jump`). */
+    private jumpSeq = 0;
+    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly hooks: PanelHooks, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
         this.artifactRel = toPosixRelative(folder.uri.fsPath, artifact.fsPath);
         this.dependencies.addPath(artifact.fsPath);
         this.scheduler = new ValidationScheduler(() => this.runReload(), RELOAD_DEBOUNCE_MS, systemTimers, error => this.log.warn(`authored reload failed: ${error instanceof Error ? error.message : String(error)}`));
         this.render();
         panel.onDidDispose(() => this.dispose(), null, this.disposables);
+        // A tab moved to another group: the registry keeps each panel's column.
+        panel.onDidChangeViewState(() => this.hooks.changed(), null, this.disposables);
         panel.webview.onDidReceiveMessage((m: unknown) => { void this.message(m).catch(error => this.log.warn(`authored message failed: ${error instanceof Error ? error.message : String(error)}`)); }, null, this.disposables);
         this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) })));
     }
     reveal(): void { this.panel.reveal(vscode.ViewColumn.Beside, true); }
+    /** This panel in the registry: the artifact, the tab title and the group's column (see `OPEN_PANELS_KEY`). */
+    record(): PanelRecord {
+        const column = this.panel.viewColumn;
+        return typeof column === 'number' && column > 0 ? { artifact: this.artifact.fsPath, title: this.panel.title, column } : { artifact: this.artifact.fsPath, title: this.panel.title };
+    }
+    /**
+     * This panel is the visible editor of the group in `column`, whose front tab is titled
+     * `title`. VS Code revives a restored panel with column 0 and reports its group a moment
+     * later (20 ms in a live VS Code 1.139 check); until then a visible panel with the tab's title
+     * counts.
+     */
+    showsIn(column: vscode.ViewColumn, title: string): boolean {
+        if (this.disposed || !this.panel.visible)
+            return false;
+        const own = this.panel.viewColumn;
+        return own === column || (!(typeof own === 'number' && own > 0) && this.panel.title === title);
+    }
     /** MLView: Open Generated Diagram for an already-open artifact. */
     async reopen(): Promise<void> {
         this.lineage.reset();
@@ -338,6 +712,21 @@ class AuthoredPanel implements vscode.Disposable {
             this.dirtyTimer = undefined;
             void this.computeDirty().then(() => this.postBanner());
         }, DIRTY_THROTTLE_MS);
+    }
+    /**
+     * The workspace folders changed: the artifact may now belong to another (innermost) folder,
+     * for example the one the root hint added. Validate again either way; the product always
+     * validates against the folder that really owns the artifact, never against the hint.
+     */
+    foldersChanged(): void {
+        if (this.disposed)
+            return;
+        const target = workspaceArtifact(this.artifact.fsPath);
+        if (target && path.resolve(target.folder.uri.fsPath) !== path.resolve(this.folder.uri.fsPath)) {
+            this.folder = target.folder;
+            this.artifactRel = toPosixRelative(this.folder.uri.fsPath, this.artifact.fsPath);
+        }
+        this.sourceChanged();
     }
     private async validate(raw: unknown, baseline?: Record<string, string>): Promise<ValidationResult | undefined> {
         const previous = this.validationTail;
@@ -469,11 +858,16 @@ class AuthoredPanel implements vscode.Disposable {
         }
         await this.rebuildDependencies(candidateTracked, candidateFiles);
         await this.computeDirty();
+        this.rootHint = await this.computeRootHint();
         if (this.disposed)
             return;
         if (verdict === 'adopt' && this.lastValid && candidate.kind === 'json') {
             const document = this.lastValid.document;
-            this.panel.title = `MLView: ${document.title}`;
+            const title = `MLView: ${document.title}`;
+            if (this.panel.title !== title) {
+                this.panel.title = title;
+                this.hooks.changed();
+            }
             if (this.ready) {
                 this.postBanner(true, true);
                 this.post({ v: 1, type: 'workflow', document });
@@ -481,7 +875,9 @@ class AuthoredPanel implements vscode.Disposable {
             }
             const staleFiles = this.lastValid.stale;
             const toastKey = `${document.revision.id}\n${staleFiles.map(s => `${s.reason}:${s.rel}`).join('\n')}`;
-            if (staleFiles.length && toastKey !== this.lastStaleToast) {
+            // The root hint has no notification: the panel's notice carries its two actions, and a
+            // notification would outlive an extension host restart with dead buttons.
+            if (!this.rootHint && staleFiles.length && toastKey !== this.lastStaleToast) {
                 this.lastStaleToast = toastKey;
                 void vscode.window.showWarningMessage(staleToastText(staleFiles));
             }
@@ -491,11 +887,80 @@ class AuthoredPanel implements vscode.Disposable {
             this.post({ v: 1, type: 'workflow', document: this.lastValid.document });
             this.lastPostedFull = candidate.full;
         }
+        this.postStale();
         this.postBanner();
         if (candidate.kind === 'unreadable' && candidate.transient)
             this.scheduleRetry();
         else
             this.retryCount = 0;
+    }
+    /**
+     * The stale cited and inspected files of the displayed revision, each with its reason, so the
+     * webview can mark the cards, connections, findings and quotes that cite them. Posted after
+     * the workflow frame, only when the set changed for this page. A file the root hint found
+     * unchanged in another folder is sent as `elsewhere`, so the webview does not call it changed
+     * or missing while the notice says it did not change (COPY-1).
+     */
+    private postStale(): void {
+        if (!this.ready || this.disposed)
+            return;
+        const elsewhere = new Set(this.rootHint?.files ?? []);
+        const files = (this.lastValid?.stale ?? []).map(s => ({ path: s.rel, reason: elsewhere.has(s.rel) ? 'elsewhere' : s.reason }));
+        const key = JSON.stringify(files);
+        if (key === (this.lastPostedStale ?? '[]'))
+            return;
+        this.lastPostedStale = key;
+        this.post({ v: 1, type: 'stale', files });
+    }
+    /** A root hint for the displayed revision, or undefined (see `findRootHint`). */
+    private async computeRootHint(): Promise<RootHint | undefined> {
+        const shown = this.lastValid;
+        const published = shown?.document.verification?.files;
+        if (!shown || !published || !shown.stale.length)
+            return undefined;
+        try {
+            return await findRootHint({
+                tracked: trackedFiles(shown.document),
+                published,
+                stale: shown.stale,
+                artifact: this.artifact.fsPath,
+                root: this.folder.uri.fsPath,
+                limit: MAX_SOURCE_BYTES,
+                readBytes: readSourceBytes
+            });
+        }
+        catch {
+            return undefined;
+        }
+    }
+    /**
+     * The root hint's two actions, from the panel's notice. The folder comes from the host's own
+     * hint, never from the webview message, and nothing here changes what validation reads: a new
+     * folder takes effect through `foldersChanged`, in the panel reopened after an extension host
+     * restart, or in the new window.
+     */
+    private async workspaceHintAction(action: 'add' | 'open'): Promise<void> {
+        const hint = this.rootHint;
+        if (this.disposed || !hint)
+            return;
+        const uri = vscode.Uri.file(hint.base);
+        if (action === 'open') {
+            await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
+            return;
+        }
+        const folders = vscode.workspace.workspaceFolders ?? [];
+        if (folders.some(folder => path.resolve(folder.uri.fsPath) === path.resolve(hint.base))) {
+            this.foldersChanged();
+            return;
+        }
+        // A single-folder window becomes an untitled multi-root workspace, and VS Code restarts the
+        // extension host, which leaves this panel's tab dead until the next host replaces it from
+        // the registry (see `OPEN_PANELS_KEY`): store the registry before the folder is added. A
+        // multi-root window keeps its extension host, and `foldersChanged` validates in place.
+        await this.hooks.flush();
+        // Appended, so the first folder is left alone.
+        if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri }))
+            void vscode.window.showWarningMessage('MLView: VS Code did not add the folder to the workspace.');
     }
     private scheduleRetry(): void {
         if (this.disposed || this.retryTimer !== undefined || this.retryCount >= RETRY_DELAYS_MS.length)
@@ -556,7 +1021,11 @@ class AuthoredPanel implements vscode.Disposable {
             // Campaign 3, issue 21: worded from each file's reason ("1 changed, 1 missing"), so a
             // deleted cited file is no longer reported as "changed".
             const stale = this.lastValid?.stale ?? [];
-            if (displayed && stale.length)
+            // The parent-folder case: the files did not change, the root is wrong. The stale
+            // wording ("no longer match", "ask the assistant") would be false here.
+            if (displayed && stale.length && this.rootHint)
+                items.push({ code: 'root-hint', text: rootHintText(this.rootHint, listFiles) });
+            else if (displayed && stale.length)
                 items.push({ code: 'stale', text: staleBannerText(stale, displayed.id, listFiles) });
             if (this.dirty.length)
                 items.push({ code: 'dirty', text: `Unsaved editor changes in ${listFiles(this.dirty)} are not checked; freshness uses the saved files. A jump is blocked when the unsaved text no longer contains the cited lines.` });
@@ -646,6 +1115,9 @@ class AuthoredPanel implements vscode.Disposable {
                 this.post({ v: 1, type: 'workflow', document: this.lastValid.document });
                 this.lastPostedFull = this.lineage.displayed?.full;
             }
+            // A new page starts with no stale marks.
+            this.lastPostedStale = undefined;
+            this.postStale();
             const { message, codes } = this.banner();
             this.lastPostedBanner = message;
             if (message)
@@ -654,6 +1126,11 @@ class AuthoredPanel implements vscode.Disposable {
         }
         if (m.type === 'openLocation') {
             await this.openEvidence(m);
+            return;
+        }
+        if (m.type === 'workspaceHint') {
+            if (m.action === 'add' || m.action === 'open')
+                await this.workspaceHintAction(m.action);
             return;
         }
         if (m.type === 'refineWorkflow') {
@@ -762,40 +1239,93 @@ class AuthoredPanel implements vscode.Disposable {
     }
     private async openEvidence(m: Record<string, unknown>): Promise<void> {
         const id = typeof m.evidenceId === 'string' ? m.evidenceId : undefined;
+        // `focus: true` is the explicit "open and go to the editor" gesture; every other open keeps
+        // the keyboard on the diagram.
+        const focus = m.focus === true;
         const shown = this.lastValid;
         const evidence = shown?.document.evidence.find(x => x.id === id);
         if (!shown || !evidence)
             return;
-        const revision = shown.document.revision.id;
-        const freshness = this.freshnessVersion;
-        const displayed = this.lineage.displayed;
-        let fresh: ValidationResult | undefined;
+        const jump: Jump = { revision: shown.document.revision.id, freshness: this.freshnessVersion, seq: ++this.jumpSeq };
+        let behind = false;
         try {
-            fresh = await this.validate(shown.document, displayed && !displayed.verified ? displayed.baseline : undefined);
+            await this.jumpTo(evidence, shown, jump, focus, () => { behind = true; });
         }
-        catch {
-            fresh = { issues: [{ path: '$', message: 'validation failed' }] };
+        finally {
+            // The jump's own check found files the panel has not caught up with (no watcher event
+            // yet): validate the panel again, after this jump has been decided.
+            if (behind)
+                this.sourceChanged();
         }
-        if (!fresh || !this.navigationCurrent(revision, freshness))
-            return;
-        if (!fresh.value) {
-            const first = fresh.issues[0];
-            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? displayIssue(first) : 'unknown problem'}); source navigation was stopped.`);
-            return;
+    }
+    private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, focus: boolean, markBehind: () => void): Promise<void> {
+        let fresh: ValidatedWorkflow;
+        if (await this.unchangedSinceValidation(shown, evidence)) {
+            // The cited file's bytes are the ones the displayed revision was validated against, so
+            // the quote still matches: no full revalidation for this jump.
+            if (!this.navigationCurrent(jump))
+                return;
+            fresh = shown;
         }
-        const staleFile = fresh.value.stale.find(s => s.rel === evidence.file);
+        else {
+            const displayed = this.lineage.displayed;
+            let result: ValidationResult | undefined;
+            try {
+                result = await this.validate(shown.document, displayed && !displayed.verified ? displayed.baseline : undefined);
+            }
+            catch {
+                result = { issues: [{ path: '$', message: 'validation failed' }] };
+            }
+            if (!result || !this.navigationCurrent(jump))
+                return;
+            if (!result.value) {
+                const first = result.issues[0];
+                void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? displayIssue(first) : 'unknown problem'}); source navigation was stopped.`);
+                return;
+            }
+            fresh = result.value;
+            if (JSON.stringify(fresh.stale) !== JSON.stringify(shown.stale))
+                markBehind();
+        }
+        const staleFile = fresh.stale.find(s => s.rel === evidence.file);
         if (staleFile) {
-            void vscode.window.showWarningMessage(staleJumpText(evidence.id, displayText(evidence.file, 200), staleFile.reason, revision));
+            const hint = this.rootHint;
+            void vscode.window.showWarningMessage(hint && hint.files.includes(evidence.file)
+                ? rootHintJumpText(evidence.id, displayText(evidence.file, 200), hint, listFiles)
+                : staleJumpText(evidence.id, displayText(evidence.file, 200), staleFile.reason, jump.revision));
             return;
         }
         const open = await this.findOpenDocument(evidence);
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
         if (!this.unsavedTextStillCites(evidence, open)) {
             void vscode.window.showWarningMessage(`MLView: unsaved changes in ${displayText(evidence.file, 200)} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.`);
             return;
         }
-        await this.navigate(evidence, revision, freshness, open);
+        await this.navigate(evidence, jump, open, focus);
+    }
+    /**
+     * True when the cited file is fresh in the displayed revision's last validation and its bytes
+     * on disk still hash to what that validation read. Reads one file instead of every tracked
+     * file (KI-09: a full validation on every jump). Any doubt answers false, and the caller runs
+     * the full validation as before.
+     */
+    private async unchangedSinceValidation(shown: ValidatedWorkflow, evidence: WorkflowEvidence): Promise<boolean> {
+        if (shown.stale.some(s => s.rel === evidence.file))
+            return false;
+        if (!Object.prototype.hasOwnProperty.call(shown.fingerprints, evidence.file))
+            return false;
+        const expected = shown.fingerprints[evidence.file];
+        try {
+            const real = await fs.realpath(path.resolve(this.folder.uri.fsPath, evidence.file));
+            if (!shown.files.includes(real))
+                return false;
+            const bytes = await readSourceBytes(real, MAX_SOURCE_BYTES);
+            return createHash('sha256').update(bytes).digest('hex') === expected;
+        }
+        catch {
+            return false;
+        }
     }
     /** The open editor document for the evidence file, matched by file identity (realpath, win32 case-folded). */
     private async findOpenDocument(e: WorkflowEvidence): Promise<{ text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }> {
@@ -822,8 +1352,9 @@ class AuthoredPanel implements vscode.Disposable {
         }
         return true;
     }
-    private navigationCurrent(revision: string, freshness: number): boolean {
-        return !this.disposed && this.lastValid?.document.revision.id === revision && this.freshnessVersion === freshness;
+    /** The jump may still act: same revision and freshness, and no newer jump has started. */
+    private navigationCurrent(jump: Jump): boolean {
+        return !this.disposed && this.lastValid?.document.revision.id === jump.revision && this.freshnessVersion === jump.freshness && this.jumpSeq === jump.seq;
     }
     private navigationColumn(document: vscode.TextDocument, notebook?: vscode.NotebookDocument): vscode.ViewColumn {
         const sameUri = (left: vscode.Uri, right: vscode.Uri): boolean => left.toString() === right.toString();
@@ -837,38 +1368,66 @@ class AuthoredPanel implements vscode.Disposable {
             .find(editor => editor?.viewColumn !== undefined && editor.viewColumn !== this.panel.viewColumn);
         return sourceEditor?.viewColumn ?? vscode.ViewColumn.Beside;
     }
-    private async navigate(e: WorkflowEvidence, revision: string, freshness: number, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }): Promise<void> {
+    /**
+     * Open the cited source beside the panel, select the whole cited range and highlight it.
+     * `focus` false (the default gesture) keeps the keyboard on the diagram.
+     */
+    private async navigate(e: WorkflowEvidence, jump: Jump, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }, focus: boolean): Promise<void> {
         const uri = open.notebook?.uri ?? open.text?.uri ?? vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
         const start = toEditorLine(e.line), end = toEditorLine(e.endLine);
         if (e.cell !== undefined) {
-            const notebook = await vscode.workspace.openNotebookDocument(uri);
-            if (!this.navigationCurrent(revision, freshness))
-                return;
-            // VS Code clamps cellAt's index, so a removed cell must be detected by count.
-            if (e.cell >= notebook.cellCount) {
-                void vscode.window.showWarningMessage(`MLView: notebook cell ${e.cell} no longer exists.`);
-                return;
-            }
-            const cell = notebook.cellAt(e.cell);
-            const editor = await vscode.window.showTextDocument(cell.document, { preview: true, viewColumn: this.navigationColumn(cell.document, notebook) });
-            if (!this.navigationCurrent(revision, freshness))
-                return;
-            const last = Math.max(0, Math.min(end, cell.document.lineCount - 1));
-            const range = new vscode.Range(start, 0, last, Math.max(0, cell.document.lineAt(last).text.length));
-            editor.selection = new vscode.Selection(range.start, range.start);
-            editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+            await this.navigateCell(e.cell, uri, start, end, jump, focus);
             return;
         }
         const doc = await vscode.workspace.openTextDocument(uri);
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
-        const editor = await vscode.window.showTextDocument(doc, { preview: true, viewColumn: this.navigationColumn(doc) });
-        if (!this.navigationCurrent(revision, freshness))
+        const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(doc) });
+        if (!this.navigationCurrent(jump))
             return;
-        const last = Math.max(0, Math.min(end, doc.lineCount - 1));
-        const range = new vscode.Range(start, 0, last, doc.lineAt(last).text.length);
-        editor.selection = new vscode.Selection(range.start, range.start);
+        this.showRange(editor, citedRange(doc, start, end));
+    }
+    /**
+     * A notebook citation: show the notebook with the cited cell selected and revealed, then
+     * select and highlight the cited lines in that cell's editor. VS Code creates a cell's editor
+     * only once the cell is drawn; when it does not appear in time, the cell stays selected and
+     * revealed without the line highlight.
+     */
+    private async navigateCell(index: number, uri: vscode.Uri, start: number, end: number, jump: Jump, focus: boolean): Promise<void> {
+        const notebook = await vscode.workspace.openNotebookDocument(uri);
+        if (!this.navigationCurrent(jump))
+            return;
+        // VS Code clamps cellAt's index, so a removed cell must be detected by count.
+        if (index >= notebook.cellCount) {
+            void vscode.window.showWarningMessage(`MLView: notebook cell ${index} no longer exists.`);
+            return;
+        }
+        const cell = notebook.cellAt(index);
+        const cells = new vscode.NotebookRange(index, index + 1);
+        const notebookEditor = await vscode.window.showNotebookDocument(notebook, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(cell.document, notebook), selections: [cells] });
+        if (!this.navigationCurrent(jump))
+            return;
+        notebookEditor.revealRange(cells, vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);
+        const cellEditor = await visibleEditorFor(cell.document, CELL_EDITOR_WAIT_MS);
+        // A newer jump may have started during the wait: it owns the selection and the highlight.
+        if (!this.navigationCurrent(jump))
+            return;
+        if (cellEditor)
+            this.showRange(cellEditor, citedRange(cell.document, start, end));
+        else
+            this.clearHighlight();
+    }
+    /** Select the whole range, reveal it, and move the highlight to it. */
+    private showRange(editor: vscode.TextEditor, range: vscode.Range): void {
+        editor.selection = new vscode.Selection(range.start, range.end);
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+        this.clearHighlight();
+        this.highlight = vscode.window.createTextEditorDecorationType(HIGHLIGHT_STYLE());
+        editor.setDecorations(this.highlight, [range]);
+    }
+    private clearHighlight(): void {
+        this.highlight?.dispose();
+        this.highlight = undefined;
     }
     private post(message: unknown): void {
         if (!this.disposed)
@@ -877,16 +1436,17 @@ class AuthoredPanel implements vscode.Disposable {
     /**
      * The inline bootstrap owns the host handshake: it alone posts `ready`, stashes the `init`
      * theme and capabilities on the bridge before the viewer mounts, mounts on the first
-     * `workflow`, and shows `workflowError` banners. After the mount the viewer's own listener
-     * applies every later frame.
+     * `workflow`, and shows `workflowError` banners until then, in a `<pre>`. After the mount the
+     * viewer's own listener applies every later frame, and draws the banner itself.
      */
-    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document)app=window.MLView.mountWorkflow(root,m.document,bridge);return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
+    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document)app=window.MLView.mountWorkflow(root,m.document,bridge);return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(app||!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
     dispose(): void {
         if (this.disposed)
             return;
         this.disposed = true;
         this.scheduler.dispose();
         this.cancelRetry();
+        this.clearHighlight();
         if (this.dirtyTimer !== undefined) {
             clearTimeout(this.dirtyTimer);
             this.dirtyTimer = undefined;

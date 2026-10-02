@@ -35,11 +35,13 @@ function commandPort(app: App): CommandPort {
     focusSearch: () => app.search.focus(),
     visibleIssues: () => filteredIssues(app),
     focusIssue: (id) => app.focusIssue(id),
-    openSelection: () => {
+    // Viewer M1: Enter opens beside the panel and keeps focus here, so the keys keep working;
+    // Alt+Enter moves focus to the editor.
+    openSelection: (focusEditor) => {
       const sel = app.selection;
       if (!sel) return false;
       const loc = app.locOf(sel);
-      if (loc) app.openLocation(loc);
+      if (loc) app.openLocation(loc, focusEditor);
       return true;
     },
     zoomToSelection: () => app.zoomToSelection(),

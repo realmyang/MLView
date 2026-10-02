@@ -9,17 +9,6 @@
 import type { IssueCounts, Issue, MLEdge, MLGraph, MLNode, Severity, Stage } from '../types.js';
 import { emptyCounts, normalizeSeverity } from '../markers.js';
 
-export const CANONICAL_STAGES: { id: string; label: string }[] = [
-  { id: 'config', label: 'Configuration' },
-  { id: 'data', label: 'Data' },
-  { id: 'preprocess', label: 'Preprocess' },
-  { id: 'model', label: 'Model' },
-  { id: 'objective', label: 'Objective' },
-  { id: 'train', label: 'Train' },
-  { id: 'eval', label: 'Evaluate' },
-  { id: 'deliver', label: 'Save / Deploy' },
-];
-
 export interface IssuePredicate {
   (issue: Issue): boolean;
 }
@@ -97,10 +86,9 @@ export class GraphIndex {
     const ordered = (graph.stages || []).slice().sort((a, b) => a.order - b.order || cmp(a.id, b.id));
     // `stage.present` is PROJECT-LEVEL truth and a projection carries it through
     // verbatim, so under a scope it no longer implies "this lane has content":
-    // `concern:evaluation` leaves `config` and `objective` present at
-    // nodeCount 0, and admitting them here drew two empty swimlane bands (up to
-    // seven on a narrow scope). While a view is present a lane is admitted ONLY
-    // when it has drawn roots (CONTRACTS 11.4 F3).
+    // a narrow scope leaves other phases present at nodeCount 0, and admitting
+    // them here drew empty swimlane bands. While a view is present a lane is
+    // admitted ONLY when it has drawn roots (CONTRACTS 11.4 F3).
     const projected = !!graph.view;
     for (const s of ordered) {
       const drawn = (this.rootsByLane.get(s.id) || []).length > 0;
@@ -307,23 +295,23 @@ export class GraphIndex {
   }
 
   /**
-   * Groups that start collapsed: the document's own hint, plus large subtrees.
+   * Groups that start collapsed: large subtrees.
    *
-   * Campaign 3, issue 6: for an AUTHORED document a group that holds the target
-   * of a finding (a node it names, or an end of a connection it names) is never
-   * folded by this size rule. The rule folded away the training loop in four of
-   * twelve Claude Code shakedown artifacts, and with it every finding placed on
-   * the loop, while peripheral groups stayed open. The reader can still fold it.
+   * Campaign 3, issue 6: a group that holds the target of a finding (a node it
+   * names, or an end of a connection it names) is never folded by this size
+   * rule. The rule folded away the training loop in four of twelve Claude Code
+   * shakedown artifacts, and with it every finding placed on the loop, while
+   * peripheral groups stayed open. The reader can still fold it.
    */
   defaultCollapsed(): string[] {
     const out: string[] = [];
     const big = (this.graph.nodes || []).length > 120;
-    const holdsTarget = this.graph.schemaVersion === 'workflow-view/1' ? this.findingTargetAncestors() : null;
+    const holdsTarget = this.findingTargetAncestors();
     for (const n of this.graph.nodes || []) {
       if (!this.isGroup(n.id)) continue;
-      if (holdsTarget && holdsTarget.has(n.id)) continue;
+      if (holdsTarget.has(n.id)) continue;
       const kids = this.descendantCount(n.id);
-      if (n.collapsedByDefault || kids > 12 || (big && kids > 4)) out.push(n.id);
+      if (kids > 12 || (big && kids > 4)) out.push(n.id);
     }
     return out.sort();
   }

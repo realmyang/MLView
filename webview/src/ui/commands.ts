@@ -27,7 +27,8 @@ export interface CommandPort {
   toggleFlow(): void;
   /** Collapse the selected group, or the selected node's parent group. */
   collapseSelection(): boolean;
-  openSelection(): boolean;
+  /** Open the selection's cited source; `focusEditor` (Alt+Enter) moves focus to the editor. */
+  openSelection(focusEditor: boolean): boolean;
   move(key: string): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
@@ -62,7 +63,7 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     toggleLegend: () => port.toggleLegend(),
     toggleFlow: () => port.toggleFlow(),
     toggleCollapse: () => port.collapseSelection(),
-    openSelection: () => port.openSelection(),
+    openSelection: (focusEditor) => port.openSelection(focusEditor),
     move: (key) => port.move(key),
     toggleSeverity: (i) => {
       const sev = SEVERITY_ORDER[i] as Severity | undefined;

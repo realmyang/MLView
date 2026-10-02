@@ -29,7 +29,23 @@ class Range {
   }
 }
 
-class Selection extends Range {}
+class Selection extends Range {
+  /** Like VS Code: `anchor` is where the selection starts, `active` where the cursor is. */
+  get anchor() {
+    return this.start;
+  }
+  get active() {
+    return this.end;
+  }
+}
+
+/** A range of notebook cells, end exclusive. */
+class NotebookRange {
+  constructor(start, end) {
+    this.start = start;
+    this.end = end;
+  }
+}
 
 /**
  * EXT-8: real `Uri.fsPath` lower-cases a Windows drive letter while Node's realpath keeps the
@@ -191,6 +207,23 @@ class EventEmitter {
   }
 }
 
+/** `vscode.Disposable`: `from` combines several disposables into one. */
+class Disposable {
+  constructor(callOnDispose) {
+    this.callOnDispose = callOnDispose;
+  }
+  static from(...items) {
+    return new Disposable(() => {
+      for (const item of items) if (item) item.dispose();
+    });
+  }
+  dispose() {
+    const call = this.callOnDispose;
+    this.callOnDispose = undefined;
+    if (call) call();
+  }
+}
+
 class LanguageModelTextPart {
   constructor(value) {
     this.value = value;
@@ -268,12 +301,26 @@ const recorded = {
   notebookChangeListeners: [],
   /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
   configUpdates: [],
+  /** Every createTextEditorDecorationType: {options, disposed}. */
+  decorationTypes: [],
+  /** Every showNotebookDocument call: {notebook, options, editor}. */
+  shownNotebooks: [],
+  /** window.onDidChangeVisibleTextEditors listeners. */
+  visibleEditorListeners: [],
+  /** Every workspace.updateWorkspaceFolders(start, deleteCount, ...folders) call. */
+  workspaceFolderUpdates: [],
+  /** Every commands.executeCommand(id, ...args) call. */
+  executedCommands: [],
+  /** Every window.tabGroups.close(tabs, preserveFocus) call. */
+  closedTabs: [],
   /** H10: every languages.registerCodeLensProvider registration. */
   codeLensProviders: []
 };
 
 const configValues = new Map();
 let workspaceFolders;
+/** `workspace.workspaceFile`, set by `__setWorkspaceFile`. */
+let workspaceFile;
 /** FIFO of answers `show*Message` returns, set by `__answerMessage`. */
 const messageAnswers = [];
 /** VIEW-07: what the next showSaveDialog / showQuickPick returns, queued by the test. */
@@ -313,6 +360,28 @@ function docKey(fsPath) {
 let notebookDocuments = [];
 let visibleTextEditors = [];
 let visibleNotebookEditors = [];
+/** Whether showNotebookDocument makes the selected cells' editors visible (as VS Code does once it draws them). */
+let notebookCellEditors = true;
+
+/** A text editor stub that records its selection, reveals and decorations. */
+function makeTextEditor(document, viewColumn) {
+  const editor = {
+    document,
+    viewColumn,
+    /** Every setDecorations(type, ranges) call, in order. */
+    decorations: [],
+    setDecorations(type, ranges) {
+      editor.decorations.push({ type, ranges });
+    },
+    /** EXT-8: every revealRange(range, revealType) call, in order. */
+    revealed: [],
+    revealRange(range, revealType) {
+      editor.revealed.push({ range, revealType });
+    },
+    selection: undefined
+  };
+  return editor;
+}
 
 const NotebookCellKind = { Markup: 1, Code: 2 };
 
@@ -388,16 +457,25 @@ function makeDocument(uri) {
 
 /**
  * A stand-in for a `WebviewPanel`: it records everything the host posts (`panel.posted`) and
- * lets a test play the webview's part with `panel.fire(message)`.
+ * lets a test play the webview's part with `panel.fire(message)`. When `window.tabGroups` has a
+ * group in the panel's column, the panel gets a tab there, in front, like a new editor in VS Code
+ * (`panel.tab`); closing that tab disposes the panel, and disposing the panel removes the tab.
+ * `existingTab` links the panel to a tab that is already open instead (a restored tab revived by
+ * the serializer, see `__reviveTab`).
  */
-function makeWebviewPanel(viewType, title, showOptions, options) {
+function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
   const messages = new EventEmitter();
   const disposal = new EventEmitter();
+  const viewState = new EventEmitter();
   const panel = {
     viewType,
     title,
     options,
     viewColumn: typeof showOptions === 'object' ? showOptions.viewColumn : showOptions,
+    /** VS Code's `visible`: the panel is the editor its group shows. */
+    visible: true,
+    active: false,
+    tab: undefined,
     posted: [],
     revealed: 0,
     disposed: false,
@@ -419,14 +497,83 @@ function makeWebviewPanel(viewType, title, showOptions, options) {
       panel.revealed += 1;
     },
     onDidDispose: disposal.event,
+    onDidChangeViewState: viewState.event,
+    /** Play VS Code's view state change: assign `{ viewColumn?, visible?, active? }` and fire the event. */
+    __setViewState(state) {
+      Object.assign(panel, state);
+      viewState.fire({ webviewPanel: panel });
+    },
     dispose() {
       if (panel.disposed) return;
       panel.disposed = true;
+      const tab = panel.tab;
+      if (tab && tab.group.tabs.includes(tab)) {
+        tab.group.tabs = tab.group.tabs.filter((other) => other !== tab);
+        tabEvents.fire({ opened: [], closed: [tab], changed: [] });
+      }
       disposal.fire();
     }
   };
+  if (existingTab) {
+    linkTab(existingTab, panel);
+    panel.viewColumn = existingTab.group.viewColumn;
+    panel.visible = existingTab.isActive;
+  } else {
+    const group = tabGroups.find((candidate) => candidate.viewColumn === panel.viewColumn);
+    if (group) {
+      const tab = makeTab(group, { label: title, viewType: `mainThreadWebview-${viewType}`, isActive: true });
+      linkTab(tab, panel);
+      const changed = group.tabs.filter((other) => other.isActive);
+      for (const other of changed) setTabActive(other, false);
+      group.tabs.push(tab);
+      tabEvents.fire({ opened: [tab], closed: [], changed });
+    }
+  }
   recorded.panels.push(panel);
   return panel;
+}
+
+/** A webview tab's input, as the tabs API reports it (VS Code prefixes the view type). */
+class TabInputWebview {
+  constructor(viewType) {
+    this.viewType = viewType;
+  }
+}
+
+/** A text tab's input. */
+class TabInputText {
+  constructor(uri) {
+    this.uri = uri;
+  }
+}
+
+/**
+ * The editor tab groups (`window.tabGroups`), set by `__setTabGroups`. Each group is
+ * `{ viewColumn, tabs, activeTab }` and each tab `{ label, input, isActive, group }`, like VS
+ * Code's. `close` records the call, removes the tabs (disposing a panel whose tab it is) and fires
+ * `onDidChangeTabs`. It does not bring another tab to the front: a test does that with
+ * `__activateTab`.
+ */
+let tabGroups = [];
+const tabEvents = new EventEmitter();
+const tabGroupEvents = new EventEmitter();
+function makeTab(group, spec) {
+  return {
+    label: spec.label,
+    input: spec.viewType !== undefined ? new TabInputWebview(spec.viewType) : new TabInputText(Uri.file(spec.uri || '/untitled')),
+    isActive: !!spec.isActive,
+    group
+  };
+}
+/** The tab shows `panel`: its label is the panel's title, and its front state is the panel's visibility. */
+function linkTab(tab, panel) {
+  Object.defineProperty(tab, 'label', { get: () => panel.title, configurable: true, enumerable: true });
+  tab.panel = panel;
+  panel.tab = tab;
+}
+function setTabActive(tab, active) {
+  tab.isActive = active;
+  if (tab.panel && !tab.panel.disposed && tab.panel.visible !== active) tab.panel.__setViewState({ visible: active });
 }
 
 const vscode = {
@@ -450,6 +597,13 @@ const vscode = {
   LanguageModelTextPart,
   LanguageModelToolResult,
   ViewColumn: { One: 1, Two: 2, Beside: -2 },
+  NotebookRange,
+  TabInputWebview,
+  TabInputText,
+  Disposable,
+  NotebookEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
+  OverviewRulerLane: { Left: 1, Center: 2, Right: 4, Full: 7 },
+  DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   StatusBarAlignment: { Left: 1, Right: 2 },
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   TextEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
@@ -491,10 +645,34 @@ const vscode = {
       recorded.statusBarItems.push(item);
       return item;
     },
-    createTextEditorDecorationType() {
-      return { dispose() {} };
+    createTextEditorDecorationType(options) {
+      const type = {
+        options,
+        disposed: false,
+        dispose() {
+          type.disposed = true;
+        }
+      };
+      recorded.decorationTypes.push(type);
+      return type;
     },
     createWebviewPanel: makeWebviewPanel,
+    tabGroups: {
+      get all() {
+        return tabGroups;
+      },
+      async close(tabs, preserveFocus) {
+        const list = Array.isArray(tabs) ? tabs : [tabs];
+        // `panels`: how many panels had been created when the tabs were closed.
+        recorded.closedTabs.push({ tabs: list, preserveFocus, panels: recorded.panels.length });
+        for (const group of tabGroups) group.tabs = group.tabs.filter((tab) => !list.includes(tab));
+        for (const tab of list) if (tab.panel) tab.panel.dispose();
+        tabEvents.fire({ opened: [], closed: list, changed: [] });
+        return true;
+      },
+      onDidChangeTabs: tabEvents.event,
+      onDidChangeTabGroups: tabGroupEvents.event
+    },
     registerWebviewPanelSerializer: (viewType, serializer) => {
       recorded.serializers.set(viewType, serializer);
       return { dispose() {} };
@@ -525,20 +703,42 @@ const vscode = {
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
     showTextDocument: async (document, options) => {
-      const editor = {
-        document,
-        viewColumn: options && options.viewColumn,
-        setDecorations() {},
-        /** EXT-8: every revealRange(range, revealType) call, in order. */
-        revealed: [],
-        revealRange(range, revealType) {
-          editor.revealed.push({ range, revealType });
-        },
-        selection: undefined
-      };
+      const editor = makeTextEditor(document, options && options.viewColumn);
       recorded.shownDocuments.push({ document, options, editor });
       return editor;
     },
+    /**
+     * Records the call and returns a notebook editor stub. When `notebookCellEditors` is on, the
+     * selected cells' editors become visible on the next turn and the visible-editors event fires,
+     * the way VS Code creates a cell's editor once it draws the cell.
+     */
+    showNotebookDocument: async (notebook, options) => {
+      const editor = {
+        notebook,
+        viewColumn: options && options.viewColumn,
+        selections: (options && options.selections) || [],
+        revealed: [],
+        revealRange(range, revealType) {
+          editor.revealed.push({ range, revealType });
+        }
+      };
+      recorded.shownNotebooks.push({ notebook, options, editor });
+      if (notebookCellEditors) {
+        setImmediate(() => {
+          for (const range of editor.selections) {
+            for (let index = range.start; index < range.end; index++) {
+              const cell = notebook.cellAt(index);
+              if (!visibleTextEditors.some((e) => e.document === cell.document)) {
+                visibleTextEditors = [...visibleTextEditors, makeTextEditor(cell.document, editor.viewColumn)];
+              }
+            }
+          }
+          for (const listener of [...recorded.visibleEditorListeners]) listener(visibleTextEditors);
+        });
+      }
+      return editor;
+    },
+    onDidChangeVisibleTextEditors: recordingEvent(recorded.visibleEditorListeners),
     setStatusBarMessage: () => ({ dispose() {} }),
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
     createTerminal: () => ({ show() {}, sendText() {}, dispose() {} })
@@ -547,6 +747,10 @@ const vscode = {
     isTrusted: true,
     get workspaceFolders() {
       return workspaceFolders;
+    },
+    /** Undefined in a single-folder window; the workspace file's Uri in a multi-root one. */
+    get workspaceFile() {
+      return workspaceFile;
     },
     getConfiguration(section, resource) {
       // Resource-scoped reads win over the global value, exactly like a folder-level
@@ -626,6 +830,21 @@ const vscode = {
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeNotebookDocument: recordingEvent(recorded.notebookChangeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
+    /**
+     * Like VS Code: splice the folder list, then fire onDidChangeWorkspaceFolders on a later turn.
+     * Returns true when the call was accepted.
+     */
+    updateWorkspaceFolders(start, deleteCount, ...folders) {
+      recorded.workspaceFolderUpdates.push({ start, deleteCount, folders });
+      const current = workspaceFolders ? workspaceFolders.slice() : [];
+      const removed = current.splice(start, deleteCount || 0, ...folders.map((f) => ({ uri: f.uri, name: f.name || path.basename(f.uri.fsPath), index: 0 })));
+      workspaceFolders = current.map((folder, index) => ({ ...folder, index }));
+      const added = workspaceFolders.slice(start, start + folders.length);
+      setImmediate(() => {
+        for (const listener of [...recorded.folderListeners]) listener({ added, removed });
+      });
+      return true;
+    },
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
     createFileSystemWatcher: (glob) => {
       const watcher = { glob, change: [], create: [], delete: [] };
@@ -684,11 +903,16 @@ const vscode = {
       recorded.commands.set(id, handler);
       return { dispose: () => recorded.commands.delete(id) };
     },
-    executeCommand: async () => undefined
+    executeCommand: async (id, ...args) => {
+      recorded.executedCommands.push({ id, args });
+      return undefined;
+    }
   },
   env: {
     clipboard: { writeText: async (value) => void recorded.clipboardWrites.push(value) },
-    openExternal: async () => true
+    openExternal: async () => true,
+    /** The window session; the same across an extension host restart (set it to play another window). */
+    sessionId: 'mock-session'
   },
   extensions: { getExtension: () => undefined },
   CancellationTokenSource,
@@ -736,6 +960,10 @@ const vscode = {
     }));
     return visibleNotebookEditors;
   },
+  /** Whether showNotebookDocument makes the selected cells' editors visible (default true). */
+  __setNotebookCellEditors(enabled) {
+    notebookCellEditors = !!enabled;
+  },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
     documents.set(docKey(fsPath), text);
@@ -780,6 +1008,73 @@ const vscode = {
   __resetConfig() {
     configValues.clear();
   },
+  /** A multi-root window's workspace file (a path, or an `untitled:` string); undefined for a single-folder window. */
+  __setWorkspaceFile(value) {
+    workspaceFile = value === undefined ? undefined : String(value).startsWith('untitled:') ? Uri.parse(String(value)) : Uri.file(value);
+  },
+  /**
+   * Set the editor tab groups. Each spec is `{ viewColumn, tabs: [{ label, viewType?, uri?, isActive? }] }`:
+   * a tab with `viewType` is a webview tab, one with `uri` a text tab. Returns the groups.
+   */
+  __setTabGroups(specs) {
+    tabGroups = (specs || []).map((spec) => {
+      const group = {
+        viewColumn: spec.viewColumn,
+        isActive: !!spec.isActive,
+        tabs: [],
+        get activeTab() {
+          return group.tabs.find((tab) => tab.isActive);
+        }
+      };
+      group.tabs = (spec.tabs || []).map((tab) => makeTab(group, tab));
+      return group;
+    });
+    return tabGroups;
+  },
+  /** Bring `tab` to the front of its group (the others in it go behind) and fire `onDidChangeTabs`. */
+  __activateTab(tab) {
+    const changed = tab.group.tabs.filter((other) => other.isActive !== (other === tab));
+    for (const other of changed) setTabActive(other, other === tab);
+    tabEvents.fire({ opened: [], closed: [], changed });
+  },
+  /**
+   * VS Code revives a restored tab through the serializer: a new panel for the tab that is
+   * already open (its title, its column, visible when the tab is in front). The test then passes
+   * it to the serializer's `deserializeWebviewPanel`.
+   */
+  __reviveTab(tab, viewType = 'mlview.authoredDiagram') {
+    return makeWebviewPanel(viewType, tab.label, { viewColumn: tab.group.viewColumn }, {}, tab);
+  },
+  /** How many listeners `window.tabGroups` events have (a finished recovery leaves none). */
+  __tabListeners() {
+    return tabEvents.listeners.size + tabGroupEvents.listeners.size;
+  },
+  /**
+   * A Memento like `ExtensionContext.globalState`: `values` is the store, `updates` every update
+   * call. Like VS Code's, `get` sees an update at once and the promise resolves once the window
+   * has stored it; `persisted` is what the window has stored, which outlives the extension host.
+   * `delayMs` makes that store take a while.
+   */
+  __memento(initial, { delayMs = 0 } = {}) {
+    const values = new Map(Object.entries(initial || {}));
+    const memento = {
+      values,
+      persisted: new Map(values),
+      updates: [],
+      keys: () => [...values.keys()],
+      get: (key, fallback) => (values.has(key) ? values.get(key) : fallback),
+      async update(key, value) {
+        memento.updates.push({ key, value });
+        const copy = value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+        if (copy === undefined) values.delete(key);
+        else values.set(key, copy);
+        if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        if (copy === undefined) memento.persisted.delete(key);
+        else memento.persisted.set(key, copy);
+      }
+    };
+    return memento;
+  },
   /** Open one or more folders. Paths are forward-slashed absolute paths. */
   __setWorkspaceFolders(roots) {
     workspaceFolders = roots
@@ -822,6 +1117,18 @@ const vscode = {
     recorded.clipboardWrites.length = 0;
     recorded.configUpdates.length = 0;
     recorded.codeLensProviders.length = 0;
+    recorded.decorationTypes.length = 0;
+    recorded.shownNotebooks.length = 0;
+    recorded.visibleEditorListeners.length = 0;
+    recorded.workspaceFolderUpdates.length = 0;
+    recorded.executedCommands.length = 0;
+    recorded.closedTabs.length = 0;
+    tabGroups = [];
+    tabEvents.dispose();
+    tabGroupEvents.dispose();
+    workspaceFile = undefined;
+    vscode.env.sessionId = 'mock-session';
+    notebookCellEditors = true;
     saveDialogAnswers.length = 0;
     quickPickAnswers.length = 0;
     fsWriteError = undefined;

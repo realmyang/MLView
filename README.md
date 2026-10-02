@@ -43,8 +43,10 @@ in the runbook. Only install one copy of the skill in each discovery path.
    “Explain training with this config. Show data, model, losses, parameter
    updates, validation, and anything unresolved.”
 2. The assistant publishes a `*.mlview.json` file. Run **MLView: Open Generated
-   Diagram** and select it. Click nodes, edges, or evidence links to inspect the
-   cited source.
+   Diagram** and select it. Click a step, connection or finding to see its
+   claim and quotes. Press Enter, double-click, or use an **Open** link to open
+   the cited lines beside the diagram; focus stays in the diagram. Alt+Enter
+   opens them and moves focus to the editor.
 3. Ask the same assistant to refine the diagram. A valid new revision updates
    the panel; filtering and navigating the existing diagram do not call an LLM.
 
@@ -54,16 +56,22 @@ prompt into the same assistant. The diagram header shows the title, the
 request and the coverage status; its **Details** disclosure shows the scope,
 entrypoints, configuration and limitations being explained.
 
-The Inspector brings together claim basis, source quotes, counter-evidence and
-coverage limitations. **Challenge this claim** prepares a focused refinement
-request. The Outline's textual relationships provide All, Incoming, Outgoing
+The Inspector shows the selected claim in full, its phase and basis (with a
+short note when it is inferred or unresolved), the findings on it with **What
+to change**, and its source quotes and counter-evidence. A matching quote only
+shows that the cited lines are unchanged since publishing; whether they
+support the claim is for you to judge. Document-wide limitations are listed
+once, in the header's **Details**; the Inspector links to them. **Challenge
+this claim** prepares a focused refinement request. The Outline's textual relationships provide All, Incoming, Outgoing
 and Unresolved views alongside the diagram.
 
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
 Observed, inferred, and unresolved claims remain distinguishable. Saved source
-edits mark the affected citations stale and block jumps into those files;
-malformed updates retain the last valid diagram.
+edits mark the steps, connections, findings and quotes that cite the changed
+files, and block jumps into those files; malformed updates retain the last
+valid diagram. When the workspace root is a parent of the folder the diagram
+cites from, the viewer says so and offers to add that folder to the workspace.
 
 ## How it works
 

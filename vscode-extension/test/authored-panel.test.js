@@ -34,7 +34,7 @@ function manualTimers() {
 }
 function context() {
   const extensionPath=path.join(__dirname,'..');
-  return {extensionPath,extensionUri:vscode.Uri.file(extensionPath),subscriptions:[]};
+  return {extensionPath,extensionUri:vscode.Uri.file(extensionPath),subscriptions:[],globalState:vscode.__memento()};
 }
 function log() { return {info(){},warn(){},error(){},dispose(){}}; }
 function workflow(file='source.py') {
@@ -101,7 +101,9 @@ test('notebook evidence navigation reuses the visible notebook column', async ()
   await controller.open(vscode.Uri.file(artifact));
   const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
   panel.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise(resolve=>setTimeout(resolve,20));
-  assert.equal(vscode.__recorded.shownDocuments.at(-1).options.viewColumn,vscode.ViewColumn.One);
+  // M1: a notebook citation is shown with showNotebookDocument (the cell selected), not as a bare cell document.
+  assert.equal(vscode.__recorded.shownNotebooks.at(-1).options.viewColumn,vscode.ViewColumn.One);
+  assert.equal(vscode.__recorded.shownDocuments.length,0);
   controller.dispose();
 });
 
@@ -155,6 +157,8 @@ test('initial and restored historical artifacts stay visible when cited source c
   opened.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise((resolve)=>setTimeout(resolve,20));
   assert.equal(vscode.__recorded.shownDocuments.length,0);
 
+  // One panel per artifact: a revived tab for an artifact already shown is closed, so close it first.
+  opened.dispose();
   const restored=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
   const serializer=vscode.__recorded.serializers.get('mlview.authoredDiagram');
   await serializer.deserializeWebviewPanel(restored,{artifact});
@@ -262,10 +266,12 @@ test('source save marks the displayed unverified revision historical, then a chi
   const next=workflow();next.revision={id:'r2',parent:'r1'};fs.writeFileSync(artifact,JSON.stringify(next));
   vscode.__fireWatcher('change',artifact);
   await waitFor(()=>panel.posted.filter(x=>x.type==='workflow').at(-1).document.revision.id==='r2','child revision was not adopted');
-  assert.equal(panel.posted.at(-2).type,'workflowError');
-  assert.equal(panel.posted.at(-2).message,'');
-  assert.deepEqual(panel.posted.at(-2).codes,[]);
-  assert.equal(panel.posted.at(-1).type,'workflow');
+  // M1: the banner is cleared before the workflow, and the stale marks are cleared after it.
+  assert.equal(panel.posted.at(-3).type,'workflowError');
+  assert.equal(panel.posted.at(-3).message,'');
+  assert.deepEqual(panel.posted.at(-3).codes,[]);
+  assert.equal(panel.posted.at(-2).type,'workflow');
+  assert.deepEqual(panel.posted.at(-1),{v:1,type:'stale',files:[]});
   controller.dispose();
 });
 
@@ -348,6 +354,9 @@ test('navigation validation cannot open a source after panel disposal', async ()
   const {artifact,controller}=setup(workflow(),validator);
   await controller.open(vscode.Uri.file(artifact));
   const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  // M1: a jump into a file whose bytes still match skips the full validation, so the file
+  // changes on disk without a watcher event to send this jump down the validating path.
+  fs.writeFileSync(path.join(path.dirname(artifact),'source.py'),'fit()\n# edited\n');
   panel.fire({v:1,type:'openLocation',evidenceId:'e'});await began;
   panel.dispose();release();await new Promise(resolve=>setTimeout(resolve,20));
   assert.equal(vscode.__recorded.shownDocuments.length,0);
@@ -567,7 +576,9 @@ async function openFixture(options) {
 }
 const settle = () => new Promise(resolve=>setTimeout(resolve,40));
 
-test('navigation selects the first cited line and reveals the cited range', async () => {
+// M1 changed this test on purpose: a jump used to place a caret at the first cited line; it now
+// selects the whole cited range (and keeps focus on the panel; see verification-loop.test.js).
+test('navigation selects the whole cited range and reveals it', async () => {
   const document=helpers.workflow();
   document.evidence[0]={id:'e',file:'source.py',line:2,endLine:3,quote:'train()\nsave()'};
   const fixture=await openFixture({raw:document,files:{'source.py':'import x\ntrain()\nsave()\n'}});
@@ -578,6 +589,8 @@ test('navigation selects the first cited line and reveals the cited range', asyn
   assert.equal(options.preview,true);
   assert.equal(editor.selection.start.line,1);
   assert.equal(editor.selection.start.character,0);
+  assert.equal(editor.selection.end.line,2);
+  assert.equal(editor.selection.end.character,'save()'.length);
   assert.equal(editor.revealed.length,1);
   assert.equal(editor.revealed[0].range.start.line,1);
   assert.equal(editor.revealed[0].range.end.line,2);
@@ -595,6 +608,7 @@ test('a removed notebook cell is reported instead of jumping to a clamped cell',
   fixture.panel.fire({v:1,type:'openLocation',evidenceId:'e'});
   await helpers.waitFor(()=>vscode.__recorded.messages.some(m=>m[1]==='MLView: notebook cell 2 no longer exists.'),'removed cell was not reported');
   assert.equal(vscode.__recorded.shownDocuments.length,0);
+  assert.equal(vscode.__recorded.shownNotebooks.length,0);
 });
 
 test('unsaved notebook cells guard navigation without changing validation', async () => {
@@ -609,11 +623,12 @@ test('unsaved notebook cells guard navigation without changing validation', asyn
   assert.equal(helpers.shownRevision(fixture.panel),'r1');
   fixture.panel.fire({v:1,type:'openLocation',evidenceId:'e'});
   await helpers.waitFor(()=>vscode.__recorded.messages.some(m=>/unsaved changes in notes\.ipynb no longer contain the lines cited by evidence e/.test(m[1])),'dirty cell did not block navigation');
-  assert.equal(vscode.__recorded.shownDocuments.length,0);
+  assert.equal(vscode.__recorded.shownNotebooks.length,0);
   vscode.__setNotebooks([{path:notebookPath(),cells:[{text:'fit()'}]}]);
   vscode.__setNotebookDirty(notebookPath());
   fixture.panel.fire({v:1,type:'openLocation',evidenceId:'e'});
-  await helpers.waitFor(()=>vscode.__recorded.shownDocuments.length===1,'matching dirty cell did not open');
+  // M1: notebooks open through showNotebookDocument.
+  await helpers.waitFor(()=>vscode.__recorded.shownNotebooks.length===1,'matching dirty cell did not open');
 });
 
 test('restore and open accept only a workspace *.mlview.json artifact', async () => {

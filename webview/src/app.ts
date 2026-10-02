@@ -10,8 +10,8 @@
  * in `app/`, as free functions over this object:
  *
  *   `app/build.ts`      the shell, every panel, and what the canvas may ask
- *   `app/documents.ts`  the document, the scope, the diff and the chooser
- *   `app/surfaces.ts`   repaint the chrome, the diff band and the rail
+ *   `app/documents.ts`  the document and the scope
+ *   `app/surfaces.ts`   repaint the chrome and the rail
  *   `app/actions.ts`    the one-shot requests posted to the host
  *   `app/exporting.ts`  VIEW-07's picture, gathered at the moment it is asked for
  *   `app/keys.ts`       the keyboard binding
@@ -30,23 +30,21 @@ import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
-import { AnswersCard } from './ui/answers.js';
-import { sanitizeGroupBy } from './ui/railgroup.js';
-import { LoadingState } from './ui/states.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
 import { ExportMenu } from './ui/exportmenu.js';
 import { ThemeController } from './ui/theme.js';
 import { SearchController } from './ui/searchcontroller.js';
 import { ScopeSession } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
-import { PipelineChooser } from './ui/pipelinechooser.js';
-import { DiffBar } from './ui/diffbar.js';
 import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
+import { FreshnessState } from './freshness.js';
+import { HostNotice } from './ui/hostnotice.js';
+import { DoubleClickOpener } from './ui/doubleclick.js';
 import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
-import { applyFix, askAssistant, copyIgnore, disableRule, onAction, openLocation } from './app/actions.js';
+import { openLocation } from './app/actions.js';
 import { onCanvasKey } from './app/keys.js';
 import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
@@ -62,10 +60,10 @@ import type {
   Loc,
   MLGraph,
   MLViewApp,
-  RailGroupBy,
   RailTab,
   RelatedLoc,
   Sel,
+  StaleFile,
   ThemeKind,
   UiToHost,
   ViewState,
@@ -87,7 +85,15 @@ export const RAIL_MIN_CANVAS_W = 900;
 type RequestFrame = UiToHost & { requestId?: string };
 
 export interface SelectOptions {
+  /** Open the selection's cited source beside the panel (Enter, double-click). Focus stays here. */
   open?: boolean;
+  /** With `open`: move focus to the editor (Alt+Enter). */
+  focusEditor?: boolean;
+  /**
+   * A gesture on the canvas (viewer M1): the claim is shown, so a rail that the width rule closed
+   * opens on the Inspector, unless the reader closed it; the target stays in view.
+   */
+  showClaim?: boolean;
   center?: boolean;
   tab?: RailTab;
   pulse?: boolean;
@@ -111,66 +117,27 @@ export class App implements MLViewApp {
   /** The node `e` / Shift+E are cycling the connections of. */
   edgeAnchor: string | null = null;
   /**
-   * A restored or attribute-borne scope that arrived BEFORE any graph did.
-   *
-   * In the VS Code host the viewer is mounted with no graph at all
-   * (`panel.ts`: "Mount immediately with no graph") and the host posts
-   * `init` -> `restoreState` -> `graph`, so both restore routes ran while
-   * `scopes.full` was still null and `ViewState.scope` — alone among every
-   * field of the state — was silently thrown away (R2H-03). It is stashed here
-   * and drained by `setGraph`, through the same `setScope` call, so the
-   * re-resolve and the `scopeChanged` post still happen exactly once.
+   * A restored scope that arrived BEFORE any graph did: the constructor reads
+   * the saved state before the first document is applied, so `ViewState.scope`
+   * is stashed here and drained by `setGraph`, through the same `setScope`
+   * call (R2H-03).
    */
   pendingScope: { spec: string; depth?: number } | null = null;
   flowOn = true;
-  /**
-   * VIEW-08. The host's document, EXACTLY as it arrived. `adoptDiff` stamps the
-   * overlay onto a copy and resurrects the removed nodes as ghosts, so the
-   * original has to survive somewhere: an overlay can arrive after the graph,
-   * be replaced, or be dismissed, and each of those has to be re-derivable
-   * without asking the analyzer for anything.
-   */
-  rawGraph: MLGraph | null = null;
-  /** VIEW-08: the HOST's name for what the comparison is against (11.43 D). */
-  diffBaseLabel = '';
   caps: Capabilities;
-  /**
-   * VW-05. `ThemeController` is the ONE place a theme is decided: the standalone
-   * report's own Auto / Light / Dark / High contrast switch calls it directly,
-   * so a copy of the value on the app went stale the moment a reader touched
-   * that switch — and the export stamped the stale one on every picture. There
-   * is no copy any more; `this.themes.kind` is the answer, always.
-   */
+  /* VW-05: `this.themes.kind` is the one answer to "which theme"; the app keeps no copy. */
 
   filters = new FilterModel();
   viewportState: Viewport = { x: 0, y: 0, zoom: 1 };
   selection: Sel | null = null;
   collapsedState: string[] = [];
   railTab: RailTab = 'issues';
-  railGroupBy: RailGroupBy = 'none';
   legendOpen = false;
-  /** MLV-P12: the pipeline chooser is asked once per viewer, then remembered. */
-  pipelineChosen = false;
-  /**
-   * MLV-P1: the answer card starts open, so the four answers are the first
-   * read — except on a document whose chrome already fills the top of the
-   * window (HOSTS-UX-R2-06), where it yields its 165 px to the diagram.
-   */
-  answersOpen = true;
-  /**
-   * R2-06. The reader has pressed the disclosure (or the host restored a
-   * stored `answersOpen`), so the per-document default no longer applies: their
-   * choice follows them to the next report, which is what `ViewState` is for.
-   */
-  answersChosen = false;
-  /** The document the default was last decided for; identity, not a copy. */
-  answersDoc: MLGraph | null = null;
-  /** Whether THIS document's default is "closed", for the header's tooltip. */
-  answersYielded = false;
 
-  stale: string[] = [];
-  dismissed = new Set<string>();
-  error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
+  /** Viewer M1: the displayed revision's stale files, from the host's `stale` frame. */
+  freshness = new FreshnessState();
+  /** Whether this viewer has said once where an opened source goes. */
+  openHintShown = false;
   railOpen = true;
   /**
    * The reader has shown or hidden the rail themselves, selected a finding
@@ -205,16 +172,15 @@ export class App implements MLViewApp {
   sheet!: ShortcutSheet;
   exportMenu!: ExportMenu;
   legend!: Legend;
-  answers!: AnswersCard;
   scopeBar!: ScopeBar;
-  diffBar!: DiffBar;
-  chooser!: PipelineChooser;
   scrim!: HTMLElement;
   releasePage: () => void = () => undefined;
   themes!: ThemeController;
   search!: SearchController;
-  loading!: LoadingState;
   liveEl!: HTMLElement;
+  notice!: HostNotice;
+  /** Viewer M1 review: the second click of a double-click opens what the first one selected. */
+  doubleClick: DoubleClickOpener;
 
   saveSoon = debounce(() => this.bridge.saveState(this.getState()), 250);
 
@@ -222,7 +188,9 @@ export class App implements MLViewApp {
     this.root = root;
     this.bridge = bridge;
     this.caps = bridge.capabilities;
-    this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
+    this.themes = new ThemeController(root, bridge.theme || 'light');
+    this.doubleClick = new DoubleClickOpener(root);
+    this.disposers.push(() => this.doubleClick.dispose());
     buildAppUi(this);
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
@@ -233,14 +201,6 @@ export class App implements MLViewApp {
     if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.autoRail()));
-    // The initial scope travels as an attribute on the root element the report
-    // already emits, so `mount(root, graph, bridge)` keeps its exact frozen
-    // three-argument signature (CONTRACTS 11.8). It outranks a restored scope,
-    // so it is stashed LAST — either way `setGraph` drains exactly one.
-    const attrSpec = root.getAttribute('data-mlview-scope');
-    const attrDepth = root.getAttribute('data-mlview-depth');
-    if (attrSpec) this.pendingScope = { spec: attrSpec, depth: attrDepth ? Number(attrDepth) : undefined };
-    this.showLoading(true);
     // No `ready` here: the host bootstrap posts the one `ready` of a page load
     // and mounts this App on the first `workflow` (§1e). A second `ready`
     // would make the host replay the whole handshake and render it again.
@@ -314,33 +274,40 @@ export class App implements MLViewApp {
     handler(result);
   }
 
-  /** True only where the HOST can actually make an edit behind a preview. */
-  canApplyFix(): boolean {
-    return this.bridge.host === 'vscode' && this.caps.canOpenSource;
+  /** Ask the host to open `loc` beside the panel; `focusEditor` (Alt+Enter) moves focus there. */
+  openLocation(loc: Loc | RelatedLoc, focusEditor = false): void {
+    openLocation(this, loc, focusEditor);
   }
 
-  applyFix(issueId: string): void {
-    applyFix(this, issueId);
+  /**
+   * Viewer M1: the host's stale files. Cards, connections, findings and quotes that cite them are
+   * marked, their Open links are disabled with the reason, and the status bar counts them.
+   */
+  setStale(files: StaleFile[]): void {
+    if (!this.freshness.set(files)) return;
+    this.view.setStale(this.freshness.list());
+    if (this.index) this.view.refresh(this.selection);
+    renderChrome(this);
+    renderRail(this);
   }
 
-  copyIgnore(code: string): void {
-    copyIgnore(this, code);
-  }
-
-  disableRule(code: string): void {
-    disableRule(this, code);
-  }
-
-  askAssistant(nodeId: string): void {
-    askAssistant(this, nodeId);
-  }
-
-  openLocation(loc: Loc | RelatedLoc): void {
-    openLocation(this, loc);
-  }
-
-  onAction(id: string): void {
-    onAction(this, id);
+  /**
+   * Viewer M1: the host's banner, drawn under the header once the viewer is mounted. A banner that
+   * only says a change is being checked goes to the status bar instead and leaves the notice as
+   * it was, so the layout does not jump on every save of a cited file.
+   */
+  showHostNotice(message: string, codes: string[] | undefined): void {
+    const checking = !!codes && codes.length === 1 && codes[0] === 'checking';
+    if (this.freshness.checking !== checking) {
+      this.freshness.checking = checking;
+      renderChrome(this);
+    }
+    if (checking) return;
+    const before = this.notice.root.hidden;
+    this.notice.update(message, codes);
+    const body = this.root.querySelector('.mlv-body');
+    if (body && this.notice.root.nextSibling !== body) this.root.insertBefore(this.notice.root, body);
+    if (this.graph && before !== this.notice.root.hidden) this.view.afterChromeChange();
   }
 
   scopeToNode(nodeId: string): void {
@@ -353,23 +320,6 @@ export class App implements MLViewApp {
     renderChrome(this);
     this.saveSoon();
     this.announce('Overview minimap ' + (next ? 'hidden' : 'shown') + '.');
-  }
-
-  /** MLV-P1: the card's disclosure, persisted as ViewState.answersOpen. */
-  setAnswersOpen(open: boolean): void {
-    this.answersOpen = open;
-    // R2-06: an explicit press outranks this document's default from now on.
-    this.answersChosen = true;
-    this.answers.update(this.graph ? this.graph.answers : undefined, open, this.answersYielded);
-    this.saveSoon();
-  }
-
-  /** The rail's "Group by" control (RAIL-GROUP). Persisted like `railTab`. */
-  setRailGroupBy(mode: RailGroupBy): void {
-    this.railGroupBy = sanitizeGroupBy(mode);
-    renderRail(this);
-    this.saveSoon();
-    this.announce('Findings grouped by ' + this.railGroupBy + '.');
   }
 
   setLegend(next: boolean): void {
@@ -473,18 +423,30 @@ export class App implements MLViewApp {
     this.selection = sel;
     if (opts && opts.tab) this.railTab = opts.tab;
     if (sel.kind === 'issue') this.showRailForFinding();
+    const openedRail = !!(opts && opts.showClaim) && this.showRailForClaim();
     this.view.applySelection(sel);
     renderRail(this);
-    if (sel.kind === 'node') this.bridge.post({ v: 1, type: 'selectNode', nodeId: sel.id });
     if (opts && opts.reveal && sel.kind === 'edge') this.view.revealEdge(sel.id);
     else if (opts && opts.center && opts.reveal) this.view.revealNode(sel.id, !!opts.pulse);
     else if (opts && opts.center) this.view.centerOnNode(sel.id, !!opts.pulse);
+    else if (openedRail && sel.kind !== 'issue') this.view.keepInView({ kind: sel.kind, id: sel.id });
+    this.announceSelection();
     if (opts && opts.open) {
       const loc = this.locOf(sel);
-      if (loc) this.openLocation(loc);
+      if (loc) this.openLocation(loc, !!opts.focusEditor);
     }
-    this.announceSelection();
     this.saveSoon();
+  }
+
+  /**
+   * Viewer M1: a click shows the claim, which lives in the rail. A rail the width rule closed
+   * opens (true); one the reader closed stays closed (they have the hover card and Ctrl+B).
+   */
+  private showRailForClaim(): boolean {
+    if (this.railOpen || this.railChosen) return false;
+    this.railChosen = true;
+    this.setRailOpen(true);
+    return true;
   }
 
   clearSelection(): void {
@@ -492,7 +454,6 @@ export class App implements MLViewApp {
     this.selection = null;
     this.view.applySelection(null);
     renderRail(this);
-    this.bridge.post({ v: 1, type: 'selectNode', nodeId: null });
     this.saveSoon();
   }
 
@@ -591,10 +552,6 @@ export class App implements MLViewApp {
     this.liveEl.textContent = text;
   }
 
-  showLoading(on: boolean): void {
-    this.loading.root.hidden = !on;
-  }
-
   activateHit(hit: SearchHit): void {
     if (hit.kind === 'node') this.focusNode(hit.id, { center: true, pulse: true });
     else this.focusIssue(hit.id);
@@ -611,9 +568,8 @@ export class App implements MLViewApp {
   /* ── public API ────────────────────────────────────────────────────── */
 
   /**
-   * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never touches
-   * the analyzer, and never throws: an unresolvable spec is a no-op plus a toast
-   * (CONTRACTS 11.8).
+   * Re-project and relayout LOCALLY. Never posts to the host and never throws:
+   * an unresolvable spec is a no-op plus a toast (CONTRACTS 11.8).
    */
   setScope(spec: string | null, opts?: { depth?: number }): void {
     setScope(this, spec, opts);
@@ -658,6 +614,14 @@ export class App implements MLViewApp {
     // connections only reveals its first connection.
     if (primary) this.view.revealNode(primary, true);
     else if (issue.edgeIds.length) this.view.revealEdge(issue.edgeIds[0]);
+  }
+
+  /** Viewer M1: Enter (or a double-click) on a finding row selects it and opens its first cited range. */
+  openIssue(id: string, focusEditor = false): void {
+    this.focusIssue(id);
+    if (!this.selection || this.selection.kind !== 'issue' || this.selection.id !== id) return;
+    const loc = this.locOf({ kind: 'issue', id });
+    if (loc) this.openLocation(loc, focusEditor);
   }
 
   setFilters(f: Partial<Filters>): void {

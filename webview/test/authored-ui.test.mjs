@@ -103,7 +103,7 @@ test('three authored entrypoints open no pipeline chooser, and the picker offers
   doc.nodes.push({ id: 'concept', label: 'Concept group', phase: 'train', kind: 'group', basis: 'unresolved', evidence: [] });
   doc.nodes.push({ id: 'child', label: 'Concept child', phase: 'train', parent: 'concept', basis: 'unresolved', evidence: [] });
   const ctx = await mount(doc);
-  assert.equal(ctx.root.querySelector('.mlv-pipechooser').hidden, true, 'no pipeline modal over an authored document');
+  assert.equal(ctx.root.querySelector('.mlv-pipechooser'), null, 'no pipeline chooser is built');
   ctx.root.querySelector('.mlv-btn--scope').click();
   const picker = ctx.root.querySelector('.mlv-scopepicker');
   const headings = Array.from(picker.querySelectorAll('.mlv-scopepicker__heading'), (h) => h.textContent);
@@ -144,7 +144,7 @@ test('scoping to a step uses its stable id, even when labels repeat or the id ha
   ctx.app.destroy();
 });
 
-test('authored notebook evidence names its cell, counted from one, with the zero-based index in the title', async () => {
+test('authored notebook evidence names its cell as the artifact records it, counted from 0, as the model labels it', async () => {
   const doc = workflow({
     evidence: [
       { id: 'ev-load', file: 'nb/explore.ipynb', cell: 7, line: 3, endLine: 3, quote: 'df = load()' },
@@ -155,11 +155,13 @@ test('authored notebook evidence names its cell, counted from one, with the zero
   const ctx = await mount(doc);
   ctx.app.select({ kind: 'node', id: 'dataset' }, { tab: 'inspector' });
   const anchor = ctx.root.querySelector('.mlv-rail__panel:not([hidden]) [data-evidence-id="ev-load"]');
-  assert.equal(anchor.textContent, 'Open nb/explore.ipynb › cell 8 : 3');
-  assert.equal(anchor.title, 'cell index 7 (zero-based), line 3 of that cell');
+  // Viewer M1: cell 7 is cell 7 everywhere (the skill, the helper's --cell, the extension and
+  // the model's own labels count from 0); it used to print as "cell 8 : 3".
+  assert.equal(anchor.textContent, 'Open nb/explore.ipynb › cell 7, line 3');
+  assert.equal(anchor.title, 'cell 7, counted from 0 as the artifact records it (markdown cells count too); line 3 of that cell');
   assert.doesNotMatch(ctx.root.textContent, /concatenated code cells/);
   const card = ctx.root.querySelector('[data-node-id="dataset"]');
-  assert.match(card.getAttribute('aria-label'), /nb\/explore\.ipynb cell 8 line 3/);
+  assert.match(card.getAttribute('aria-label'), /nb\/explore\.ipynb cell 7 line 3/);
   ctx.app.destroy();
 });
 
@@ -177,22 +179,6 @@ test('search finds stable ids and cited text, and shows no fake location', async
   const epoch = search('Epoch').find((row) => /Epoch/.test(row.textContent));
   assert.ok(epoch);
   assert.doesNotMatch(epoch.textContent, /:1\b/, 'an evidence-less step has no location');
-  ctx.app.destroy();
-});
-
-test('file groups report the weakest authored basis', async () => {
-  const doc = workflow({
-    findings: [
-      { id: 'f-observed', title: 'Observed', message: 'm', severity: 'medium', nodeIds: ['step'], basis: 'observed', evidence: ['ev-step'] },
-      { id: 'f-unresolved', title: 'Unresolved', message: 'm', severity: 'medium', nodeIds: ['step'], basis: 'unresolved', evidence: ['ev-loss'] },
-    ],
-  });
-  const ctx = await mount(doc);
-  ctx.app.setRailGroupBy('file');
-  const chip = ctx.root.querySelector('.mlv-railgroup[data-group-key="src/train.py"] .mlv-chip--conf');
-  assert.ok(chip, 'the two findings in one file form a group');
-  assert.equal(chip.textContent, 'unresolved');
-  assert.equal(chip.title, 'Weakest basis in this group: unresolved');
   ctx.app.destroy();
 });
 
@@ -331,11 +317,11 @@ test('scope picker rows name an authored notebook cell like the card does (WEBVI
   }));
   ctx.root.querySelector('.mlv-btn--scope').click();
   const rows = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row'), (row) => row.textContent);
-  assert.ok(rows.some((text) => /^Read recordsnb\/explore\.ipynb › cell 8 : 3 · \d+ nodes?$/.test(text)), rows.join(' | '));
+  assert.ok(rows.some((text) => /^Read recordsnb\/explore\.ipynb › cell 7, line 3 · \d+ nodes?$/.test(text)), rows.join(' | '));
   assert.equal(rows.some((text) => /explore\.ipynb:3/.test(text)), false);
   const row = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row')).find((r) => /explore/.test(r.textContent));
-  assert.match(row.title, /cell index 7 \(zero-based\), line 3 of that cell/);
-  assert.match(ctx.root.querySelector('[data-node-id="dataset"]').textContent, /nb\/explore\.ipynb › cell 8 : 3/);
+  assert.match(row.title, /cell 7, counted from 0 as the artifact records it .*; line 3 of that cell/);
+  assert.match(ctx.root.querySelector('[data-node-id="dataset"]').textContent, /nb\/explore\.ipynb › cell 7, line 3/);
   ctx.app.destroy();
 });
 

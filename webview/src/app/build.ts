@@ -3,8 +3,7 @@
  * document has to carry them.
  *
  * It is one function because the ORDER is the contract — the canvas has to stay
- * within four Tab presses of the top of the document (VIEW-12), the answer card
- * is appended after the canvas and lifted by `order: -1`, the legend is anchored
+ * within four Tab presses of the top of the document (VIEW-12), the legend is anchored
  * inside the canvas beside the minimap (VIEW-10), and the overlays go on the app
  * root so they are never inside the world layer that pans and zooms. Reading
  * those decisions together is the point of keeping them in one place.
@@ -18,28 +17,18 @@ import { CanvasView } from '../canvasview.js';
 import { Chrome } from '../ui/chrome.js';
 import { Rail } from '../ui/rail.js';
 import { Legend } from '../ui/legend.js';
-import { AnswersCard } from '../ui/answers.js';
-import { LoadingState } from '../ui/states.js';
 import { buildShell, claimPage } from '../ui/shell.js';
 import { ShortcutSheet } from '../ui/shortcuts.js';
 import { ExportMenu } from '../ui/exportmenu.js';
 import { SearchController } from '../ui/searchcontroller.js';
 import { ScopeBar } from '../ui/scopebar.js';
-import { PipelineChooser } from '../ui/pipelinechooser.js';
-import { DiffBar } from '../ui/diffbar.js';
+import { HostNotice } from '../ui/hostnotice.js';
+import { revealWorkflowLimitations } from '../workflow.js';
 import { runExport } from './exporting.js';
 import { renderChrome, renderRail } from './surfaces.js';
-import {
-  answerPipelineChooser,
-  setChangedOnly,
-  setDiff,
-  stepDepth,
-  syncCollapsed,
-  toggleScopePicker,
-} from './documents.js';
+import { stepDepth, syncCollapsed, toggleScopePicker } from './documents.js';
 import type { CanvasHost } from '../canvas/host.js';
 import type { App } from '../app.js';
-import type { AnswerLoc, Loc, MLGraph } from '../types.js';
 
 /** Build the shell, every panel, and the canvas; then mount them on the root. */
 export function buildAppUi(app: App): void {
@@ -51,27 +40,19 @@ export function buildAppUi(app: App): void {
   app.view = new CanvasView(shell, canvasHost(app));
 
   app.chrome = new Chrome({
-    onRefresh: () => undefined,
     onQuery: (q) => app.search.run(q),
     onSearchKey: (ev) => app.search.handleKey(ev),
     onToggleRail: () => app.toggleRail(),
     onSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
-    onShowSuppressed: (next) => app.setFilters({ showSuppressed: next }),
     onFit: () => app.view.fit(),
     onZoom: (dir) => app.view.zoomStep(dir),
     onStage: (stageId) => app.toggleStage(stageId),
     onClearFilters: () => app.clearFilters(),
     onZoomToSelection: () => app.zoomToSelection(),
-    onAction: (id) => app.onAction(id),
-    onDismiss: (key) => {
-      app.dismissed.add(key);
-      renderChrome(app);
-    },
     onScope: () => toggleScopePicker(app),
     onToggleFlow: (next) => app.setFlow(next),
     onToggleLegend: (next) => app.setLegend(next),
     onToggleMinimap: (next) => app.setMinimapCollapsed(next),
-    onChangedOnly: (next) => app.setFilters({ changedOnly: next }),
   });
 
   app.scopeBar = new ScopeBar({
@@ -91,13 +72,6 @@ export function buildAppUi(app: App): void {
   });
   app.chrome.scopeSlot.appendChild(app.scopeBar.breadcrumb.root);
 
-  // VIEW-08. Its own band under the chip row: the headline is the first thing
-  // a reviewer reads, and it must not compete with the toolbar for width.
-  app.diffBar = new DiffBar({
-    onChangedOnly: (next) => setChangedOnly(app, next),
-    onDismiss: () => setDiff(app, null),
-  });
-
   // VIEW-07. The trigger goes in the toolbar beside Fit; the popup goes on the
   // app root, so the roving toolbar (VIEW-12) keeps its single tab stop.
   app.exportMenu = new ExportMenu({
@@ -109,23 +83,12 @@ export function buildAppUi(app: App): void {
   // One roving `role="toolbar"` over the toolbar row and the stage-filter row
   // (VIEW-12), so the whole control strip is a single tab stop.
   app.root.appendChild(app.chrome.bar);
-  // HOSTS-UX-CHIPWALL: the chip row is the third row INSIDE `chrome.bar` now,
-  // so its one disclosure control lives in the roving toolbar and costs the
-  // path to the canvas nothing (VIEW-12). Same pixels, same order.
-  app.root.appendChild(app.diffBar.root);
-  app.root.appendChild(app.chrome.banners);
+  // Viewer M1: the host's banner after the mount (stale files, the root hint, a refused update).
+  // It moves under the authored header when it is first shown (App.showHostNotice).
+  app.notice = new HostNotice({ onWorkspaceHint: (action) => app.bridge.post({ v: 1, type: 'workspaceHint', action }) });
+  app.root.appendChild(app.notice.root);
   app.root.appendChild(shell.body);
   shell.body.appendChild(shell.main);
-
-  // MLV-P1. Appended AFTER the canvas and lifted above it by `order: -1`
-  // (styles/chrome.css): the canvas has to stay within four Tab presses of the
-  // top of the document (VIEW-12), and a card with five controls in front of
-  // it would put it at nine.
-  app.answers = new AnswersCard({
-    onToggle: (open) => app.setAnswersOpen(open),
-    onOpen: (loc) => app.openLocation(completeLoc(loc, app.graph)),
-  });
-  shell.main.appendChild(app.answers.root);
 
   app.search = new SearchController(app.chrome.searchInput, app.chrome.results, {
     index: () => app.index,
@@ -137,15 +100,22 @@ export function buildAppUi(app: App): void {
     blurToCanvas: () => app.view.canvasEl.focus(),
   });
 
-  app.loading = new LoadingState(() => app.onAction('mlview.cancelAnalysis'));
-  app.loading.root.hidden = true;
-  shell.stateHost.appendChild(app.loading.root);
-
   app.rail = new Rail({
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
-    onSelectIssue: (id) => app.focusIssue(id),
-    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true, reveal: true }),
+    // Viewer M1 review (M1-R1): a row click arms the double-click opener. The click rebuilds the
+    // rows (and can collapse an expanded finding above), so the second click may land on a
+    // detached or different row; the opener opens the row the first click selected.
+    onSelectIssue: (id, ev) => {
+      app.focusIssue(id);
+      app.doubleClick.arm(ev, () => app.openIssue(id, false));
+    },
+    onOpenIssue: (id, focusEditor) => app.openIssue(id, focusEditor),
+    onSelectNode: (id, ev) => {
+      app.select({ kind: 'node', id }, { center: true, reveal: true });
+      app.doubleClick.arm(ev, () => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true }));
+    },
+    onOpenNode: (id, focusEditor) => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, focusEditor }),
     onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
     onChallenge: () => {
       const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
@@ -158,25 +128,16 @@ export function buildAppUi(app: App): void {
       intent.value = 'challenge';
       intent.dispatchEvent(new Event('change', { bubbles: true }));
     },
-    onOpen: (loc) => app.openLocation(loc),
+    onOpen: (loc, focusEditor) => app.openLocation(loc, focusEditor),
     onResize: (w) => app.setRailWidth(w),
     onToggleRail: () => app.toggleRail(),
-    onAsk: (id) => app.askAssistant(id),
     onSelectLane: (laneId) => app.selectLane(laneId),
     onToggleCollapse: (id) => {
       if (app.index && app.index.isGroup(id)) app.view.toggleCollapse(id);
     },
-    // "Show all" means ALL: a reader who clicks it while both a scope and the
-    // diff projection are narrowing the list expects one gesture, not two.
-    onClearScope: () => {
-      if (app.scopes.changedOnly) setChangedOnly(app, false);
-      app.setScope(null);
-    },
+    onClearScope: () => app.setScope(null),
     onScopeToNode: (id) => app.scopeToNode(id),
-    onGroupBy: (mode) => app.setRailGroupBy(mode),
-    onCopyIgnore: (code) => app.copyIgnore(code),
-    onDisableRule: (code) => app.disableRule(code),
-    onApplyFix: (id) => app.applyFix(id),
+    onShowLimitations: () => { revealWorkflowLimitations(app); },
   });
   shell.body.appendChild(app.rail.root);
   // Campaign 3, issue 6: a reader working IN the rail has chosen it. Following
@@ -190,12 +151,6 @@ export function buildAppUi(app: App): void {
   app.legend = new Legend((open) => app.setLegend(open));
   shell.canvas.appendChild(app.legend.root);
 
-  // MLV-P12. Appended on the app root beside the shortcut sheet and the scope
-  // picker, so it overlays the diagram without being inside the canvas — a
-  // chooser drawn in the world layer would pan and zoom with it.
-  app.chooser = new PipelineChooser({ onPick: (spec) => answerPipelineChooser(app, spec) });
-  app.root.appendChild(app.chooser.root);
-
   app.sheet = new ShortcutSheet(() => app.toggleShortcuts(false));
   app.root.appendChild(app.sheet.root);
   app.root.appendChild(app.exportMenu.panel);
@@ -205,20 +160,32 @@ export function buildAppUi(app: App): void {
   app.root.appendChild(app.liveEl);
   app.setRailWidth(app.railWidth);
   app.setRailOpen(app.railOpen);
-  // Only the standalone report owns its own theme; in a webview the host does.
-  if (app.bridge.host === 'standalone') app.themes.mountSwitch(app.chrome.toolbar);
 }
 
 /** What the canvas is allowed to ask of the application. */
 export function canvasHost(app: App): CanvasHost {
+  const openNode = (id: string, focusEditor: boolean) =>
+    app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor });
+  const openEdge = (id: string, focusEditor: boolean) =>
+    app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor });
   return {
     keep: app.filters.keep,
     isFilteredOut: (node) => app.filters.hidesNode(node),
-    activateNode: (id) => app.select({ kind: 'node', id }, { open: true, tab: 'inspector' }),
-    activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true, tab: 'inspector' }),
+    // Viewer M1: a click selects and shows the claim; Enter and a double-click open the cited
+    // source beside the panel with focus kept here; Alt+Enter moves focus to the editor. The
+    // click arms the double-click opener, so the second click opens even when the first one
+    // moved the card (a rail opening, a refit) or put the drawer under the pointer.
+    activateNode: (id, ev) => {
+      app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true });
+      app.doubleClick.arm(ev, () => openNode(id, false));
+    },
+    activateEdge: (id, ev) => {
+      app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true });
+      app.doubleClick.arm(ev, () => openEdge(id, false));
+    },
+    openNode,
+    openEdge,
     clearFilters: () => app.clearFilters(),
-    canReanalyze: () => false,
-    requestRefresh: () => undefined,
     announce: (text) => app.announce(text),
     afterCollapse: () => {
       syncCollapsed(app);
@@ -266,28 +233,4 @@ function railOverlap(app: App): number {
   if (!(rail.width > 0) || !(canvas.width > 0)) return 0;
   if (rail.left >= canvas.right - 1 || rail.right <= canvas.left || rail.bottom <= canvas.top || rail.top >= canvas.bottom) return 0;
   return Math.max(0, canvas.right - Math.max(canvas.left, rail.left));
-}
-
-/**
- * Complete an answer citation into a real `Loc` (MLV-P1).
- *
- * `emit/answers.py` writes `{file, line}` — an answer cites a place to look, not
- * a range to select — while `openLocation` is contracted to carry six fields
- * (CONTRACTS §4). The absolute path is rebuilt from `workspace.root`, which is
- * the only place the viewer can learn it, so a citation still reaches VS Code
- * instead of posting `absFile: undefined`.
- */
-export function completeLoc(loc: AnswerLoc, graph: MLGraph | null): Loc {
-  const line = typeof loc.line === 'number' ? loc.line : 1;
-  const col = typeof loc.col === 'number' ? loc.col : 0;
-  const root = graph && graph.workspace ? String(graph.workspace.root || '') : '';
-  const absFile = loc.absFile || (root ? root.replace(/[\\/]+$/, '') + '/' + loc.file : '');
-  return {
-    file: loc.file,
-    absFile,
-    line,
-    col,
-    endLine: typeof loc.endLine === 'number' ? loc.endLine : line,
-    endCol: typeof loc.endCol === 'number' ? loc.endCol : col,
-  };
 }

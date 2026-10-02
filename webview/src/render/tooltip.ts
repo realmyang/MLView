@@ -1,7 +1,8 @@
 /**
  * The hover card. Positioned in canvas space from the world coordinates of the
  * thing being described, so it tracks pan and zoom without its own listeners.
- * Nothing lives only in here — everything it shows is also in the inspector.
+ * Nothing lives only in here — everything it shows is also in the Inspector,
+ * which shows an authored step's whole `detail` (viewer M1).
  */
 
 import { add, clear, el, locSpan } from '../dom.js';
@@ -83,8 +84,6 @@ export class Tooltip {
     clear(this.root);
     add(this.root, el('div', 'mlv-tooltip__title', node.label || node.qualname));
     if (node.sublabel) add(this.root, el('div', 'mlv-tooltip__row', node.sublabel));
-    if (node.fqn) add(this.root, el('div', 'mlv-tooltip__row', node.fqn));
-    if (node.ghost) add(this.root, el('div', 'mlv-tooltip__row', node.basis === 'unresolved' ? 'Basis · unresolved' : 'This step is missing from the code.'));
     if (node.loc.file) add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
     // A group's badge counts what it contains (`planScene`), so its card lists
     // the same findings: a collapsed group listed only its own, often none.
@@ -104,7 +103,10 @@ export class Tooltip {
   showEdge(index: GraphIndex, route: RoutedEdge, keep: IssuePredicate, marker?: Point): void {
     const edge = index.edgeById.get(route.id);
     clear(this.root);
-    add(this.root, el('div', 'mlv-tooltip__title', route.label || edgeKindText(route.kind)));
+    // Viewer M1: one connection's title is its authored label; the basis row below says the
+    // basis once (the drawn label still ends in " · <basis>" until M2).
+    const single = route.count <= 1 && edge && edge.authoredLabel ? edge.authoredLabel : '';
+    add(this.root, el('div', 'mlv-tooltip__title', single || route.label || edgeKindText(route.kind)));
     // Issue 9: the authored kind word, never `unknown`.
     const authored = edge && edge.authoredKind ? ' · authored as ' + edge.authoredKind : '';
     add(this.root, el('div', 'mlv-tooltip__row', edgeKindText(route.kind) + (route.subkind ? ' · ' + route.subkind : '') + authored));

@@ -1,4 +1,6 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 export function createNonce(): string {
@@ -80,4 +82,132 @@ export function staleJumpText(evidenceId: string, file: string, reason: StaleRea
                 ? `which has grown past the size MLView can check since revision ${revisionId} was published`
                 : `which changed after revision ${revisionId} was published`;
     return `MLView: evidence ${evidenceId} cites ${file}, ${why}; navigation to it is blocked.`;
+}
+
+/** A folder under the workspace root where the missing cited files exist with their published hashes. */
+export interface RootHint {
+    /** Absolute path of the folder the citations resolve against. */
+    base: string;
+    /** Absolute path of the workspace folder the panel validates against. */
+    root: string;
+    /** The missing tracked files (cited or inspected) found there with matching hashes. */
+    files: string[];
+}
+
+const inside = (child: string, parent: string): boolean => {
+    const rel = path.relative(parent, child);
+    return !!rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+};
+
+/**
+ * The folders that could hold the citations instead of `root`: the artifact's own folder and its
+ * parents, nearest first, stopping before `root`. The helper writes an artifact inside the folder
+ * its citations are relative to, so a folder that does not contain the artifact cannot be the
+ * right root.
+ */
+export function rootHintCandidates(artifact: string, root: string): string[] {
+    const top = path.resolve(root);
+    const out: string[] = [];
+    let dir = path.dirname(path.resolve(artifact));
+    while (inside(dir, top)) {
+        out.push(dir);
+        const up = path.dirname(dir);
+        if (up === dir)
+            break;
+        dir = up;
+    }
+    return out;
+}
+
+/**
+ * The missing files to look for, when most of the hashed tracked files are missing (a strict
+ * majority); otherwise an empty list. Only files with a published hash count, because only those
+ * can be confirmed elsewhere.
+ */
+export function mostlyMissing(tracked: readonly string[], published: Readonly<Record<string, string>>, stale: readonly { rel: string; reason: string }[]): string[] {
+    const own = (rel: string): boolean => Object.prototype.hasOwnProperty.call(published, rel);
+    const hashed = new Set(tracked.filter(own));
+    const missing = stale.filter(s => s.reason === 'missing' && hashed.has(s.rel)).map(s => s.rel);
+    return missing.length * 2 > hashed.size ? missing : [];
+}
+
+/**
+ * Look for a folder where every missing file exists with its published SHA-256. Product
+ * validation never uses the result: it only words the hint. Each file is read as raw bytes, at
+ * most `limit` bytes, and must resolve inside the candidate folder.
+ */
+export async function findRootHint(input: {
+    tracked: readonly string[];
+    published: Readonly<Record<string, string>>;
+    stale: readonly { rel: string; reason: string }[];
+    artifact: string;
+    root: string;
+    limit: number;
+    readBytes: (absolutePath: string, limit: number) => Promise<Uint8Array>;
+}): Promise<RootHint | undefined> {
+    const missing = mostlyMissing(input.tracked, input.published, input.stale);
+    if (!missing.length)
+        return undefined;
+    for (const base of rootHintCandidates(input.artifact, input.root)) {
+        let realBase: string;
+        try {
+            realBase = await fs.realpath(base);
+        }
+        catch {
+            continue;
+        }
+        let all = true;
+        for (const rel of missing) {
+            try {
+                const real = await fs.realpath(path.join(base, ...rel.split('/')));
+                if (!inside(real, realBase)) {
+                    all = false;
+                    break;
+                }
+                const bytes = await input.readBytes(real, input.limit);
+                if (createHash('sha256').update(bytes).digest('hex') !== input.published[rel]) {
+                    all = false;
+                    break;
+                }
+            }
+            catch {
+                all = false;
+                break;
+            }
+        }
+        if (all)
+            return { base, root: input.root, files: missing };
+    }
+    return undefined;
+}
+
+/** A folder as the reader sees it in the hint: relative to the workspace root, with a trailing slash. */
+export function hintFolderName(hint: RootHint): string {
+    const rel = path.relative(hint.root, hint.base).split(path.sep).join('/');
+    return './' + rel + '/';
+}
+
+/** The workspace root as the reader sees it in the hint: its folder name with a trailing slash. */
+function hintRootName(hint: RootHint, list: (names: readonly string[]) => string): string {
+    return list([(path.basename(hint.root) || hint.root).replace(/[\\/]+$/, '') + '/']);
+}
+
+/**
+ * The banner and notification text for a root hint. The files lead and each folder is named
+ * once, so the list never reads as a location of the root (COPY-3).
+ */
+export function rootHintText(hint: RootHint, list: (names: readonly string[]) => string): string {
+    const root = hintRootName(hint, list);
+    const folder = list([hintFolderName(hint)]);
+    const one = hint.files.length === 1;
+    return `${list(hint.files)} ${one ? 'is' : 'are'} not in the workspace root (${root}). ` +
+        `${one ? 'It is' : 'They are'} in ${folder}, unchanged (${one ? 'it matches its published hash' : 'they match their published hashes'}). ` +
+        `Add ${folder} to the workspace, or open it in its own window.`;
+}
+
+/** Why the host blocked a jump into a file the root hint found in another folder. */
+export function rootHintJumpText(evidenceId: string, file: string, hint: RootHint, list: (names: readonly string[]) => string): string {
+    const folder = list([hintFolderName(hint)]);
+    return `MLView: evidence ${evidenceId} cites ${file}, which is not in the workspace root (${hintRootName(hint, list)}) but is unchanged in ${folder}; ` +
+        `navigation to it is blocked. Add ${folder} to the workspace, or open it in its own window.`;
 }

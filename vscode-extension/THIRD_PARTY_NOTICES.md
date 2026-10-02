@@ -113,6 +113,12 @@ are development dependencies in the npm manifests and lockfiles. `pytest` and
 the distributed skill or extension. The extension packages with
 `--no-dependencies` and excludes `node_modules`.
 
+The opt-in screenshot harness in `webview/tools/screenshots/` (not distributed)
+holds a small table of VS Code default theme colours and an excerpt of VS
+Code's default webview stylesheet, from
+[microsoft/vscode](https://github.com/microsoft/vscode) (MIT License,
+Copyright (c) Microsoft Corporation).
+
 When adding redistributed dependencies, preserve their full license text here
 and in the distributed package. `npm ls --omit=dev --all` in `webview/` lists
 the viewer's runtime dependency tree.

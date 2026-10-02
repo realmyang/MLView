@@ -24,18 +24,21 @@ async function result(panel, count) {
   return h.results(panel).at(-1);
 }
 
-test('each ready gets init, workflow and then the banner, in that order', async () => {
+// M1 changed this test on purpose: a stale revision's burst now carries the typed `stale` frame
+// (each stale file with its reason) between the workflow and the banner.
+test('each ready gets init, workflow, the stale files and then the banner, in that order', async () => {
   const stale = h.verify(h.workflow(), { 'source.py': 'fit()\n' });
   const { panel } = await open({ raw: stale, files: { 'source.py': 'changed()\n' } });
-  assert.deepEqual(panel.postedTypes(), ['init', 'workflow', 'workflowError']);
-  assert.deepEqual(panel.posted[2].codes, ['stale']);
-  assert.equal(panel.posted[2].retained, true);
+  assert.deepEqual(panel.postedTypes(), ['init', 'workflow', 'stale', 'workflowError']);
+  assert.deepEqual(panel.posted[2], { v: 1, type: 'stale', files: [{ path: 'source.py', reason: 'changed' }] });
+  assert.deepEqual(panel.posted[3].codes, ['stale']);
+  assert.equal(panel.posted[3].retained, true);
   assert.equal(panel.posted[0].theme, 'dark');
   assert.equal(typeof panel.posted[0].artifact, 'string');
   // A recreated webview posts ready again and gets the same burst.
   panel.fire({ v: 1, type: 'ready' });
   await h.tick();
-  assert.deepEqual(panel.postedTypes(), ['init', 'workflow', 'workflowError', 'init', 'workflow', 'workflowError']);
+  assert.deepEqual(panel.postedTypes(), ['init', 'workflow', 'stale', 'workflowError', 'init', 'workflow', 'stale', 'workflowError']);
 });
 
 test('a fresh artifact gets no banner and an invalid one gets only the banner', async () => {

@@ -3,12 +3,10 @@
  * document.createElement / createElementNS and filled with textContent.
  */
 
-import { el, add, middleTruncate, locSpan } from '../dom.js';
+import { el, add, locSpan } from '../dom.js';
 import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind, nodeGlyphKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
-import { alternativeCount, configSpoken, configSublabel, isAlternatives, resolvedConfig } from '../config/resolved.js';
-import { rollupChipText, rollupCount, rollupSpoken } from '../rollup/rolled.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
 import { chipCandidates, titleLines } from '../layout/cardmetrics.js';
@@ -16,40 +14,36 @@ import { chipCandidates, titleLines } from '../layout/cardmetrics.js';
 /**
  * An authored sublabel is the model's `detail`, up to 8000 characters. The card
  * shows one ellipsised line of it (CSS), so the DOM keeps only a prefix far
- * longer than any card can draw; the inspector has the whole text.
+ * longer than any card can draw; the Inspector shows the whole text (viewer M1,
+ * `MLNode.detail`), and the card's accessible name its first sentence.
  */
 const SUB_DOM_CHARS = 240;
-
-/**
- * VIEW-08. How each diff status reads on a card, and to a screen reader.
- *
- * `added` gets a LEDGE — a small tab on the card's leading edge — because it has
- * to be legible at the compact LOD where the chip row is not drawn at all, and
- * because it must not be confused with the severity badge on the opposite
- * corner. `removed` reuses the ghost outline that already means "this is not
- * here", with its own word so the two absences are told apart. `changed` gets a
- * chip, which is the lightest of the three on purpose: most changed nodes are
- * changed in one field.
- */
-const DIFF_WORD: Record<string, string> = {
-  added: 'added',
-  removed: 'removed',
-  changed: 'changed',
-};
-
-const DIFF_SPOKEN: Record<string, string> = {
-  added: 'added in this change',
-  removed: 'removed in this change, drawn where it used to be',
-  changed: 'changed in this change',
-};
 
 export interface NodeVisual {
   node: MLNode;
   box: LayoutBox;
   counts: IssueCounts;
   descendants: number;
+  /** Viewer M1: some of this item's evidence cites a file the host reported stale. */
   stale: boolean;
+  /** How many of its quotes do, for the words beside the mark. */
+  staleQuotes?: { stale: number; total: number };
+  /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
+  staleElsewhere?: boolean;
   filteredOut: boolean;
+}
+
+/**
+ * "1 of 2 quotes cite a changed or missing file" — what a stale mark means, in words. In the
+ * root-hint case the files did not change: "… cite a file in another folder" (COPY-1).
+ */
+export function staleWords(v: Pick<NodeVisual, 'stale' | 'staleQuotes' | 'staleElsewhere'>): string {
+  if (!v.stale) return '';
+  const q = v.staleQuotes;
+  const what = v.staleElsewhere ? 'a file in another folder' : 'a changed or missing file';
+  return q
+    ? q.stale + ' of ' + q.total + (q.total === 1 ? ' quote cites ' : ' quotes cite ') + what
+    : 'cites ' + what;
 }
 
 /**
@@ -176,59 +170,80 @@ export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26
 }
 
 /**
- * The kind word a screen reader hears before the label. An authored node
- * without a kind the renderer knows is a "step": the adapter's `unknown`
- * default is not something the author wrote (VIEWUI-14).
+ * The kind word a screen reader hears before the label. A node without a kind
+ * the renderer knows is a "step": the adapter's `unknown` default is not
+ * something the author wrote (VIEWUI-14).
  */
 function kindSpoken(n: NodeVisual['node']): string {
-  if (n.authored && (n.kind === 'unknown' || !isKnownKind(n.kind))) return 'step';
-  return isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node';
+  if (n.kind === 'unknown' || !isKnownKind(n.kind)) return 'step';
+  return n.kind.replace(/_/g, ' ');
 }
 
 export function ariaLabelFor(v: NodeVisual): string {
   const n = v.node;
   const bits: string[] = [];
-  // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step. Saying
-  // "Missing step" over it would name the wrong kind of absence.
-  if (n.diffStatus === 'removed') bits.push('Removed: ' + n.label);
-  else if (n.ghost && n.basis === 'unresolved') bits.push('Unresolved: ' + n.label);
-  else if (n.ghost) bits.push('Missing step: ' + n.label);
-  else bits.push(kindSpoken(n) + ' ' + n.label);
-  bits.push(stageOf(n) + ' stage');
+  bits.push(kindSpoken(n) + ' ' + n.label);
+  // Viewer M1: a step names its phase by label, as the lane does; the id is internal.
+  bits.push(n.phaseLabel ? n.phaseLabel + ' phase' : stageOf(n) + ' stage');
   if (n.loc.file) bits.push(locSpoken(n.loc));
   if (n.basis) bits.push('basis ' + n.basis);
-  // ANA-10: the resolved value, spoken. A config card that reads "batch_size"
-  // to a screen reader and "batch_size = 64" on screen is two different cards.
-  const config = configSpoken(n);
-  if (config) bits.push(config);
-  // PERF-04: a rolled-up card looks like a collapsed group and behaves like a
-  // leaf, so the ONE place that difference is stated in words has to be here.
-  const rolled = rollupCount(n);
-  if (rolled) bits.push(rollupSpoken(rolled));
-  const diff = n.diffStatus ? DIFF_SPOKEN[n.diffStatus] : '';
-  if (diff) bits.push(diff);
-  if (n.diffStatus === 'changed' && (n.diffChanged || []).length) {
-    bits.push('what changed: ' + (n.diffChanged || []).join(', '));
-  }
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
   // VIEWUI-14: the same "finding" wording as the card's own severity badge.
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
-  if (n.dynamic) bits.push('partially resolved');
+  if (v.stale) bits.push(staleWords(v));
   if (n.viewRole === 'boundary') bits.push('outside the current scope');
-  return bits.join(', ') + '.';
+  // Viewer M1: the claim's first sentence, so the name says what the step does. The Inspector
+  // has the whole text.
+  const claim = n.detail ? detailSpoken(n.detail) : '';
+  return bits.join(', ') + '.' + (claim ? ' ' + claim : '');
+}
+
+/** Longest spoken claim before it is cut at a word boundary. */
+const DETAIL_SPOKEN_CHARS = 160;
+
+/**
+ * Words whose closing period does not end a sentence (M1-R4: "per channel, i.e. pixel values …"
+ * was cut after "i.e."). Lower case, without the final period. Dotted initials such as "e.g",
+ * "i.e" or "a.k.a" are recognised by shape in `abbreviationBefore`.
+ */
+const ABBREVIATIONS = new Set(['etc', 'vs', 'cf', 'approx', 'incl', 'esp', 'resp', 'fig', 'figs', 'eq', 'eqs', 'al']);
+
+/** True when the period at `at` closes an abbreviation rather than a sentence. */
+function abbreviationBefore(text: string, at: number): boolean {
+  if (text[at] !== '.') return false;
+  const word = /[A-Za-z.]*$/.exec(text.slice(0, at));
+  const token = (word ? word[0] : '').toLowerCase();
+  if (!token) return false;
+  // Dotted initials: "e.g", "i.e", "a.k.a", "u.s".
+  if (/^(?:[a-z]\.)+[a-z]$/.test(token)) return true;
+  return ABBREVIATIONS.has(token);
+}
+
+/**
+ * Viewer M1: a short form of an authored `detail` for an accessible name. The first sentence
+ * when it ends within 160 characters; otherwise the first 160 characters, cut at a word and
+ * ended with an ellipsis. A period after an abbreviation ("e.g.", "i.e.", "etc.") does not end
+ * the sentence. Whitespace runs read as one space.
+ */
+function detailSpoken(detail: string): string {
+  const text = detail.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const ends = /[.!?](?=\s|$)/g;
+  for (let end = ends.exec(text); end && end.index < DETAIL_SPOKEN_CHARS; end = ends.exec(text)) {
+    if (!abbreviationBefore(text, end.index)) return text.slice(0, end.index + 1);
+  }
+  if (text.length <= DETAIL_SPOKEN_CHARS) return text;
+  const cut = text.slice(0, DETAIL_SPOKEN_CHARS);
+  const space = cut.lastIndexOf(' ');
+  return (space > DETAIL_SPOKEN_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, '') + '…';
 }
 
 /** A full node card, positioned absolutely inside the world layer. */
 export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLElement {
   const n = v.node;
-  // PERF-04. A rolled-up card borrows the collapsed-group VISUAL — the roadmap
-  // asked for exactly that, "reusing the existing collapsed-group visual so the
-  // viewer needs no new language" — and none of its behaviour: `is-rolled-up`
-  // is what tells the double-click handler, the outline and the reader apart.
-  const rolled = rollupCount(n);
-  const groupLike = collapsedGroup || rolled > 0;
+  const groupLike = collapsedGroup;
   const card = el('div', 'mlv-node');
   card.id = nodeDomId(n.id);
   card.setAttribute('role', 'button');
@@ -239,7 +254,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.setAttribute('data-level', n.level);
   // Issue 14: the uncertainty treatment belongs to the authored basis, not to
   // an unfamiliar kind word (node.css `[data-basis="unresolved"]`).
-  if (n.authored && n.basis) card.setAttribute('data-basis', n.basis);
+  if (n.basis) card.setAttribute('data-basis', n.basis);
   const top = highestSeverity(v.counts);
   // A BOUNDARY stub carries no severity badge: its findings are out of scope,
   // and a badge you cannot open is a lie (FEATURES 3.7).
@@ -259,41 +274,10 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // and `.mlv-node__text` clips, exactly as the SVG export already did.
   card.style.height = v.box.h + 'px';
 
-  // VIEW-08. The status is a data attribute AND a class: the attribute is what
-  // tests and the export read, the class is what the stylesheet paints.
-  if (n.diffStatus) {
-    card.setAttribute('data-diff', n.diffStatus);
-    if (DIFF_WORD[n.diffStatus]) card.classList.add('is-diff-' + n.diffStatus);
-  }
-  // ANA-10. `data-config-alt` is the one-of-N marker; the count is on the
-  // attribute so a test can assert the card knows how many it could not choose
-  // between, not merely that it drew something.
-  const config = resolvedConfig(n);
-  if (config && isAlternatives(config)) {
-    card.setAttribute('data-config-alt', String(alternativeCount(config)));
-    card.classList.add('is-alternatives');
-  } else if (config && config.unresolved) {
-    card.setAttribute('data-config-unresolved', '1');
-  } else if (config && config.value) {
-    card.setAttribute('data-config-value', config.value);
-  }
-
-  // VIEW-08 reuses the ghost VISUAL for a removed node without claiming the
-  // schema's `ghost` flag, which means "a step the analyzer expected and did not
-  // find" and is what 11.2 step 7 prunes on.
-  if (n.ghost || n.diffStatus === 'removed') card.classList.add('is-ghost');
-  if (n.dynamic) card.classList.add('is-dynamic');
-  if (typeof n.confidence === 'number' && n.confidence < 0.6) card.classList.add('is-lowconf');
   if (top && !boundary) card.classList.add('has-issues');
   if (v.stale) card.classList.add('is-stale');
   if (v.filteredOut) card.classList.add('is-filtered');
   if (groupLike) card.classList.add('is-collapsed-group');
-  if (rolled) {
-    card.classList.add('is-rolled-up');
-    // The COUNT is on the attribute, so a test can assert the card knows how
-    // many it swallowed rather than merely that it drew something.
-    card.setAttribute('data-rolled-up', String(rolled));
-  }
 
   add(card, el('div', 'mlv-node__rail'));
   const main = add(card, el('div', 'mlv-node__main'));
@@ -302,83 +286,36 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
 
   const text = add(main, el('div', 'mlv-node__text'));
   const label = n.label || n.qualname || n.id;
-  if (n.authored) {
-    // Campaign 3, issue 14: truncated ONCE. The title used to be cut to 34
-    // characters in the middle and then again by the CSS end ellipsis
-    // ("Acquire the dataset ......"); 723 of 865 shakedown labels were longer.
-    // Now the whole label is in the DOM and wraps to the lines the layout
-    // reserved (`cardmetrics.titleLines`), clamped with one ellipsis. The full
-    // label is in the hover card and the accessible name.
-    // `data-lines` (1-3) selects the clamp in node.css; an attribute rather
-    // than a custom property, because a style write per card is the slow path
-    // on a 2000-node document.
-    const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
-    title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
-  } else {
-    add(text, el('div', 'mlv-node__title', middleTruncate(label, 34)));
-  }
-  // ANA-10: the RESOLVED value outranks the document's own sublabel, because
-  // "where does batch_size come from" is the question the config lane exists to
-  // answer and `download=False` is not the answer to it. Absent when the
-  // analyzer resolved nothing, which leaves the card exactly as it was.
-  const resolved = configSublabel(n);
-  const sub = resolved || n.sublabel || (n.fqn ? n.fqn : n.kind);
-  // Issue 14: an authored sublabel is prose, cut once by the CSS end ellipsis.
-  const subEl = add(text, el('div', 'mlv-node__sub', n.authored && !resolved ? sub.slice(0, SUB_DOM_CHARS) : middleTruncate(sub, 40)));
-  if (resolved) {
-    subEl.classList.add('mlv-node__sub--config');
-    // The card middle-truncates at 40 characters, so a three-candidate registry
-    // or a reason sentence loses its middle. `data-config-sub` carries the
-    // untruncated string and the hover shows it: a resolved value the reader
-    // cannot read is not a resolved value.
-    subEl.setAttribute('data-config-sub', resolved);
-    subEl.title = resolved + (config && config.from ? ' · resolved from ' + config.from : '');
-  }
-  // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
-  // was translated from in the hover. `locSpan` splits the path from the cell so
-  // a card too narrow for both loses the path, never the cell.
+  // Campaign 3, issue 14: truncated ONCE. The title used to be cut to 34
+  // characters in the middle and then again by the CSS end ellipsis
+  // ("Acquire the dataset ......"); 723 of 865 shakedown labels were longer.
+  // Now the whole label is in the DOM and wraps to the lines the layout
+  // reserved (`cardmetrics.titleLines`), clamped with one ellipsis. The full
+  // label is in the hover card and the accessible name.
+  // `data-lines` (1-3) selects the clamp in node.css; an attribute rather
+  // than a custom property, because a style write per card is the slow path
+  // on a 2000-node document.
+  const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
+  title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
+  const sub = n.sublabel || n.kind;
+  // Issue 14: the sublabel is prose, cut once by the CSS end ellipsis.
+  add(text, el('div', 'mlv-node__sub', sub.slice(0, SUB_DOM_CHARS)));
+  // `notebooks/leak.ipynb › cell 3, line 4` on the card. `locSpan` splits the
+  // path from the cell so a card too narrow for both loses the path, never the cell.
   if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
   // push the "+n" overflow chip off the end (MLV-R1-011).
-  // PERF-04: `7 rolled up`, never `7 nodes`. The two counts mean different
-  // things — one is what is inside a box you can open, the other is what is not
-  // in the document at all — and one wording for both would erase that.
   const chips = groupLike
-    ? [rolled ? rollupChipText(rolled) : v.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
+    ? [v.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(v.box.w - CHIP_ROW_INSET));
-  // VIEW-08: the `changed` chip is PREPENDED, like the collapsed-group count, so
-  // the width budget can never push the one thing a reviewer opened this view to
-  // see off the end of the row.
-  const diffChip = n.diffStatus === 'changed' ? changedChipText(n) : '';
-  if (chips.length || diffChip) {
+  if (chips.length) {
     const row = add(text, el('div', 'mlv-node__chips'));
-    if (diffChip) {
-      const chip = add(row, el('span', 'mlv-chip mlv-chip--diff mlv-chip--diff-changed', diffChip));
-      chip.setAttribute('data-diff-chip', 'changed');
-      chip.title = (n.diffChanged || []).length
-        ? 'Changed in this diff: ' + (n.diffChanged || []).join(', ')
-        : 'Changed in this diff';
-    }
-    for (let i = 0; i < chips.length; i++) {
-      // The rollup count is the FIRST chip by construction above; it gets its
-      // own class so the stylesheet can weight it and a test can find it
-      // without matching on the words inside.
-      const cls = rolled && i === 0 ? 'mlv-chip mlv-chip--rollup' : 'mlv-chip';
-      const chip = add(row, el('span', cls, chips[i]));
-      if (rolled && i === 0) chip.title = rollupSpoken(rolled);
-    }
+    for (const chip of chips) add(row, el('span', 'mlv-chip', chip));
   }
 
-  // VIEW-08. The LEDGE: a tab on the leading edge of an added card, drawn as a
-  // child of the CARD so it survives the compact LOD that hides the chip row —
-  // the zoom level a reviewer skims a whole diff at is exactly the one where a
-  // chip would have disappeared.
-  if (n.diffStatus === 'added' || n.diffStatus === 'removed') {
-    const ledge = add(card, el('span', 'mlv-node__ledge', DIFF_WORD[n.diffStatus]));
-    ledge.setAttribute('data-ledge', n.diffStatus);
-    ledge.setAttribute('aria-hidden', 'true');
-  }
+  // Viewer M1: a corner mark with its meaning in words (title and accessible name), never colour alone.
+  if (v.stale) card.appendChild(staleMark(v));
 
   if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
@@ -400,19 +337,6 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   return card;
 }
 
-/**
- * `changed` on its own, or `changed: issueCodes` when the overlay named ONE
- * field — which is the case a reviewer acts on. Two or more fields are counted
- * rather than listed: the card has one chip's worth of room, and the full list
- * is in the chip's own hover and in the Inspector.
- */
-function changedChipText(node: MLNode): string {
-  const fields = node.diffChanged || [];
-  if (fields.length === 1) return 'changed: ' + fields[0];
-  if (fields.length > 1) return 'changed · ' + fields.length + ' fields';
-  return 'changed';
-}
-
 /** An expanded group: the dashed container plus its header strip. */
 export function buildGroupBox(v: NodeVisual): HTMLElement {
   const n = v.node;
@@ -420,24 +344,9 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   box.id = nodeDomId(n.id);
   box.setAttribute('data-node-id', n.id);
   box.setAttribute('data-group', '1');
-  // PERF-04. A unit that swallowed its ops KEEPS ITS GHOSTS (11.46 A5), so a
-  // rolled-up node can still be an expanded group — and then the frame has to
-  // carry the count too, or the one card in the document that stands for six
-  // would be the one that says nothing.
-  const rolledGroup = rollupCount(n);
-  if (rolledGroup) {
-    box.setAttribute('data-rolled-up', String(rolledGroup));
-    box.classList.add('is-rolled-up');
-  }
   box.setAttribute('data-stage', stageOf(n));
   box.setAttribute('data-depth', String(Math.min(2, v.box.depth)));
   if (n.viewRole) box.setAttribute('data-view-role', n.viewRole);
-  // VIEW-08: an expanded group carries the same status as a card would, so a
-  // function that was added does not look untouched just because it has children.
-  if (n.diffStatus) {
-    box.setAttribute('data-diff', n.diffStatus);
-    if (DIFF_WORD[n.diffStatus]) box.classList.add('is-diff-' + n.diffStatus);
-  }
   // A boundary FRAME is as badge-free as a boundary card: what it contains is
   // outside the scope, so an aggregated count would point at nothing openable.
   const boundary = n.viewRole === 'boundary';
@@ -465,18 +374,30 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   chevBtn.appendChild(chev);
   header.appendChild(chevBtn);
   header.appendChild(kindIcon(nodeGlyphKind(n, false), 14));
-  // Issue 14: an authored group name is cut once, by the CSS end ellipsis.
-  add(header, el('span', 'mlv-group__name', n.authored ? n.label || n.qualname : middleTruncate(n.label || n.qualname, 42)));
+  // Issue 14: a group name is cut once, by the CSS end ellipsis.
+  add(header, el('span', 'mlv-group__name', n.label || n.qualname));
   if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
   add(header, el('span', 'mlv-group__count', String(v.descendants)));
-  if (rolledGroup) {
-    const chip = add(header, el('span', 'mlv-chip mlv-chip--rollup', rollupChipText(rolledGroup)));
-    chip.title = rollupSpoken(rolledGroup);
-  }
   const cluster = boundary ? null : severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);
+  if (v.stale) {
+    box.classList.add('is-stale');
+    header.appendChild(staleMark(v));
+  }
   box.appendChild(header);
   return box;
+}
+
+/** The stale mark (viewer M1): a warning icon whose title says what it means. */
+function staleMark(v: NodeVisual): HTMLElement {
+  const mark = el('span', 'mlv-node__stale');
+  mark.setAttribute('data-stale', '1');
+  mark.setAttribute('aria-hidden', 'true');
+  mark.title = staleWords(v) + (v.staleElsewhere
+    ? '. Its jumps are blocked; the notice above says which folder to add.'
+    : ' since publishing. Its jumps are blocked.');
+  mark.appendChild(uiIcon('warning', 12));
+  return mark;
 }
 
 export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean): HTMLElement {

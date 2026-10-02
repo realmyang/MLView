@@ -14,8 +14,9 @@
  */
 
 import { SEVERITY_ORDER, highestSeverity } from '../markers.js';
-import { routeWeight } from '../rollup/rolled.js';
+import { routeWeight } from './weight.js';
 import { buildBundles } from '../layout/bundles.js';
+import { allElsewhere } from '../freshness.js';
 import type { BundleVisual } from './bundles.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LabelPlacement } from '../layout/labels.js';
@@ -23,7 +24,7 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { IssueCounts, MLNode, Severity } from '../types.js';
+import type { IssueCounts, Loc, MLNode, Severity, StaleReason } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -46,7 +47,8 @@ export interface ScenePlanOptions {
   /** This view's serial — it qualifies every edge path id (CONTRACTS 11.13.1). */
   mountSerial: number;
   keep: IssuePredicate;
-  staleFiles: string[];
+  /** Viewer M1: workspace-relative paths the host reported stale, with the reason. Empty draws no mark. */
+  staleFiles: ReadonlyMap<string, StaleReason>;
   isFilteredOut(node: MLNode): boolean;
 }
 
@@ -93,7 +95,7 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
         box,
         counts,
         descendants: index.descendantCount(box.id),
-        stale: opts.staleFiles.indexOf(node.loc.file) >= 0,
+        ...staleOf(node.evidenceLocs, node.loc, opts.staleFiles),
         filteredOut: opts.isFilteredOut(node),
       },
     });
@@ -108,7 +110,6 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
     edges.push({
       route,
       severity: highestSeverity(index.countsFor(issues)),
-      suppressed: false,
       // Back-edges always carry their label; data-edge labels come in with the
       // `full` LOD class, driven from CSS so zooming never re-renders (MLV-R1-012).
       labelVisible: route.back,
@@ -118,11 +119,11 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       mountSerial: opts.mountSerial,
       placement: opts.labels ? opts.labels.get(route.id) : undefined,
       filtered: !!((src && opts.isFilteredOut(src)) || (dst && opts.isFilteredOut(dst))),
-      // PERF-04. Summed over the route's OWN merge, so a cable that is both a
-      // renderer merge and a rollup dedupe reports every connection it stands
-      // for. Decided here, in the plan, so the DOM and the SVG export cannot
-      // draw two different numbers on the same cable.
-      weight: routeWeight(route.ids, index.edgeById),
+      // How many connections the route merges. Decided here, in the plan, so the
+      // DOM and the SVG export cannot draw two different numbers on the same cable.
+      weight: routeWeight(route.ids),
+      // Viewer M1: a cable is marked when any connection it stands for cites a stale file.
+      ...staleOfRoute(route.ids, index, opts.staleFiles),
     });
   }
 
@@ -156,4 +157,41 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+type StaleOf = { stale: boolean; staleQuotes?: { stale: number; total: number }; staleElsewhere?: boolean };
+
+/**
+ * Viewer M1. Whether an item's evidence cites a stale file, and how many of its quotes do. An
+ * authored item has `evidenceLocs` (possibly empty); anything else falls back to its one `loc`.
+ * `staleElsewhere`: every stale quote cites a file the host found unchanged in another folder
+ * (the root hint), which is worded apart (COPY-1).
+ */
+function staleOf(locs: Loc[] | undefined, loc: Loc, staleFiles: ReadonlyMap<string, StaleReason>): StaleOf {
+  if (!staleFiles.size) return { stale: false };
+  const list = locs || (loc.file ? [loc] : []);
+  const reasons: StaleReason[] = [];
+  for (const item of list) {
+    const reason = item.file ? staleFiles.get(item.file) : undefined;
+    if (reason) reasons.push(reason);
+  }
+  if (!reasons.length) return { stale: false };
+  const out: StaleOf = { stale: true, staleQuotes: { stale: reasons.length, total: list.length } };
+  if (allElsewhere(reasons)) out.staleElsewhere = true;
+  return out;
+}
+
+function staleOfRoute(ids: string[], index: GraphIndex, staleFiles: ReadonlyMap<string, StaleReason>): { stale?: boolean; staleElsewhere?: boolean } {
+  if (!staleFiles.size) return {};
+  let stale = false;
+  let elsewhere = true;
+  for (const id of ids) {
+    const edge = index.edgeById.get(id);
+    const of = edge ? staleOf(edge.evidenceLocs, edge.loc, staleFiles) : null;
+    if (!of || !of.stale) continue;
+    stale = true;
+    if (!of.staleElsewhere) elsewhere = false;
+  }
+  if (!stale) return {};
+  return elsewhere ? { stale: true, staleElsewhere: true } : { stale: true };
 }

@@ -17,11 +17,47 @@ re-run **MLView: Open Generated Diagram**, which always shows the file as it is.
 
 When cited or inspected files change after a revision was published, the
 diagram stays visible as a historical revision and the status line names the
-changed or missing files; only jumps into those files are blocked. Unsaved
-editor changes never change validation. They are reported separately, and a
-jump is blocked only when the unsaved text no longer contains the cited lines.
+changed or missing files. The steps, connections, findings and quotes that
+cite them carry a warning mark, the status bar counts them, and only jumps
+into those files are blocked. Unsaved editor changes never change validation.
+They are reported separately, and a jump is blocked only when the unsaved text
+no longer contains the cited lines.
 
-Evidence links open the cited source range or notebook cell. The Refine action
+If the workspace root is a parent of the folder the diagram cites from (most
+tracked files are missing from the root but exist, with the published hashes,
+under the artifact's folder or a folder above it), the notice names the files
+and the folder that holds them, unchanged, and offers **Add folder to
+workspace** or **Open folder**. The marks, the status bar, the Inspector and a
+blocked jump say "in another folder" instead of calling the files changed or
+missing. The panel checks again whenever workspace folders change. The two
+actions are only in the panel's notice; there is no separate notification.
+
+When VS Code restarts its extensions inside the same window, MLView puts each
+open diagram back in its tab's place, checked against the workspace as it is
+then. That covers **Developer: Restart Extension Host**, an extension install
+or update that restarts extensions, **Save Workspace As...**, and adding a
+folder to a single-folder window (the notice's **Add folder to workspace** or
+VS Code's **Add Folder to Workspace...**), which turns the window into an
+untitled multi-root workspace. A diagram in front of its editor group comes
+back at once. A diagram tab behind other tabs comes back when you bring it to
+the front, after a blank half second: until then MLView cannot tell it from a
+tab VS Code restored at startup and has not shown yet, which must be left
+alone. A diagram put back this way starts with a fresh view: the selection
+and zoom start over. **Developer: Reload Window** restores diagrams as before,
+with their selection and zoom.
+
+A click on a step, connection or finding selects it and shows its claim.
+The Inspector shows the full claim, the findings on it with **What to change**,
+and its quotes; document-wide limitations are listed once, under the header's
+**Details**. Notebook cells are numbered from 0, as the artifact records them.
+Enter, a double-click (on a step, connection, finding or Outline step) or an
+Inspector **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
+stays in the diagram. Alt+Enter (or Alt+click on an Open link) also moves
+focus to the editor. For a notebook citation the cell is selected and
+revealed; its lines are highlighted when VS Code has the cell's editor ready.
+In High Contrast themes the highlighted lines are outlined with the theme's
+range-highlight border, since those themes define no highlight background.
+The Refine action
 copies a follow-up prompt for the assistant that authored the diagram, with one
 of five intents (Explain, Expand, Challenge, Trace, or a custom request).
 Explain never asks for a new revision. The prompt names the revision currently

@@ -1,16 +1,15 @@
 /**
- * MLView renderer — data + protocol types.
+ * MLView renderer — the authored WorkflowDocument, the renderer's internal view
+ * model (`MLGraph`, built by `workflow.ts`), and the host protocol.
  *
- * These mirror contracts/graph.schema.json and CONTRACTS.md sections 4 and 8.
- * Enum-ish fields are typed as `string` on purpose: invariant 1.1/6 requires an
- * unknown kind / stage / edge kind to render with the `unknown` visual instead
- * of throwing, so the renderer must never narrow them at the type level.
+ * Enum-ish fields are typed as `string` on purpose: an unknown kind / phase /
+ * edge kind renders with the `unknown` visual instead of throwing, so the
+ * renderer must never narrow them at the type level.
  */
 
 export type Severity = 'low' | 'medium' | 'high';
-export type ConfidenceBucket = 'certain' | 'likely' | 'possible' | 'speculative';
 export type ThemeKind = 'light' | 'dark' | 'hc';
-export type HostKind = 'vscode' | 'standalone';
+export type HostKind = 'vscode';
 
 export interface Loc {
   file: string;
@@ -21,22 +20,13 @@ export interface Loc {
   col: number;
   endLine: number;
   endCol: number;
-  symbol?: string;
+  /** The cited quote. */
   snippet?: string;
   /**
-   * NB. The code cell this location fell in, when the file is a notebook the
-   * analyzer read. Absent on every `.py` location, and absent on a notebook
-   * location the ingest could not map — in which case the viewer shows the flat
-   * line rather than inventing a cell.
-   *
-   * `line` above stays the FLAT line into the concatenated code cells and is
-   * what `openLocation` posts: the hosts own the mapping onto a
-   * `vscode-notebook-cell:` URI. These two fields exist so the viewer can SHOW
-   * a human `name.ipynb > cell 3 : 4` without changing a byte on the wire.
+   * An authored notebook citation's cell: the contract's zero-based cell index
+   * (markdown cells count), with `line` relative to that cell. Absent elsewhere.
    */
   cell?: number;
-  /** NB. 1-based line inside `cell`. Meaningless without `cell`. */
-  cellLine?: number;
   /** Authored-workflow evidence record that supplied this location. */
   evidenceId?: string;
 }
@@ -44,17 +34,6 @@ export interface Loc {
 export interface RelatedLoc extends Loc {
   role: string;
   message?: string;
-}
-
-export interface Port {
-  name: string;
-  tags: string[];
-}
-
-export interface Evidence {
-  kind: string;
-  detail: string;
-  weight: number;
 }
 
 export interface IssueCounts {
@@ -79,82 +58,43 @@ export interface MLNode {
   level: string;
   stage: string;
   label: string;
+  /** What the card's second line draws: the authored detail, or the basis. */
   sublabel?: string;
+  /** The authored label again (the scope resolver and the outline read it). */
   qualname: string;
-  fqn?: string;
-  framework?: string;
-  var?: string;
   loc: Loc;
-  defLoc?: Loc;
   parent: string | null;
+  /** `{ basis }`: the card's chip row, which the layout reserves (re-recorded in M2). */
   attrs: Record<string, string>;
-  produces: Port[];
-  consumes: Port[];
-  ghost: boolean;
-  dynamic: boolean;
-  confidence: number;
-  confidenceBucket: string;
   issueIds: string[];
-  collapsedByDefault: boolean;
-  stageEvidence: Evidence[];
   /** Renderer-local authored-workflow epistemic basis. */
   basis?: WorkflowBasis;
-  /**
-   * Renderer-local: true for every node the WorkflowDocument adapter builds.
-   * Authored text is data, so legacy parsers that read meaning into labels or
-   * details (config resolution) skip these nodes (RENDER-6).
-   */
-  authored?: boolean;
   /** Renderer-local authored evidence anchors, in document order. */
   evidenceLocs?: Loc[];
   /**
-   * PERF-04 (CONTRACTS 11.46 B1). How many nodes `--max-nodes` folded INTO this
-   * one, counted transitively; absent when none were. The children are not in
-   * the document at all — this is not a collapsed group and there is nothing to
-   * expand — which is why the card borrows the collapsed-group VISUAL and none
-   * of its interaction.
-   *
-   * Read through `rollup/rolled.ts`, never directly: that module is the one
-   * place the renderer knows this field's name, and it refuses a value that is
-   * not a positive integer rather than drawing `-3 rolled up`.
+   * Viewer M1: the authored `detail`, verbatim, or absent when the author wrote
+   * none. Read by the Inspector and the card's accessible name only; the card
+   * itself still draws `sublabel`, so layout does not depend on it.
    */
-  rolledUp?: number;
+  detail?: string;
+  /** Viewer M1: the authored label of the node's phase (`stage` is its id). */
+  phaseLabel?: string;
   /**
    * Present ONLY in a projected document (one carrying `view`). Absent means
    * "this document is not a projection" (CONTRACTS 11.3).
    */
   viewRole?: ViewRole;
-  /**
-   * VIEW-08, RENDERER-LOCAL and never on the wire. The diff overlay is a
-   * SEPARATE document (CONTRACTS 11.38 B) whose `nodes[]` is keyed on the same
-   * stable ids, and `diff/adopt.ts` lifts each entry's `status` onto the node it
-   * describes — exactly as `adoptCellMap` lifts the notebook cell map off
-   * `attrs` — so every drawing surface keeps reading a plain `MLNode` and none
-   * of them has to know the overlay exists. Absent means "no overlay is loaded",
-   * which is not the same as `unchanged`.
-   */
-  diffStatus?: string;
-  /** VIEW-08, renderer-local: the overlay's `changed[]` field names, if any. */
-  diffChanged?: string[];
-  /**
-   * VIEW-08, renderer-local: this card was SYNTHESISED from the overlay by
-   * `diff/adopt.ts` and is not in the emitted document (VIEW-R6). Anything that
-   * counts "how big is this document" must skip it — the analyzer's own
-   * sentences describe the document it wrote, not the one the overlay decorated.
-   */
-  diffGhost?: boolean;
 }
 
 export interface MLEdge {
   id: string;
   kind: string;
+  /** Read by the layout core (`subkind === 'back'`); authored edges never set it. */
   subkind?: string;
   source: string;
   target: string;
   label?: string;
   loc: Loc;
-  tags: string[];
-  confidence: number;
   issueIds: string[];
   /** Renderer-local authored-workflow epistemic basis. */
   basis?: WorkflowBasis;
@@ -167,261 +107,53 @@ export interface MLEdge {
    */
   authoredKind?: string;
   /**
-   * PERF-04. How many document edges this one stands for after the rollup
-   * re-pointed edges at surviving ancestors and deduped the parallels. Absent
-   * means one, so an uncapped document is byte-for-byte what it always was.
-   *
-   * It counts CONNECTIONS, not call sites: see `rollup/rolled.ts`, which is the
-   * only reader and which says so in the banner as well as in the hover.
+   * Viewer M1: the authored label, verbatim. `label` is what the canvas draws,
+   * which still carries the " · basis" suffix until the card re-record (M2).
    */
-  weight?: number;
+  authoredLabel?: string;
 }
 
-/**
- * H5. One edit an opted-in rule computed FROM THE AST.
- *
- * `newText` replaces the half-open range `[line:col, endLine:endCol)`, so an
- * insertion is an empty range and a deletion an empty `newText`. Lines are
- * 1-based and columns 0-based, exactly like `Loc` (§0): these are the analyzer's
- * own coordinates and the host boundary is the only place they are converted.
- *
- * The viewer NEVER applies one. It draws it, and it posts `applyFix` — the host
- * owns the edit, behind a preview, which is what keeps "never auto-applied" a
- * property of the system rather than a promise in a comment.
- */
-export interface FixEdit {
-  file: string;
-  absFile: string;
-  line: number;
-  col: number;
-  endLine: number;
-  endCol: number;
-  newText: string;
-}
-
-/**
- * H5. The structured fix a rule OPTED IN to, absent on every rule that did not —
- * which is what stops the field from ever being a lie. `fixHint` is prose on all
- * 36 rules; `fix` exists only where an edit was actually computed.
- *
- * `safety` is typed `string` like every other enum-ish field here (invariant
- * 1.1/6): an unknown value renders as the cautious form, never as `mechanical`.
- */
-export interface IssueFix {
-  title: string;
-  safety: string;
-  edits: FixEdit[];
-}
-
-/** The two safety words the renderer draws specially. Anything else is cautious. */
-export const KNOWN_FIX_SAFETY = ['mechanical', 'needs-review'] as const;
-
-/** True only for the word that means "one unambiguous slot, nothing to judge". */
-export function isMechanicalFix(fix: IssueFix | undefined): boolean {
-  return !!fix && fix.safety === 'mechanical';
-}
-
+/** An authored finding, as the renderer reads it. */
 export interface Issue {
   id: string;
+  /** The finding id again (search and the Findings list print it). */
   code: string;
-  ruleVersion: number;
   severity: string;
-  confidence: number;
-  confidenceBucket: string;
   title: string;
   message: string;
-  why: string;
+  /** The authored `suggestion`, shown as "What to change"; '' when there is none. */
   fixHint: string;
   loc: Loc;
   relatedLocs: RelatedLoc[];
   nodeIds: string[];
   edgeIds: string[];
   stage: string;
-  frameworks: string[];
-  tags: string[];
-  evidence: Evidence[];
-  suppressed: boolean;
-  docs: string;
   /** Renderer-local authored-workflow epistemic basis. */
   basis?: WorkflowBasis;
-  /**
-   * CI-ADOPT. How this finding relates to the diff the run was attributed
-   * against: `new` (inside an added hunk), `touched` (changed file, outside the
-   * hunks) or `existing`. ABSENT means the run was not attributed at all — the
-   * documented degradation when git is missing, the workspace is not a repo or
-   * the base ref does not exist — and the viewer then shows every finding with
-   * no chip, never an empty list.
-   *
-   * Typed `string`, like every other enum-ish field here: invariant 1.1/6 says
-   * an unknown value renders generically instead of throwing.
-   */
-  change?: string;
-  /**
-   * CI-ADOPT. True when a baseline file already carried this finding. Baselined
-   * is MARKED, never deleted: the row moves into the rail's collapsed
-   * "N suppressed" section with a `baselined` chip, so the ratchet stays
-   * auditable.
-   */
-  baselined?: boolean;
-  /**
-   * H5. Present only where the rule opted in AND the analyzer was at least
-   * `likely` about the finding. Absent everywhere else, including on every rule
-   * that ships prose only.
-   */
-  fix?: IssueFix;
 }
 
 /**
- * The three attributions CI-ADOPT emits. `Issue.change` stays `string`; this is
- * the list the renderer draws a chip for, and anything else falls through
- * unchipped rather than throwing.
+ * A document-level note: `workflow_limitation` (one per authored coverage
+ * limitation) or `config_warning` (a scope note the projection appends).
  */
-export const KNOWN_ISSUE_CHANGES = ['new', 'touched', 'existing'] as const;
-
-export type IssueChange = (typeof KNOWN_ISSUE_CHANGES)[number];
-
-export function isKnownIssueChange(value: unknown): value is IssueChange {
-  return typeof value === 'string' && (KNOWN_ISSUE_CHANGES as readonly string[]).indexOf(value) >= 0;
-}
-
-/** True when a finding is hidden from the main list but still auditable. */
-export function isSetAside(issue: Issue): boolean {
-  return !!issue.suppressed || !!issue.baselined;
-}
-
-/**
- * A citation inside an answer sentence.
- *
- * The emitter writes `{file, line}` and nothing else — an answer cites a place
- * to look, not a range to select — so this is a `Loc` with everything but those
- * two optional. `app.ts` completes it against `workspace.root` before posting
- * `openLocation`, which is what keeps the deep link working from a citation.
- */
-export interface AnswerLoc {
-  file: string;
-  line: number;
-  absFile?: string;
-  col?: number;
-  endLine?: number;
-  endCol?: number;
-}
-
-/**
- * MLV-P1. One of the four answers, composed deterministically from the graph by
- * `analyzer/src/mlview/emit/answers.py` — no model, so it is identical in all
- * three hosts and stays offline.
- */
-export interface Answer {
-  sentence: string;
-  nodeIds?: string[];
-  locs?: AnswerLoc[];
-  confidence?: number;
-}
-
-/**
- * MLV-P1. The optional `answers` block: the product's four headline questions,
- * answered in words. Every field is optional — an absent one is an answer the
- * emitter could not compose, and the card simply does not draw that row.
- */
-export interface Answers {
-  dataEntry?: Answer;
-  objective?: Answer;
-  evaluation?: Answer;
-  verdict?: Answer;
-}
-
-/** The four answers in the order the card lists them, with their questions. */
-export const ANSWER_ROWS: { key: keyof Answers; question: string }[] = [
-  { key: 'dataEntry', question: 'Where does the data come in?' },
-  { key: 'objective', question: 'What is being optimised?' },
-  { key: 'evaluation', question: 'How is it evaluated?' },
-  { key: 'verdict', question: 'What should I look at first?' },
-];
-
-/**
- * Every `Diagnostic.kind` the analyzer is known to emit today.
- *
- * The field itself stays `string` (invariant 1.1/6: an unknown kind renders
- * generically, it never throws), so this list is documentation the renderer can
- * loop over — `ui/chrome.ts` branches on the members it draws specially and lets
- * everything else fall through to the generic note chip.
- *
- * The COVERAGE batch — `untagged_dataflow`, `single_file_analysis`,
- * `unresolved_callee` and `framework_filter` — exists so the product can tell
- * "I checked and it is fine" apart from "I could not check". The first two and
- * the last are `core.coverage.COVERAGE_KINDS`, which §2.6 C9 makes a subset of
- * `ui/chromenotes.COVERAGE_KINDS`; the third is the viewer's own extra, named
- * by §10.8 A5.
- */
-export const KNOWN_DIAGNOSTIC_KINDS = [
-  'parse_error',
-  'dynamic_scope',
-  'rule_error',
-  'truncated',
-  'notebook_skipped',
-  'framework_suppressed',
-  'config_warning',
-  'untagged_dataflow',
-  'single_file_analysis',
-  'unresolved_callee',
-  /**
-   * NB. `--framework <x>` narrowed the RULE SET, including rules the detected
-   * frameworks would have run (CONTRACTS §2.6 C8). `codes` is what did not run
-   * and `count` is how many — rule codes, never blind sites — so the chrome
-   * counts rules for this kind and adds them to no other total.
-   */
-  'framework_filter',
-  'config_unresolved',
-  'notebook_analyzed',
-  /**
-   * NB. One per notebook whose `execution_count` is not monotonic: the file was
-   * last run out of order, so the analyzer read the cells top to bottom and
-   * de-rated every order-sensitive rule. `codes` names the rules it de-rated.
-   */
-  'notebook_out_of_order',
-] as const;
-
-export type DiagnosticKind = (typeof KNOWN_DIAGNOSTIC_KINDS)[number];
-
-export function isKnownDiagnosticKind(kind: string): kind is DiagnosticKind {
-  return (KNOWN_DIAGNOSTIC_KINDS as readonly string[]).indexOf(kind) >= 0;
-}
-
 export interface Diagnostic {
-  /** One of `KNOWN_DIAGNOSTIC_KINDS`, or anything a newer analyzer invents. */
   kind: string;
   message: string;
-  file?: string;
-  line?: number;
-  scope?: string;
-  ruleCode?: string;
-  codes?: string[];
-  count?: number;
 }
 
 export interface Stats {
   nodes: number;
   edges: number;
   issues: IssueCounts;
-  suppressed?: number;
   durationMs: number;
-  /**
-   * PERF-04. Still a plain boolean and still means "this document is not the
-   * whole graph" (11.46 D). The WORDS are the `truncated` diagnostic's job: it
-   * carries the per-phase counts and any findings phase 3 lost, and
-   * `rollup/rolled.ts` reads them from there rather than from a second flag.
-   */
-  truncated: boolean;
 }
 
 export interface Workspace {
+  /** The document title. */
   root: string;
   entrypoints: string[];
+  /** How many files the author lists as inspected. */
   filesAnalyzed: number;
-  filesFailed: number;
-  notebooksSkipped: number;
-  frameworks: string[];
-  configPath?: string;
 }
 
 export interface Generator {
@@ -478,11 +210,6 @@ export interface MLGraph {
   issues: Issue[];
   diagnostics: Diagnostic[];
   stats: Stats;
-  /**
-   * MLV-P1. Optional four-sentence summary of the pipeline. Absent means the
-   * emitter wrote none — the card is not drawn at all rather than drawn empty.
-   */
-  answers?: Answers;
   /** Appended as the LAST key by a projection; absent in a whole-workspace document. */
   view?: View;
   /**
@@ -531,22 +258,10 @@ export interface Sel {
 export interface Filters {
   severities: Severity[];
   stages: string[];
-  showSuppressed: boolean;
   query: string;
-  /**
-   * CI-ADOPT. Optional, absent at its default (off) exactly as `flow` and
-   * `scope` are on `ViewState`: an older host round-trips a state it has never
-   * seen. On it drops findings explicitly attributed `existing`, and NEVER an
-   * unattributed one — a run that could not be attributed degrades to showing
-   * everything, it does not degrade to an empty list.
-   */
-  changedOnly?: boolean;
 }
 
 export type RailTab = 'issues' | 'inspector' | 'outline';
-
-/** How the Issues rail groups its rows (RAIL-GROUP). `none` is the default. */
-export type RailGroupBy = 'none' | 'rule' | 'file';
 
 export interface ViewState {
   viewport: Viewport;
@@ -560,34 +275,8 @@ export interface ViewState {
   scope?: { spec: string; depth: number };
   /** Optional: flow animation on/off, like `minimapCollapsed`. Absent = on. */
   flow?: boolean;
-  /** Optional: the Issues rail's grouping. Absent = 'none' (RAIL-GROUP). */
-  railGroupBy?: RailGroupBy;
   /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
   legendOpen?: boolean;
-  /**
-   * Optional: whether the Pipeline Answer Card is expanded (MLV-P1). Absent =
-   * open, so a document that carries `answers` answers its four questions on
-   * the first screen without anyone opening anything.
-   */
-  answersOpen?: boolean;
-  /**
-   * VIEW-08. Optional, absent at its default (off) exactly as `flow`, `scope`
-   * and `legendOpen` are: an older host round-trips a state it has never seen.
-   * On, the diagram is projected down to the diff's changed set plus one hop.
-   * Restoring it with no overlay loaded is a NO-OP, never an empty diagram.
-   */
-  diffOnly?: boolean;
-  /**
-   * MLV-P12. True once the reader has answered the pipeline chooser — by
-   * picking a pipeline, by asking for everything, or by dismissing it, all three
-   * of which are answers. Absent at its default (not asked yet), exactly as
-   * `flow`, `scope`, `legendOpen` and `diffOnly` are absent at theirs, so an
-   * older host round-trips a state it has never seen (CONTRACTS 11.9).
-   *
-   * It records only THAT the question was answered, never which pipeline was
-   * chosen: that is a scope, and `scope` above already persists it.
-   */
-  pipelineChosen?: boolean;
   /**
    * The authored revision id the viewport belongs to. Written only for a
    * `workflow-view/1` graph and absent otherwise, like every optional field
@@ -612,17 +301,14 @@ export interface ComposerState {
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */
 
+/**
+ * The host's `init` capabilities. The viewer reads `canOpenSource` only; the host also sends
+ * `canRefine` and three flags of the retired analyzer UI (`canReanalyze`, `canExport`,
+ * `canAskAssistant`), all ignored here.
+ */
 export interface Capabilities {
   canOpenSource: boolean;
-  canReanalyze: boolean;
-  canExport: boolean;
-  canAskAssistant: boolean;
   canRefine?: boolean;
-}
-
-export interface HostAction {
-  id: string;
-  label: string;
 }
 
 /** The five refinement intents the composer offers (Campaign 1 §1e/§1f). */
@@ -647,60 +333,52 @@ export interface ActionResult {
   name?: string;
 }
 
+/**
+ * Why a cited or inspected file no longer matches the published revision (the host's hash check).
+ * `elsewhere`: missing under the workspace root but present, unchanged, in another folder; the
+ * host's `root-hint` notice names the folder and offers to add it (viewer M1 review, COPY-1).
+ */
+export type StaleReason = 'changed' | 'missing' | 'unreadable' | 'too-large' | 'elsewhere';
+
+/** One stale file, workspace-relative, as the host's `stale` frame carries it. */
+export interface StaleFile {
+  path: string;
+  reason: StaleReason;
+}
+
 export type HostToUi =
-  | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string; schemaVersion?: string; host?: HostKind }
-  | { v: 1; type: 'graph'; requestId: string; graph: MLGraph; preserve?: { viewport?: Viewport; selection?: Sel | null; collapsed?: string[] } }
-  | { v: 1; type: 'analysisStarted'; requestId: string; scope: 'workspace' | 'file'; path?: string }
-  | { v: 1; type: 'analysisProgress'; requestId: string; done: number; total: number; file?: string }
-  | { v: 1; type: 'analysisFailed'; requestId: string; message: string; detail?: string; actions?: HostAction[] }
+  | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string }
   | { v: 1; type: 'theme'; kind: ThemeKind }
-  | { v: 1; type: 'revealNode'; nodeId: string; center?: boolean; approximate?: boolean }
+  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  | { v: 1; type: 'revealNode'; nodeId: string; center?: boolean }
+  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
   | { v: 1; type: 'revealIssue'; issueId: string }
-  | { v: 1; type: 'cursorHint'; file: string; line: number }
-  | { v: 1; type: 'setFilter'; severities?: Severity[]; codes?: string[]; query?: string }
-  | { v: 1; type: 'stale'; changedFiles: string[] }
+  /**
+   * Viewer M1. The displayed revision's stale files, each with its reason, posted after the
+   * `workflow` frame whenever the set changes (an empty list clears the marks).
+   */
+  | { v: 1; type: 'stale'; files: StaleFile[] }
+  /** Applies a saved `ViewState`. The host does not send it; the tests drive collapse with it. */
   | { v: 1; type: 'restoreState'; state: ViewState }
-  /** `spec: null` clears the scope. Never triggers a re-analysis (CONTRACTS 11.7). */
-  | { v: 1; type: 'setScope'; spec: string | null; depth?: number }
-  /**
-   * VIEW-07. The host asks for a picture — its two commands (`mlview.exportSvg`
-   * / `mlview.exportPng`) have no geometry of their own, because the lane bands,
-   * the card rectangles and the routed paths exist only here. The viewer answers
-   * with exactly one `exportFile`, or with a toast when it has nothing drawn.
-   * `scope` is the host's vocabulary: `all` is this renderer's `diagram`.
-   */
-  | { v: 1; type: 'requestExport'; kind: 'svg' | 'png'; scope?: 'view' | 'all' | 'scope' }
-  /**
-   * VIEW-08. The diff overlay `mlview diff` writes, handed over as an OPTIONAL
-   * SIBLING of the graph (CONTRACTS 11.38 B): it is a separate document with its
-   * own `kind` and `diffVersion`, it never changes a byte of the graph, and a
-   * host that never sends one leaves the viewer exactly as it was.
-   *
-   * `overlay: null` clears it. The payload is typed `unknown` on purpose — it
-   * arrives from a host, is validated by `diff/overlay.ts` before anything is
-   * drawn, and a malformed one degrades to "no overlay" rather than throwing.
-   *
-   * `baseLabel` is the host's name for what the comparison is AGAINST — a git
-   * ref, a saved run, a file it picked. The overlay itself only knows the two
-   * workspace roots, which are the same string when both sides came from one
-   * checkout, so without this the banner would read "base X → head X". Optional
-   * everywhere: absent, the banner falls back to the root's last segment.
-   */
-  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string }
-  /** A new or refreshed authored revision. The host never sends `preserve`. */
+  /** A new or refreshed authored revision. */
   | { v: 1; type: 'workflow'; document: WorkflowDocument }
   /**
-   * The host's status banner. The host bootstrap draws it; the App reads only
-   * `codes`, to clear a refinement refusal about the artifact file once the
-   * file is readable again (LINEAGE2-1). `''` clears the banner.
+   * The host's status banner. Before the mount the host bootstrap draws it; after it the App
+   * draws it as a notice, and reads `codes` to clear a refinement refusal about the artifact
+   * file once the file is readable again (LINEAGE2-1). `''` clears the banner.
    */
   | { v: 1; type: 'workflowError'; message: string; retained?: boolean; codes?: string[] }
   | ActionResult;
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
-  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number }
-  | { v: 1; type: 'selectNode'; nodeId: string | null }
+  /**
+   * `focus: true` (viewer M1) is the explicit open-and-focus gesture (Alt+Enter, Alt+click); every
+   * other open keeps the keyboard on the diagram.
+   */
+  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean }
+  /** Viewer M1: the workspace-root hint's two actions. The host owns the folder. */
+  | { v: 1; type: 'workspaceHint'; action: 'add' | 'open' }
   /**
    * `customText` is sent only, and then required, when `intent` is `custom`.
    * `requestId` matches /^[A-Za-z0-9_-]{1,64}$/ and is answered by one
@@ -715,35 +393,17 @@ export type UiToHost =
       customText?: string;
       selection?: { kind: 'node' | 'edge' | 'issue'; id: string };
     }
-  | { v: 1; type: 'requestRefresh'; scope: 'workspace' | 'file'; path?: string }
-  | { v: 1; type: 'exportHtml' }
   /**
-   * VIEW-07. The viewer rendered the diagram to bytes and asks its host to put
-   * them somewhere. It is a REQUEST, never a write: the VS Code extension owns
-   * the save dialog, and the standalone bridge answers it with a download from
-   * an object URL, falling back to the copy toast when a sandbox forbids one.
+   * VIEW-07. The viewer rendered the diagram to bytes and asks the host to save
+   * them. It is a REQUEST, never a write: the extension owns the save dialog.
+   * `base64` carries the file (UTF-8 SVG markup or PNG bytes) because
+   * `postMessage` is a structured-clone channel that a `Blob` does not reliably
+   * survive. `name` is a suggested filename only.
    *
-   * `base64` carries the file itself — UTF-8 SVG markup or PNG bytes — because
-   * `postMessage` between a webview and its host is a structured-clone channel
-   * that a `Blob` does not reliably survive, and base64 makes the frame one
-   * plain string whichever host reads it. `name` is a suggested filename only;
-   * the host may rename it, and must sanitise it before touching a filesystem.
-   *
-   * A host predating this drops the message, which leaves the viewer exactly as
-   * it was — the menu still copies to the clipboard and still prints.
-   */
-  /**
-   * INTEROP NOTE. Two spellings of the same three facts are written, always
-   * both, because the viewer half of VIEW-07 and the host half were specified
-   * with different field names in the same sprint: this brief said
-   * `{kind, name, base64}` and the host-side amendment (11.33) validates
-   * `{kind, data, suggestedName?, scope?}` and rejects a frame without `data`.
-   * A message carrying both is accepted by either validator and decoded
-   * identically by both, so neither half has to ship broken while the two
-   * amendments are reconciled. `name === suggestedName` and
-   * `base64 === data` ALWAYS; whichever pair survives, no consumer changes.
-   *
-   * `scope` is the region in the HOST's vocabulary (`all`, not `diagram`).
+   * Two spellings of the same facts are always written: `name === suggestedName`
+   * and `base64 === data` (the host validates `{kind, data, suggestedName?,
+   * scope?}`). `scope` is the region in the host's vocabulary (`all`, not
+   * `diagram`).
    */
   | {
       v: 1;
@@ -757,64 +417,12 @@ export type UiToHost =
       requestId?: string;
     }
   | { v: 1; type: 'copy'; text: string; requestId?: string }
-  | { v: 1; type: 'saveState'; state: ViewState }
-  | { v: 1; type: 'action'; id: string }
-  | { v: 1; type: 'askAssistant'; nodeId: string; prompt: string }
-  | { v: 1; type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
-  /**
-   * MLV-P10. "Disable this rule": the viewer asks its host to turn one rule off
-   * for the whole workspace. It is a REQUEST, never an edit — the host decides
-   * (VS Code writes `.mlview.toml` behind an explicit confirm; the standalone
-   * report cannot write anything and answers with a copy-toast carrying the
-   * snippet). A host predating this drops the message silently, which leaves the
-   * viewer exactly as it was.
-   *
-   * Two fields say the same thing to two readers, and both are always sent.
-   * `scope` is what the viewer means: workspace-wide, never one file. `action`
-   * is the discriminator `vscode-extension/src/protocol.ts` validates against —
-   * its `isUiToHost` REJECTS a `suppressRule` without one — and the viewer only
-   * ever sends `disable`: "copy the comment" goes through the generic `copy`
-   * message that already owns the clipboard path, and `insert` belongs to the
-   * editor's own lightbulb, which has a cursor to insert at.
-   */
-  | {
-      v: 1;
-      type: 'suppressRule';
-      code: string;
-      scope: 'workspace';
-      action?: 'copy' | 'insert' | 'disable';
-    }
-  /**
-   * Posted on EVERY scope change including a clear (then `spec: null`,
-   * `label: "Everything"`, `nodes === of`). The field is named `spec`, not
-   * `scope`: `analysisStarted` and `requestRefresh` already carry a field
-   * literally named `scope` with a different meaning (CONTRACTS 11.7).
-   */
-  | { v: 1; type: 'scopeChanged'; spec: string | null; label: string; nodes: number; of: number }
-  /**
-   * H5. "Apply this fix": the viewer asks its host to make the edit `Issue.fix`
-   * describes. It is a REQUEST, never an edit, and never an auto-apply — the
-   * host resolves the issue id against its own copy of the document, applies the
-   * edits behind a PREVIEW the user confirms, and owns every path check on the
-   * way. The viewer sends an id and nothing else on purpose: a webview must not
-   * be able to talk its host into writing bytes it chose.
-   *
-   * The standalone report has no host to ask, so it never sends this — it copies
-   * the snippet through the `copy` message that already owns the clipboard path.
-   * A host predating this drops the frame, which leaves the viewer as it was.
-   */
-  | { v: 1; type: 'applyFix'; issueId: string };
+  /** Posted for a host frame of an unknown type; the host ignores it. */
+  | { v: 1; type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string };
 
 export interface HostBridge {
   host: HostKind;
   theme: ThemeKind;
-  /**
-   * OPTIONAL, viewer-internal. `theme` is always a resolved kind (CONTRACTS
-   * section 8); a bridge that was asked for 'auto' may additionally report that
-   * here so the standalone theme switch can pre-select Auto and keep following
-   * the OS. Hosts may omit it — nothing in the frozen protocol depends on it.
-   */
-  themePreference?: 'auto' | ThemeKind;
   capabilities: Capabilities;
   post(msg: UiToHost): void;
   onMessage(cb: (msg: HostToUi) => void): () => void;
@@ -832,8 +440,8 @@ export interface ScopeSummary {
 
 export interface MLViewApp {
   /**
-   * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never
-   * touches the analyzer. An unresolvable spec is a no-op plus a toast; it
+   * Re-project and relayout LOCALLY; nothing is posted to the host. An
+   * unresolvable spec is a no-op plus a toast; it
    * never throws out of `mount` or `setScope` (CONTRACTS 11.8).
    */
   setScope(spec: string | null, opts?: { depth?: number }): void;

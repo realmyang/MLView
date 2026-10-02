@@ -13,7 +13,7 @@ import {
   weightBadgeText,
   weightBadgeWidth,
   weightStroke,
-} from '../rollup/rolled.js';
+} from './weight.js';
 import { labelTextOf } from '../layout/labels.js';
 import type { LabelPlacement } from '../layout/labels.js';
 import type { Point, RoutedEdge } from '../layout/routing.js';
@@ -150,7 +150,6 @@ export function buildDefs(): SVGElement {
 export interface EdgeVisual {
   route: RoutedEdge;
   severity: Severity | null;
-  suppressed: boolean;
   labelVisible: boolean;
   /**
    * The SOURCE node's stage, stamped on the <g> as `data-stage`. It makes
@@ -177,11 +176,17 @@ export interface EdgeVisual {
    */
   filtered?: boolean;
   /**
-   * PERF-04: how many DOCUMENT edges this cable stands for, summed by
-   * `render/plan.ts` over the route's own merge and the analyzer's rollup
-   * dedupe. Absent or 1 draws exactly what it always drew.
+   * How many connections this cable stands for (`render/plan.ts`, from the route's own merge).
+   * Absent or 1 draws an ordinary connection.
    */
   weight?: number;
+  /**
+   * Viewer M1: a connection this cable stands for cites a file the host reported stale. Drawn
+   * as a small warning mark with a title; the DOM only (the SVG export is a snapshot without it).
+   */
+  stale?: boolean;
+  /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
+  staleElsewhere?: boolean;
 }
 
 /** The glyph size of a cable's severity marker, and the radius of its disc. */
@@ -226,10 +231,15 @@ export function buildEdge(v: EdgeVisual): SVGElement {
     g.setAttribute('data-sev', v.severity);
     g.classList.add('has-issue');
   }
+  if (v.stale) {
+    g.classList.add('is-stale');
+    g.setAttribute('data-stale', '1');
+  }
   const hit = svg('path', { class: 'mlv-edge__hit', d: r.d });
   hit.setAttribute('tabindex', '-1');
   hit.setAttribute('role', 'button');
-  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, weight));
+  const staleText = v.staleElsewhere ? ' Its evidence cites a file in another folder.' : ' Its evidence cites a changed or missing file.';
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel) + (v.stale ? staleText : ''));
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });
@@ -288,6 +298,23 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   // occupied by a severity glyph or a loop chevron — a number drawn on top of a
   // severity marker is two facts and one readable glyph.
   if (weighted) g.appendChild(weightBadge(weight, mark, r.midAngle, !!v.severity || r.back));
+  if (v.stale) g.appendChild(staleEdgeMark(mark, !!v.severity || r.back || weighted));
+  return g;
+}
+
+/**
+ * Viewer M1: the stale mark on a cable, beside the severity marker when there is one. A warning
+ * shape on a disc, with a title that says what it means.
+ */
+function staleEdgeMark(at: Point, occupied: boolean): SVGElement {
+  const x = at.x + (occupied ? EDGE_MARKER_R + 10 : 0);
+  const g = svg('g', { class: 'mlv-edge__stale', transform: 'translate(' + round(x) + ',' + round(at.y) + ')' });
+  g.setAttribute('data-stale', '1');
+  g.appendChild(svg('circle', { class: 'mlv-edge__stalebg', r: 7.5 }));
+  g.appendChild(svg('path', { class: 'mlv-edge__staleicon', d: 'M0 -4.6 4.9 3.9H-4.9ZM0 -1.5v2.6M0 2.7v.1', fill: 'none' }));
+  const title = svg('title');
+  title.textContent = 'This connection cites a file that changed or is missing since publishing. Its jumps are blocked.';
+  g.appendChild(title);
   return g;
 }
 
@@ -297,7 +324,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
  * it collides (VIEW-03) and the number of connections a merged cable stands for
  * is not something the picture may quietly drop.
  *
- * Its geometry comes from `rollup/rolled.ts`, so the SVG export puts the same
+ * Its geometry comes from `render/weight.ts`, so the SVG export puts the same
  * pill in the same place (VIEW-07: the two renderers must not be able to
  * disagree about the picture).
  */
@@ -324,9 +351,7 @@ function weightBadge(weight: number, at: { x: number; y: number }, angle: number
   label.textContent = text;
   g.appendChild(label);
   const title = svg('title');
-  title.textContent =
-    weight + ' connections merged into this edge. It counts connections, not call sites: the rollup ' +
-    're-pointed edges from folded children at the card that swallowed them.';
+  title.textContent = weight + ' connections merged into this edge.';
   g.appendChild(title);
   return g;
 }
@@ -339,17 +364,13 @@ function round(value: number): number {
  * The accessible name carries the DIRECTION in words — a connection was
  * unreachable and undescribed from the keyboard before this (FEATURES 2.2, 2.10).
  */
-export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, weight = 1): string {
+export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string): string {
   const kind = r.back ? 'loop back edge' : r.kind && r.kind !== 'unknown' ? r.kind + ' edge' : 'edge';
   const label = r.label ? ' labelled ' + r.label : '';
   const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
+  // The merged count is also the cable's drawn weight (`render/weight.ts`).
   const merged = r.count > 1 ? ', ' + r.count + ' merged connections' : '';
-  // PERF-04. `count` is what THIS renderer merged; `weight` is what the rollup
-  // merged before the document was written, and it is the larger number. Saying
-  // only the first would understate the cable to the one reader who cannot see
-  // how thick it is.
-  const weighted = weight > 1 ? ', weight ' + weight + ' — ' + weight + ' connections in one cable' : '';
-  return kind + label + flows + merged + weighted + '. Activate to open the call site.';
+  return kind + label + flows + merged + '. Press Enter to open the cited source.';
 }
 
 /** The dotted numbered connectors drawn for a selected issue's relatedLocs. */

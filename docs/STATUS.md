@@ -62,6 +62,86 @@ clickable; focus mode (select, then F) keeps the full upstream and downstream
 lineage. These are checked by local jsdom tests only, not in live VS Code
 ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M1, step 1 (the verification loop): a click on a step,
+connection, finding or Outline row only selects it. Enter, a double-click or
+an Inspector Open link opens the cited range beside the diagram, selected and
+highlighted, with focus kept in the diagram; Alt+Enter moves focus to the
+editor. A notebook citation selects its cell, and highlights the cell's lines
+when VS Code has its editor ready. Steps, connections, findings and quotes
+that cite a changed or missing file are marked where they are drawn, their
+jumps are blocked, and the status bar counts the files. When the workspace
+root is a parent of the folder the diagram cites from, and the files there
+match the published hashes, the banner says so and offers to add or open that
+folder instead of calling the files changed. No contract change and no new
+setting. Checked by local tests only (jsdom and the mock `vscode` module), not
+in live VS Code ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M1, step 2 (the Inspector shows the claim): the Inspector
+shows a step's full authored detail under its title, phase label and kind; the
+basis once, with a one-line note for inferred and unresolved claims; the
+findings on the item with their suggestion, labelled "What to change" (an old
+analyzer rule had hidden every suggestion); a caption over the quotes saying
+a matching quote does not show that the lines support the claim; and one line
+linking to the document-wide limitations, now listed only in the header
+Details. A card's accessible name carries the first sentence of its claim.
+Notebook cells print as the artifact records them, counted from 0, so they
+match the model's own labels. Layout and geometry golden unchanged. Checked by
+local jsdom tests only, not in live VS Code ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M1, steps 3 and 4 (cleanup): the code and styles left from
+the static analyzer's viewer are removed, since the viewer only shows authored
+documents. Nothing you can use changes, apart from a merged connection's
+tooltip and screen-reader name, which no longer describe the retired rollup
+weight. The webview's TypeScript went from 26,061 to 18,499 lines and its
+bundle from 365 KB to 286 KB (stylesheet 82 KB to 62 KB). Layout and geometry
+golden unchanged. Checked by local tests only, not in live VS Code
+([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M1, screenshot harness: `webview/tools/screenshots/capture.mjs`
+saves headless-Chrome screenshots of the viewer with a simulated host (VS Code
+theme colours, the panel's own bootstrap, the extension's `init`, `workflow`
+and `stale` frames), with `--viewer` for before/after pictures of another
+checkout. The capture is opt-in, outside CI and the e2e gates, and needs a
+local Chrome; its pipe and Chrome-lookup test (`webview/test/screenshot-pipe.test.mjs`)
+does run in `npm test`, CI and both e2e drivers. Its pictures are a rendering
+check, not live VS Code validation or usability evidence
+([details](../webview/README.md#screenshots-opt-in)).
+
+Unreleased viewer M1, review fixes: a real double-click on a finding or an
+Outline step now opens it (the first click rebuilt the rows, so the second
+never arrived), and a double-click opens what its first click selected even
+when that click opened the rail over the canvas or shifted the rows; the
+second click no longer presses whatever lands under it. A notebook jump that
+a later jump overtakes no longer clears the later highlight. The cited-range
+highlight has a border in High Contrast themes. In the wrong-workspace-root
+case every surface says the file is in another folder, matching the notice,
+and the notice leads with the files. The stale marks are darker in light
+themes (at least 4.2:1). A card's spoken claim no longer stops at "i.e.".
+The Inspector's stale note no longer says "the claim was not re-checked".
+Checked by local tests only (jsdom and the mock `vscode` module), not in live
+VS Code ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M1, live check fixes: an extension restart inside a window
+no longer leaves a dead diagram tab. VS Code restarts its extensions for
+**Developer: Restart Extension Host**, an extension install or update that
+restarts extensions, **Save Workspace As...** and adding a folder to a
+single-folder window (the root hint's **Add folder to workspace** or VS Code's
+**Add Folder to Workspace...**), and it never revives a live panel afterwards.
+Each window's open diagrams are kept in the extension's global state under the
+window's session, and the next extension host puts each one back in its tab's
+place, checked against the workspace as it is then. A tab in front of its
+group comes back at once; a tab behind others comes back when it is brought to
+the front (blank for about half a second), since until then it cannot be told
+from a restored tab not yet shown. A diagram put back this way starts with a
+fresh view (selection and zoom reset); Reload Window keeps them. The root hint no longer also shows a VS Code
+notification, which outlived a restart with dead buttons; the panel's notice
+carries both actions. Multi-root windows recheck in place; Reload Window
+revives panels through the serializer. Checked by mock `vscode` tests (with a
+mutation check) and in an isolated VS Code 1.139 Extension Development Host for
+the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
+Reload Window and the multi-root case; an extension install or update was not
+tried ([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

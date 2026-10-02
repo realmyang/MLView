@@ -42,17 +42,18 @@ test('normalizes authored phases, hierarchy, cycles, evidence, and findings with
   assert.equal(graph.schemaVersion, 'workflow-view/1');
   assert.deepEqual(Array.from(graph.stages, (s) => s.id), ['load', 'loop', 'review']);
   assert.equal(graph.nodes.find((n) => n.id === 'step').parent, 'epoch');
-  assert.equal(graph.nodes.find((n) => n.id === 'gate').ghost, false,
-    'unresolved is uncertainty, never a claim that the step is missing');
+  const gate = graph.nodes.find((n) => n.id === 'gate');
+  assert.equal(gate.basis, 'unresolved');
+  assert.equal('ghost' in gate, false, 'unresolved is uncertainty, never a claim that the step is missing');
   assert.equal(graph.edges.find((e) => e.id === 'cycle').target, 'epoch');
   assert.match(graph.edges.find((e) => e.id === 'cycle').label, /inferred/);
   assert.equal(graph.issues[0].code, 'loss-risk');
   assert.equal(graph.issues[0].relatedLocs.length, 3);
   assert.deepEqual(Array.from(graph.issues[0].relatedLocs, (loc) => loc.role), ['Supporting evidence', 'Supporting evidence', 'Counter-evidence']);
   assert.equal(graph.issues[0].loc.evidenceId, 'ev-step');
-  assert.equal(graph.issues[0].confidenceBucket, 'inferred');
-  assert.equal(Number.isNaN(graph.issues[0].confidence), true, 'authored basis must not invent a numeric confidence');
-  assert.equal(graph.stats.truncated, false, 'authored partial coverage is not legacy node-cap truncation');
+  assert.equal(graph.issues[0].basis, 'inferred');
+  assert.equal('confidence' in graph.issues[0], false, 'authored basis must not invent a numeric confidence');
+  assert.equal('truncated' in graph.stats, false, 'authored partial coverage is not a node-cap truncation');
   assert.equal(graph.nodes.find((n) => n.id === 'epoch').loc.absFile, '');
   assert.deepEqual(Array.from(graph.nodes.find((n) => n.id === 'step').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-loss']);
   assert.deepEqual(Array.from(graph.edges.find((e) => e.id === 'cycle').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-load']);
@@ -67,7 +68,7 @@ test('mountWorkflow identifies authored provenance and accepts revision updates 
   assert.match(root.querySelector('.mlv-workflow').textContent, /Training and review/);
   assert.match(root.querySelector('.mlv-workflow').textContent, /codex · gpt-test/);
   assert.match(root.querySelector('.mlv-workflow').textContent, /partial · Core training path inspected/);
-  assert.doesNotMatch(root.querySelector('.mlv-banners').textContent, /Graph truncated|graph was truncated/i);
+  assert.doesNotMatch(root.textContent, /Graph truncated|graph was truncated/i);
   assert.match(root.querySelector('.mlv-workflow__verification').textContent, /Draft · source freshness not verified/);
   assert.equal(root.querySelector('[role="tab"][aria-controls$="-panel-issues"]').textContent, 'Findings');
   const search = root.querySelector('.mlv-search input[type="search"]');
@@ -272,18 +273,23 @@ test('outline enumerates textual relationships by direction and preserves basis'
   app.destroy();
 });
 
-test('finding inspector keeps claim, supporting evidence, counter-evidence, and suggested check together', async () => {
+test('finding inspector keeps claim, supporting evidence, counter-evidence, and what to change together', async () => {
   const ctx = await loadBundle();
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
   app.focusNode('step');
   const issue = root.querySelector('.mlv-insp__issue[data-issue-id="loss-risk"]');
   assert.match(issue.textContent, /The update uses a delayed aggregate/);
-  assert.match(issue.textContent, /Suggested check.*Verify the intended reduction/);
+  // Viewer M1: the suggestion is labelled as the skill words it (visibility is checked in
+  // inspector-content.test.mjs; textContent alone cannot see a display:none rule).
+  assert.match(issue.textContent, /What to change.*Verify the intended reduction/);
   assert.match(issue.textContent, /Evidence review.*Supporting evidence.*Counter-evidence/);
   assert.deepEqual(Array.from(issue.querySelectorAll('[data-evidence-id]'), (row) => row.getAttribute('data-evidence-id')), ['ev-step', 'ev-loss', 'ev-load']);
   assert.match(issue.textContent, /optimizer\.step\(\).*loss\.mean\(\).*load\(\)/s);
-  assert.match(root.querySelector('.mlv-rail__panel:not([hidden])').textContent, /Coverage limitations.*Approval implementation was not found/s);
+  // Viewer M1: the limitations are listed once, in the header Details; the Inspector links to them.
+  const inspector = root.querySelector('.mlv-rail__panel:not([hidden])');
+  assert.match(inspector.textContent, /1 document-wide limitation applies\. Show/);
+  assert.doesNotMatch(inspector.textContent, /Approval implementation was not found/);
   app.destroy();
 });
 
@@ -354,7 +360,7 @@ test('challenge replaces an older composer selection with the current claim', as
   app.destroy();
 });
 
-test('authored help and grouping avoid retired rule terminology', async () => {
+test('authored help avoids retired rule terminology and offers no finding grouping', async () => {
   const ctx = await loadBundle();
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
@@ -364,11 +370,10 @@ test('authored help and grouping avoid retired rule terminology', async () => {
   assert.match(sheet, /Next \/ previous finding \(document order\)/);
   assert.match(sheet, /Findings \/ Inspector \/ Outline/);
   assert.doesNotMatch(sheet, /rule codes|issue by severity/i);
-  // VIEWUI-12: finding IDs are unique, so grouping by them is not offered and
-  // a requested or restored `rule` grouping falls back to none.
-  app.setRailGroupBy('rule');
-  assert.equal(root.querySelector('[data-group-mode="rule"]'), null);
-  assert.ok(root.querySelector('[data-group-mode="file"]'));
+  // Viewer M1: the analyzer-era "Group by" control (rule / file) is gone, and a restored
+  // grouping is ignored rather than written back.
+  assert.equal(root.querySelector('[data-group-mode]'), null);
+  assert.equal(typeof app.setRailGroupBy, 'undefined');
   assert.equal(app.getState().railGroupBy, undefined);
   assert.equal(root.querySelector('[data-disable-rule]'), null);
   app.destroy();
@@ -414,5 +419,10 @@ test('authored scope and selection survive a revision update', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(app.getState().selection)), { kind: 'node', id: 'step' });
   assert.ok(ctx.document.querySelector('[data-node-id="step"]'));
   assert.equal(ctx.document.querySelector('[data-node-id="dataset"]'), null);
+  // Selecting and scoping are local: the host has no handler for the retired
+  // `selectNode` and `scopeChanged` frames, so the viewer no longer posts them.
+  app.setScope(null);
+  app.focusNode('dataset');
+  assert.deepEqual(bridge.posted.filter((m) => m.type === 'selectNode' || m.type === 'scopeChanged'), []);
   app.destroy();
 });

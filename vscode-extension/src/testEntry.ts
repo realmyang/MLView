@@ -1,4 +1,4 @@
-export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText } from './authoredSupport';
+export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText, rootHintCandidates, mostlyMissing, findRootHint, rootHintText, rootHintJumpText, hintFolderName } from './authoredSupport';
 export {
   decodeExportPayload,
   defaultExportName,
@@ -29,5 +29,9 @@ export {
   readArtifactFile,
   folderSpelling,
   AUTHORED_VIEW_TYPE,
+  OPEN_PANELS_KEY,
+  OPEN_PANELS_TTL_MS,
+  MAX_OTHER_SESSIONS,
+  RECOVERY_SETTLE_MS,
   OPEN_AUTHORED_COMMAND
 } from './authoredPanel';

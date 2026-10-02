@@ -38,7 +38,7 @@ import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
 import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES } from './canvas/host.js';
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
-import type { Sel } from './types.js';
+import type { Sel, StaleFile, StaleReason } from './types.js';
 
 export type { CanvasHost, NextSelection };
 export { HOVER_CLOSE_MS, HOVER_OPEN_MS };
@@ -67,7 +67,7 @@ export class CanvasView {
   /** VIEW-03: where every edge label and severity marker goes. */
   private labelPlan: LabelPlan | null = null;
   private collapsedSet = new Set<string>();
-  private staleFiles: string[] = [];
+  private staleFiles = new Map<string, StaleReason>();
   private nodeEls = new Map<string, HTMLElement>();
   private edgeEls = new Map<string, SVGElement>();
   /** Route id -> where its severity marker is drawn, for the edge hover resolver. */
@@ -235,8 +235,8 @@ export class CanvasView {
     this.minimap.setCollapsed(collapsed);
   }
 
-  setStale(files: string[]): void {
-    this.staleFiles = files;
+  setStale(files: StaleFile[]): void {
+    this.staleFiles = new Map(files.map((file) => [file.path, file.reason] as [string, StaleReason]));
   }
 
   nodeElement(id: string): HTMLElement | undefined {
@@ -391,9 +391,7 @@ export class CanvasView {
     if (graph.nodes.length === 0) {
       // "Nothing analyzed" and "nothing in this scope" are different findings.
       const scoped = this.scopeEmptyState();
-      this.stateHost.appendChild(
-        scoped || buildEmptyState(graph, this.host.canReanalyze() ? () => this.host.requestRefresh() : null),
-      );
+      this.stateHost.appendChild(scoped || buildEmptyState(graph));
     } else if (this.frameData && this.frameData.boxes.size === 0) {
       this.stateHost.appendChild(buildFilterEmptyState(() => this.host.clearFilters()));
     }
@@ -414,14 +412,16 @@ export class CanvasView {
       isGroup: (id: string) => !!this.index && this.index.isGroup(id),
       toggleCollapse: (id: string) => this.toggleCollapse(id),
       hoverIntent: (id: string | null) => this.emphasis.hoverIntent(id),
-      activateNode: (id: string) => this.host.activateNode(id),
+      activateNode: (id: string, ev?: MouseEvent) => this.host.activateNode(id, ev),
+      openNode: (id: string, focusEditor: boolean) => this.host.openNode(id, focusEditor),
       addDisposer: (dispose: () => void) => this.disposers.push(dispose),
     };
   }
 
   private edgeWiring() {
     return {
-      activateEdge: (id: string) => this.host.activateEdge(id),
+      activateEdge: (id: string, ev?: MouseEvent) => this.host.activateEdge(id, ev),
+      openEdge: (id: string, focusEditor: boolean) => this.host.openEdge(id, focusEditor),
       enterEdge: (route: RoutedEdge) => this.edgeHover.enter(route),
       leaveEdge: (route: RoutedEdge) => this.edgeHover.leave(route),
       syncBundles: () => this.syncBundles(),
@@ -578,6 +578,43 @@ export class CanvasView {
     }
     this.viewport.centerOn(box, Math.max(this.viewport.vp.zoom, this.readableZoomFor(box)));
     if (pulse) this.pulseNode(this.index.visibleRepresentative(id, this.collapsedSet));
+  }
+
+  /**
+   * Pan, never zoom, so the target lies in the visible area (viewer M1): a click that opens the
+   * rail drawer over the card it selected keeps that card in the strip the drawer leaves.
+   */
+  keepInView(target: { kind: 'node' | 'edge'; id: string }): void {
+    const rect = this.targetRect(target);
+    if (rect && !this.viewport.isVisible(rect)) this.viewport.centerOn(rect);
+  }
+
+  /**
+   * Rebuild the scene for new marks (viewer M1: stale files) and give the keyboard back: a card,
+   * group header or connection that had focus is focused again in the new DOM, so the diagram's
+   * keys keep working.
+   */
+  refresh(sel: Sel | null): void {
+    const doc = this.canvasEl.ownerDocument;
+    const active = doc ? (doc.activeElement as HTMLElement | null) : null;
+    const inside = !!active && active !== this.canvasEl && this.canvasEl.contains(active) && typeof active.closest === 'function';
+    const nodeId = inside ? active!.closest('[data-node-id]')?.getAttribute('data-node-id') || null : null;
+    const edgeId = inside && !nodeId && active!.classList.contains('mlv-edge__hit') ? active!.closest('[data-edge-id]')?.getAttribute('data-edge-id') || null : null;
+    this.render();
+    this.applySelection(sel);
+    let next: Element | null | undefined = null;
+    if (nodeId) {
+      const element = this.nodeEls.get(nodeId);
+      next = element && element.classList.contains('mlv-group') ? element.querySelector('.mlv-group__header') : element;
+    } else if (edgeId) {
+      next = this.edgeEls.get(edgeId)?.querySelector('.mlv-edge__hit');
+    }
+    if (!next) return;
+    try {
+      (next as HTMLElement).focus();
+    } catch (_e) {
+      /* a detached scene cannot take focus */
+    }
   }
 
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */

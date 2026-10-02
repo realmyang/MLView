@@ -32,20 +32,20 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   for (const finding of document.findings || []) for (const id of finding.edgeIds || []) {
     const list = edgeIssueIds.get(id) || []; list.push(finding.id); edgeIssueIds.set(id, list);
   }
+  const phaseLabels = new Map((document.phases || []).map((phase) => [phase.id, phase.label]));
   const nodes = (document.nodes || []).map((node) => {
     return {
+      // Viewer M1: what the Inspector and the accessible name read. The card's own inputs
+      // below (sublabel, attrs) are unchanged, so the layout is too.
+      ...(typeof node.detail === 'string' && node.detail.trim() ? { detail: node.detail } : {}),
+      ...(phaseLabels.has(node.phase) ? { phaseLabel: phaseLabels.get(node.phase) } : {}),
       id: node.id, kind: node.kind || 'unknown', level: node.parent ? 'op' : 'unit', stage: node.phase,
       label: node.label, sublabel: node.detail || node.basis, qualname: node.label, loc: evidenceLoc(evidence, node.evidence),
       // `unresolved` is an authored epistemic basis: the step may exist while
-      // its behavior or connection remains uncertain. Ghost cards belong to a
-      // legacy absence/diff treatment and would falsely imply a missing step.
-      parent: node.parent || null, attrs: { basis: node.basis }, produces: [], consumes: [], ghost: false,
-      // WorkflowDocument records an evidence basis, not a calibrated numeric
-      // probability. NaN keeps shared renderer math type-safe without inventing
-      // a percentage that the authored contract cannot support.
-      dynamic: false, confidence: Number.NaN, confidenceBucket: node.basis, basis: node.basis, authored: true,
+      // its behavior or connection remains uncertain, so it never reads as missing.
+      parent: node.parent || null, attrs: { basis: node.basis }, basis: node.basis,
       evidenceLocs: node.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
-      issueIds: issueIds.get(node.id) || [], collapsedByDefault: false, stageEvidence: [],
+      issueIds: issueIds.get(node.id) || [],
     };
   });
   const edges = (document.edges || []).map((edge) => ({
@@ -53,8 +53,8 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     // other authored word is kept as written and shown as written.
     id: edge.id, kind: normalizeEdgeKind(edge.kind), source: edge.source, target: edge.target,
     ...(edge.kind && normalizeEdgeKind(edge.kind) !== edge.kind.trim() ? { authoredKind: edge.kind } : {}),
-    label: edge.label + ' · ' + edge.basis,
-    loc: evidenceLoc(evidence, edge.evidence), tags: [edge.basis], confidence: Number.NaN, basis: edge.basis,
+    label: edge.label + ' · ' + edge.basis, authoredLabel: edge.label,
+    loc: evidenceLoc(evidence, edge.evidence), basis: edge.basis,
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
     issueIds: edgeIssueIds.get(edge.id) || [],
   }));
@@ -65,13 +65,9 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
       .filter((x): x is { item: WorkflowEvidence; role: string } => !!x.item)
       .map(({ item, role }) => ({ ...evidenceLoc(evidence, [item.id]), role }));
     return {
-      id: finding.id, code: finding.id, ruleVersion: 0, severity: finding.severity,
-      confidence: Number.NaN, confidenceBucket: finding.basis, basis: finding.basis, title: finding.title,
-      // `why` stays empty: the expanded row already prints `message`, and a
-      // second copy of the same sentence is noise (VIEWUI-14).
-      message: finding.message, why: '', fixHint: finding.suggestion || '', loc, relatedLocs: related,
+      id: finding.id, code: finding.id, severity: finding.severity, basis: finding.basis, title: finding.title,
+      message: finding.message, fixHint: finding.suggestion || '', loc, relatedLocs: related,
       nodeIds: finding.nodeIds || [], edgeIds: finding.edgeIds || [], stage: nodes.find((n) => finding.nodeIds.includes(n.id))?.stage || '',
-      frameworks: [], tags: [finding.basis], evidence: [], suppressed: false, docs: '',
     };
   });
   const nodesByStage = new Map<string, number>();
@@ -90,14 +86,12 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   return {
     schemaVersion: 'workflow-view/1',
     generator: { name: document.producer.host, version: document.producer.model || UNSPECIFIED_MODEL, rendererSha: document.revision.id, generatedAt: document.verification?.publishedAt || '' },
-    workspace: { root: document.title, entrypoints: document.request.entrypoints || [], filesAnalyzed: document.coverage.inspectedFiles.length, filesFailed: 0, notebooksSkipped: 0, frameworks: [] },
+    workspace: { root: document.title, entrypoints: document.request.entrypoints || [], filesAnalyzed: document.coverage.inspectedFiles.length },
     stages, nodes, edges, issues,
     diagnostics: document.coverage.limitations.map((message) => ({ kind: 'workflow_limitation', message })),
     // Authored partial coverage means the model intentionally inspected a
-    // bounded portion of the workflow. It is surfaced by the authored
-    // coverage panel above, and is distinct from the legacy analyzer's node
-    // cap, which alone owns stats.truncated and its truncation banner.
-    stats: { nodes: nodes.length, edges: edges.length, issues: issues.reduce((c, i) => { c[i.severity as 'low'|'medium'|'high']++; return c; }, emptyCounts()), durationMs: 0, truncated: false },
+    // bounded portion of the workflow; the header says so.
+    stats: { nodes: nodes.length, edges: edges.length, issues: issues.reduce((c, i) => { c[i.severity as 'low'|'medium'|'high']++; return c; }, emptyCounts()), durationMs: 0 },
     authoredCoverage: { status: document.coverage.status, limitations: document.coverage.limitations.length },
   };
 }
@@ -287,6 +281,29 @@ function buildRequestSummary(app: App, panel: HTMLElement, document: WorkflowDoc
     if (!open) panel.scrollTop = 0;
     app.announce(open ? 'Request and coverage details shown.' : 'Request and coverage details hidden.');
   });
+}
+
+/**
+ * Viewer M1: the Inspector's "N document-wide limitations apply. Show" link. The limitations
+ * are listed once, in the header's Details; this opens Details and the list, and moves the focus
+ * to the list's summary so the reader lands on them. False when there is no list to show.
+ */
+export function revealWorkflowLimitations(app: App): boolean {
+  const panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
+  const toggle = panel ? panel.querySelector<HTMLButtonElement>('.mlv-workflow__toggle') : null;
+  const limits = panel ? panel.querySelector<HTMLDetailsElement>('.mlv-workflow__limitations') : null;
+  if (!panel || !toggle || !limits) return false;
+  if (panel.getAttribute('data-expanded') !== 'true') toggle.click();
+  limits.open = true;
+  const summary = limits.querySelector<HTMLElement>('summary');
+  const target = summary || limits;
+  if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest' });
+  try {
+    target.focus();
+  } catch (_e) {
+    /* a host may have detached the header already */
+  }
+  return true;
 }
 
 /**

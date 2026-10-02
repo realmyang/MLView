@@ -35,6 +35,13 @@
  * @contrast: --mlv-sev-low-ink on --mlv-sev-low
  * @contrast: --mlv-fg-boundary on --mlv-surface
  * @contrast: --mlv-fg-boundary on --mlv-bg
+ *
+ * Graphics (WCAG 1.4.11, 3:1), checked by test/stale-contrast.test.mjs against
+ * VS Code 1.139's Light Modern, 2026 Light, Dark Modern, 2026 Dark and both
+ * High Contrast themes:
+ *
+ * @contrast (3:1): --mlv-stale-ink on --mlv-surface
+ * @contrast (3:1): --mlv-stale-ink on --mlv-bg
  */
 
 :root,
@@ -292,4 +299,15 @@ body.vscode-high-contrast-light,
   --mlv-flow-core-width: 2.2;
   --mlv-flow-underlay-opacity: 0.45;
   --mlv-fg-boundary: var(--mlv-text);
+}
+
+/*
+ * The stale mark's colour (viewer M1 review, A11Y-2). editorWarning.foreground alone is 2.93:1 on
+ * the Light Modern widget background (#BF8803 on #F8F8F8), under the 3:1 a graphic needs; mixed
+ * 30 % toward the text colour it is darker in light themes and lighter in dark ones. Declared on
+ * `.mlv-root`, where `data-theme` is stamped, so the theme's own values resolve here (a custom
+ * property declared on :root alone would keep the light values under a dark theme).
+ */
+.mlv-root {
+  --mlv-stale-ink: color-mix(in srgb, var(--mlv-sev-medium) 70%, var(--mlv-text));
 }

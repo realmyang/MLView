@@ -30,7 +30,7 @@
  * VS Code webview, the standalone report and a headless gate.
  */
 
-import { SVG_NS, middleTruncate } from '../dom.js';
+import { SVG_NS } from '../dom.js';
 import { locParts } from '../notebook.js';
 import { kindPath, nodeGlyphKind } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
@@ -39,13 +39,11 @@ import { ariaLabelFor, chipsFor } from '../render/nodes.js';
 import {
   WEIGHT_BADGE_H,
   WEIGHT_MIN,
-  rollupChipText,
-  rollupCount,
   weightBadgeAt,
   weightBadgeText,
   weightBadgeWidth,
   weightStroke,
-} from '../rollup/rolled.js';
+} from '../render/weight.js';
 import { stageColor, severityColor, Palette } from './palette.js';
 import {
   ADVANCE_CAPS,
@@ -75,7 +73,7 @@ import { NODE_H, NODE_CHIP_ROW_H, NODE_TITLE_LINE_H } from '../layout/constants.
 import { wrapTitle } from '../layout/cardmetrics.js';
 import type { Point } from '../layout/routing.js';
 import type { Rect } from '../render/canvas.js';
-import type { IssueCounts, ThemeKind } from '../types.js';
+import type { IssueCounts, MLNode, ThemeKind } from '../types.js';
 
 /* ── the three offers (VIEW-07) ─────────────────────────────────────────── */
 
@@ -306,51 +304,37 @@ function laneBand(
 /* ── nodes ──────────────────────────────────────────────────────────────── */
 
 function nodeCard(
-  visual: { node: any; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean },
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean },
   colour: string,
   palette: Palette,
   hc: boolean,
 ): string {
   const n = visual.node;
   const box = visual.box;
-  const collapsedGroup = box.collapsed;
-  // PERF-04. The picture has to agree with the diagram about which cards stand
-  // for more than themselves, so the same `groupLike` test runs in both.
-  const rolled = rollupCount(n);
-  const groupLike = collapsedGroup || rolled > 0;
+  const groupLike = box.collapsed;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
-  // VIEW-08: a node the diff says was REMOVED is drawn with the same outline as
-  // a missing step. The exported picture cannot carry the ledge or the chip —
-  // that gap is stated in the amendment — but it must not draw a deleted node as
-  // an ordinary solid card, which would be the picture asserting something false.
-  const ghost = !!n.ghost || n.diffStatus === 'removed';
-  const lowConf = typeof n.confidence === 'number' && n.confidence < 0.6;
-  const dashed = ghost || lowConf || visual.stale;
+  const dashed = visual.stale;
 
   const attrs =
     ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
-    (n.diffStatus ? ' data-diff="' + esc(n.diffStatus) + '"' : '') +
-    (rolled ? ' data-rolled-up="' + rolled + '"' : '') +
     (n.viewRole ? ' data-view-role="' + esc(n.viewRole) + '"' : '') +
-    (visual.filteredOut ? ' opacity="0.18"' : ghost ? ' opacity="0.92"' : '');
+    (visual.filteredOut ? ' opacity="0.18"' : '');
   const out: string[] = ['<g' + attrs + '>'];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
 
-  const stroke = top ? severityColor(palette, top) : ghost ? severityColor(palette, top) : palette.border;
+  const stroke = top ? severityColor(palette, top) : palette.border;
   out.push(
     '<rect x="' + num(box.x) + '" y="' + num(box.y) + '" width="' + num(box.w) + '" height="' + num(box.h) +
-      '" rx="' + CARD_R + '" fill="' + (ghost ? 'none' : esc(palette.surface)) + '" stroke="' + esc(stroke) +
-      '" stroke-width="' + (ghost ? 1.5 : 1) + '"' + (top ? ' stroke-opacity="0.75"' : '') +
+      '" rx="' + CARD_R + '" fill="' + esc(palette.surface) + '" stroke="' + esc(stroke) +
+      '" stroke-width="1"' + (top ? ' stroke-opacity="0.75"' : '') +
       (dashed ? ' stroke-dasharray="5 4"' : '') + '/>',
   );
-  if (!ghost) {
-    out.push(
-      '<rect x="' + num(box.x + 0.5) + '" y="' + num(box.y + 1) + '" width="' + RAIL_W +
-        '" height="' + num(box.h - 2) + '" rx="2" fill="' + esc(colour) + '"/>',
-    );
-  }
+  out.push(
+    '<rect x="' + num(box.x + 0.5) + '" y="' + num(box.y + 1) + '" width="' + RAIL_W +
+      '" height="' + num(box.h - 2) + '" rx="2" fill="' + esc(colour) + '"/>',
+  );
 
   /* icon tile + kind glyph */
   const iconX = box.x + RAIL_W + PAD_L;
@@ -365,20 +349,17 @@ function nodeCard(
   const tx = box.x + TEXT_X;
   const tw = Math.max(24, box.w - TEXT_X - PAD_R);
   const label = n.label || n.qualname || n.id;
-  // Campaign 3, issue 14: an authored title is the same wrapped lines the
-  // layout reserved (`cardmetrics.wrapTitle`), and the rows below move down
-  // by the extra lines, as the DOM card's flex column does.
-  const titleRows = n.authored ? wrapTitle(label, box.w) : [ellipsise(middleTruncate(label, 34), tw, FS_TITLE, false, true)];
+  // Campaign 3, issue 14: the title is the same wrapped lines the layout
+  // reserved (`cardmetrics.wrapTitle`), and the rows below move down by the
+  // extra lines, as the DOM card's flex column does.
+  const titleRows = wrapTitle(label, box.w);
   titleRows.forEach((row, i) => {
-    out.push(text(n.authored ? ellipsise(row, tw, FS_TITLE, false, true) : row, tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: ghost ? palette.text2 : palette.text, weight: 650 }));
+    out.push(text(ellipsise(row, tw, FS_TITLE, false, true), tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: palette.text, weight: 650 }));
   });
   const shift = (titleRows.length - 1) * NODE_TITLE_LINE_H;
-  const subRaw = n.sublabel || (n.fqn ? n.fqn : n.kind);
-  const sub = ellipsise(n.authored ? subRaw : middleTruncate(subRaw, 40), tw, FS_SUB, false, false);
-  out.push(
-    text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2, italic: ghost }),
-  );
-  // NB. The cell reference (or, on a `.py` path, the line number) is reserved
+  const sub = ellipsise(n.sublabel || n.kind, tw, FS_SUB, false, false);
+  out.push(text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2 }));
+  // The cell reference (or, on a `.py` path, the line number) is reserved
   // out of the budget first, so a path too long for the card loses the
   // directory rather than the answer — the DOM card does the same in CSS.
   const locBits = locParts(n.loc);
@@ -386,11 +367,8 @@ function nodeCard(
   const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
   out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
 
-  // PERF-04: `7 rolled up` on the picture too, and for the same reason as on
-  // the card — the two counts mean different things and one wording for both
-  // would erase the difference in the artifact you hand a colleague.
   const chips = groupLike
-    ? [rolled ? rollupChipText(rolled) : visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
+    ? [visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(tw), 26, 3);
   if (chips.length && box.h - shift >= CHIP_MIN_H) {
     const chipTop = box.y + box.h - CHIP_BOTTOM;
@@ -416,7 +394,7 @@ function nodeCard(
 }
 
 function groupFrame(
-  visual: { node: any; box: LayoutBox; counts: IssueCounts; descendants: number },
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number },
   colour: string,
   palette: Palette,
   hc: boolean,
@@ -425,12 +403,8 @@ function groupFrame(
   const box = visual.box;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
-  // PERF-04: a folded unit keeps its ghosts (11.46 A5), so a rolled-up node can
-  // still be an expanded frame — and the picture has to say so as the DOM does.
-  const rolled = rollupCount(n);
   const out: string[] = [
     '<g data-node-id="' + esc(n.id) + '" data-group="1" data-stage="' + esc(n.stage || 'unknown') + '"' +
-      (rolled ? ' data-rolled-up="' + rolled + '"' : '') +
       (top ? ' data-sev="' + esc(top) + '"' : '') + '>',
   ];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
@@ -448,7 +422,7 @@ function groupFrame(
   // name's budget shrinks when there is one — measured against the flagship,
   // where `for images, labels in …` sat under its own "❗2 ⚠2".
   const nameBudget = Math.max(40, box.w - (top ? 170 : 96));
-  const name = ellipsise(n.authored ? n.label || n.qualname : middleTruncate(n.label || n.qualname, 42), nameBudget, FS_GROUP, false, true);
+  const name = ellipsise(n.label || n.qualname, nameBudget, FS_GROUP, false, true);
   out.push(text(name, nameX, baseline, { size: FS_GROUP, fill: palette.text, weight: 650 }));
   const countText = String(visual.descendants);
   const countW = width(countText, FS_COUNT, false, false) + 12;
@@ -458,17 +432,6 @@ function groupFrame(
       '" height="15" rx="7.5" fill="' + esc(palette.surface2) + '"/>',
   );
   out.push(text(countText, countX + 6, baseline, { size: FS_COUNT, fill: palette.text2 }));
-  if (rolled) {
-    const chip = rollupChipText(rolled);
-    const chipW = width(chip, FS_COUNT, false, false) + 12;
-    const chipX = countX + countW + 6;
-    out.push(
-      '<rect x="' + num(chipX) + '" y="' + num(baseline - 11) + '" width="' + num(chipW) +
-        '" height="15" rx="4" fill="' + esc(palette.surface2) + '" stroke="' + esc(palette.border) +
-        '" stroke-width="0.75"/>',
-    );
-    out.push(text(chip, chipX + 6, baseline, { size: FS_COUNT, fill: palette.text2 }));
-  }
   if (top) out.push(cluster(visual.counts, box.x + box.w - 10, box.y + GROUP_HEADER_H / 2, 13, palette, hc));
   out.push('</g>');
   return out.join('');
@@ -485,7 +448,7 @@ function edgeMarkup(
       d: string;
       points: Point[];
       mid: Point;
-      /** PERF-04: the weight pill is nudged along this, exactly as in the DOM. */
+      /** The weight pill is nudged along this, exactly as in the DOM. */
       midAngle: number;
       back: boolean;
       count: number;
@@ -504,9 +467,8 @@ function edgeMarkup(
   const kind = edgeKindClass(r.kind);
   const colour = visual.severity ? severityColor(palette, visual.severity) : palette.edge;
   const style = EDGE_STYLE[kind] || EDGE_STYLE.data;
-  // PERF-04. The picture cannot be hovered, so the thicker stroke and the pill
-  // are the ONLY things that say a cable stands for seven connections — which
-  // is exactly why they are both drawn here rather than left to the DOM.
+  // The picture cannot be hovered, so the thicker stroke and the pill are the
+  // only things that say a cable stands for several connections.
   const weight = visual.weight && visual.weight > 1 ? Math.floor(visual.weight) : 1;
   const weighted = weight >= WEIGHT_MIN;
   const strokeW = weighted ? Math.max(style.width, weightStroke(weight)) : style.width;
@@ -564,7 +526,7 @@ function edgeMarkup(
 }
 
 /**
- * PERF-04's `×7` pill, at the point `rollup/rolled.ts` decides — the same
+ * The `×7` pill, at the point `render/weight.ts` decides — the same
  * arithmetic the DOM uses, so the exported picture cannot put the number
  * somewhere else. FS 9 mono, to match `.mlv-edge__weighttext`.
  */

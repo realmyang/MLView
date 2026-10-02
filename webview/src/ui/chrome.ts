@@ -1,5 +1,5 @@
 /**
- * Top bar, chip row, banners and status bar — plus the search box.
+ * Top bar, chip row and status bar — plus the search box.
  * Everything the user needs to know about the run before touching the canvas.
  */
 
@@ -7,18 +7,12 @@ import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
-import { chromeBandHeight, stat } from './chromenotes.js';
-import { renderBanners } from './chromebanners.js';
 import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
 import type { ChipSpec } from './chromechips.js';
-import { suppressedSummary } from './suppress.js';
-import { isSetAside } from '../types.js';
 import { UNSPECIFIED_MODEL } from '../workflow.js';
-import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
+import type { Filters, MLGraph, Severity, Stage } from '../types.js';
 
 export interface ChromeCallbacks {
-  /** Retained for generic empty/error banner plumbing; authored views never show it. */
-  onRefresh(): void;
   onQuery(q: string): void;
   onStage(stageId: string): void;
   onClearFilters(): void;
@@ -26,11 +20,8 @@ export interface ChromeCallbacks {
   onSearchKey(ev: KeyboardEvent): void;
   onToggleRail(): void;
   onSeverity(sev: Severity): void;
-  onShowSuppressed(next: boolean): void;
   onFit(): void;
   onZoom(dir: number): void;
-  onAction(id: string): void;
-  onDismiss(key: string): void;
   /** Open the scope picker (FEATURES 3.7). */
   onScope(): void;
   /** Toggle the flow animation entirely off/on; persisted as ViewState.flow. */
@@ -45,19 +36,13 @@ export interface ChromeCallbacks {
    */
   onToggleMinimap(next: boolean): void;
   /** CI-ADOPT: "only changed" — drops findings attributed `existing`. */
-  onChangedOnly(next: boolean): void;
 }
 
 export interface ChromeState {
   graph: MLGraph | null;
   hasSelection: boolean;
   filters: Filters;
-  capabilities: Capabilities;
-  stale: string[];
-  error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null;
-  dismissed: Set<string>;
   visibleCounts: { low: number; medium: number; high: number };
-  dynamicNodes: number;
   /** The active scope's human label, or "Everything". */
   scopeLabel: string;
   scopeActive: boolean;
@@ -70,6 +55,10 @@ export interface ChromeState {
   outOfScopeStages: Stage[];
   /** Whether the minimap is collapsed, for the toolbar's toggle (VIEW-12). */
   minimapCollapsed: boolean;
+  /** Viewer M1: the stale-file count, or null when every file is unchanged (nothing is shown). */
+  freshness?: { text: string; title: string } | null;
+  /** Viewer M1: the host is checking a change on disk. */
+  checking?: boolean;
 }
 
 let chromeSeq = 0;
@@ -90,13 +79,11 @@ export class Chrome {
   readonly chipRow: HTMLElement;
   /** The scrolling half of the chip row; the opener sits beside it. */
   private chipScroll!: HTMLElement;
-  readonly banners: HTMLElement;
   readonly status: HTMLElement;
   readonly searchInput: HTMLInputElement;
   readonly results: HTMLElement;
   private statsEl: HTMLElement;
   private sevButtons = new Map<Severity, HTMLButtonElement>();
-  private suppressedBtn: HTMLButtonElement;
   private zoomSelBtn: HTMLButtonElement;
   private rootLabel: HTMLElement;
   private scopeBtn: HTMLButtonElement;
@@ -182,17 +169,6 @@ export class Chrome {
       this.toolbar.appendChild(b);
     }
 
-    // Rendered only when the graph actually holds suppressed findings, and
-    // labelled with their count like the severity chips beside it (MLV-R2-W09).
-    this.suppressedBtn = el('button', 'mlv-chip mlv-chip--btn') as HTMLButtonElement;
-    this.suppressedBtn.type = 'button';
-    this.suppressedBtn.textContent = 'suppressed';
-    this.suppressedBtn.setAttribute('aria-pressed', 'false');
-    this.suppressedBtn.hidden = true;
-    this.suppressedBtn.title = 'Show suppressed findings';
-    on(this.suppressedBtn, 'click', () => cb.onShowSuppressed(this.suppressedBtn.getAttribute('aria-pressed') !== 'true'));
-    this.toolbar.appendChild(this.suppressedBtn);
-
     // A real aria-pressed toggle whose title names the CURRENT state, so the
     // one thing that moves on the canvas is one keystroke from being stopped.
     //
@@ -273,7 +249,6 @@ export class Chrome {
     // one thing below the fold. It is a sibling of the scroller, not a chip in
     // it, which is the only arrangement that cannot scroll away.
     this.chipScroll = add(this.chipRow, el('div', 'mlv-chiprow__chips'));
-    this.banners = el('div', 'mlv-banners');
     this.status = el('div', 'mlv-status');
 
     // One roving group over both rows. Built last, so every control the strip
@@ -305,24 +280,6 @@ export class Chrome {
       const count = b.querySelector('.mlv-chip__count');
       if (count) count.textContent = String(s.visibleCounts[sev]);
     }
-    // VW-04. The severity chips beside this button now net out BASELINED
-    // findings as well as suppressed ones, exactly as the rail, the answer card
-    // and `mlview issues` do — so this button has to say both, or the reader is
-    // left with a total that does not add up. One wording, one helper: the rail
-    // section head uses the same `suppressedSummary`.
-    const setAside = g ? (g.issues || []).filter(isSetAside) : [];
-    const baselined = setAside.filter((i) => i.baselined).length;
-    const suppressed = setAside.length - baselined;
-    const summary = suppressedSummary(suppressed, baselined);
-    this.suppressedBtn.hidden = setAside.length === 0;
-    this.suppressedBtn.textContent = summary;
-    this.suppressedBtn.setAttribute('data-set-aside', String(setAside.length));
-    this.suppressedBtn.title =
-      (s.filters.showSuppressed ? 'Hide' : 'Show') + ' ' + summary +
-      ' finding' + (setAside.length === 1 ? '' : 's') + ' — they are not in the counts above';
-    this.suppressedBtn.setAttribute('aria-label', this.suppressedBtn.title);
-    this.suppressedBtn.setAttribute('aria-pressed', s.filters.showSuppressed ? 'true' : 'false');
-
     const scopeLabelEl = this.scopeBtn.querySelector('.mlv-btn__label');
     if (scopeLabelEl) scopeLabelEl.textContent = s.scopeLabel;
     this.scopeBtn.setAttribute('aria-pressed', s.scopeActive ? 'true' : 'false');
@@ -340,7 +297,6 @@ export class Chrome {
 
     this.renderStageFilters(s);
     this.renderChips(s);
-    renderBanners(this.banners, s, this.cb);
     this.renderStatus(s);
     // The stage chip row was just rebuilt: put the strip's single tab stop back
     // (VIEW-12).
@@ -363,22 +319,6 @@ export class Chrome {
       this.filterRow.hidden = true;
       return;
     }
-    // CI-ADOPT: offered only when the run was actually attributed against a
-    // base revision. An unattributed document must not grow a filter that can
-    // only ever hide nothing.
-    const attributed = (g.issues || []).some((i) => typeof i.change === 'string' && i.change);
-    if (attributed) {
-      const changed = el('button', 'mlv-chip mlv-chip--btn mlv-chip--changed') as HTMLButtonElement;
-      changed.type = 'button';
-      changed.textContent = 'only changed';
-      changed.setAttribute('data-changed-filter', '1');
-      const on_ = !!s.filters.changedOnly;
-      changed.setAttribute('aria-pressed', on_ ? 'true' : 'false');
-      changed.title = 'Show only findings on lines this change touched';
-      changed.setAttribute('aria-label', changed.title);
-      on(changed, 'click', () => this.cb.onChangedOnly(!s.filters.changedOnly));
-      this.filterRow.appendChild(changed);
-    }
     add(this.filterRow, el('span', 'mlv-chiprow__label', 'stages'));
     const active = s.filters.stages;
     for (const stage of stages) {
@@ -388,17 +328,14 @@ export class Chrome {
       chip.setAttribute('data-stage', stage.id);
       chip.setAttribute('data-stage-filter', stage.id);
       chip.setAttribute('aria-pressed', on_ ? 'true' : 'false');
-      chip.title = 'Show only the ' + (stage.label || stage.id) + ' stage';
+      // Viewer M1: say what a click does. A click hides a shown phase and shows a hidden one;
+      // the old "Show only the X stage" described the opposite.
+      chip.title = (on_ ? 'Hide the ' : 'Show the ') + (stage.label || stage.id) + ' phase';
       add(chip, el('span', '', stage.label || stage.id));
       on(chip, 'click', () => this.cb.onStage(stage.id));
       this.filterRow.appendChild(chip);
     }
-    const dirty =
-      active.length > 0 ||
-      s.filters.severities.length < 3 ||
-      s.filters.showSuppressed ||
-      !!s.filters.changedOnly ||
-      s.filters.query.length > 0;
+    const dirty = active.length > 0 || s.filters.severities.length < 3 || s.filters.query.length > 0;
     if (dirty) {
       const clearBtn = button('mlv-btn', 'Clear filters');
       on(clearBtn, 'click', () => this.cb.onClearFilters());
@@ -408,23 +345,12 @@ export class Chrome {
   }
 
   /**
-   * The chip row, in three steps: COLLECT, FOLD, CAP (HOSTS-UX-CHIPWALL).
-   *
-   * It used to be one step — one chip per `graph.diagnostics` entry, appended
-   * straight to the row. Measured on the pinned public corpus at 1600x1000,
-   * that made `.mlv-chiprow` 2132 px tall on ultralytics/yolov5, 3765 px on
-   * huggingface/pytorch-image-models — and `.mlv-canvas` 0 px on both, because
-   * `.mlv-body` is the `flex: 1 1 auto; min-height: 0` item that absorbs
-   * whatever the rows above it take. Seven of sixteen public repositories drew
-   * a zero-pixel canvas that way, with every card in the DOM and none on
-   * screen, while the toolbar went on reading `400 nodes · 813 edges`. Of
-   * yolov5's 70 chips only 49 were distinct: one sentence was drawn 8 times
-   * verbatim, and `analyzer/tests/fixtures` drew `1 value not traced` 36 times.
+   * The chip row, in three steps: COLLECT, FOLD, CAP (HOSTS-UX-CHIPWALL), so
+   * the row can never outgrow the canvas under it (`.mlv-body` absorbs
+   * whatever the rows above it take).
    *
    * Nothing is deleted here. A fold carries its count, the cap carries a chip
-   * that lists the rest, every message stays on a `title`, the banners keep
-   * their own copies of the coverage and parse diagnostics, and the status bar
-   * still counts every one of them as "N notes".
+   * that lists the rest, and every message stays on a `title`.
    */
   private renderChips(s: ChromeState): void {
     this.chipSpecs = s.graph ? collectChips(s) : [];
@@ -448,9 +374,9 @@ export class Chrome {
     for (const spec of shown) {
       if (spec.label && spec.label !== label) add(this.chipScroll, el('span', 'mlv-chiprow__label', spec.label));
       if (spec.label) label = spec.label;
-      // TAB2-10. A chip is a label, and three diagnostic kinds carry a
-      // SENTENCE. The text goes in its own element so the stylesheet can bound
-      // it to one ellipsised line (`.mlv-chiprow .mlv-chip__text`, CHIP_TEXT_CH)
+      // TAB2-10. A chip is a label, and a scope note carries a SENTENCE. The
+      // text goes in its own element so the stylesheet can bound it to one
+      // ellipsised line (`.mlv-chiprow .mlv-chip__text`)
       // while the `×N` count beside it stays whole. Nothing is removed: the
       // element holds every character, so `textContent`, the exported HTML and
       // every screen reader still get the sentence, and the `title` below
@@ -505,21 +431,6 @@ export class Chrome {
     return more;
   }
 
-  /**
-   * HOSTS-UX-R2-06 — what the two bands above the canvas are taking, in CSS
-   * pixels, read AFTER `update()` has drawn them.
-   *
-   * It counts what was actually drawn rather than re-deriving the banner
-   * predicates, for the same reason 11.55 D2 gives about `drawnCount`: a second
-   * copy of the rules is a second set of numbers to keep in step. The estimate
-   * itself is `chromenotes.chromeBandHeight`, which has no DOM in it.
-   */
-  bandHeight(): number {
-    const banners = this.banners.hidden ? 0 : this.banners.querySelectorAll('.mlv-banner').length;
-    const chips = this.chipRow.hidden ? 0 : this.chipRow.querySelectorAll('.mlv-chip').length;
-    return chromeBandHeight(banners, chips);
-  }
-
   private renderStatus(s: ChromeState): void {
     clear(this.status);
     const g = s.graph;
@@ -534,18 +445,32 @@ export class Chrome {
       wrap.appendChild(severityGlyph(s2, 11, s2 + ' severity'));
       add(wrap, el('span', 'mlv-stat__value', String(s.visibleCounts[s2])));
     }
-    if (g.workspace.frameworks && g.workspace.frameworks.length) {
-      add(this.status, el('span', '', g.workspace.frameworks.join(', ')));
-    }
-    // VIEWUI-13: an authored document's provenance is its revision, host and
-    // model; `generator.version` holds the MODEL there, never an MLView version.
-    if (g.schemaVersion === 'workflow-view/1') {
-      const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
-      add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
-    } else {
-      add(this.status, el('span', '', 'schema ' + g.schemaVersion + ' · mlview ' + g.generator.version));
-    }
+    // VIEWUI-13: the provenance is the revision, host and model; `generator.version`
+    // holds the MODEL, never an MLView version.
+    const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
+    add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
+    // Viewer M1: freshness in place. Nothing when every cited file is unchanged; a warning icon
+    // and words (never colour alone) when some are not; muted text while a change is checked.
+    if (s.freshness) {
+      const item = add(this.status, el('span', 'mlv-status__fresh is-warn'));
+      item.appendChild(uiIcon('warning', 12));
+      add(item, el('span', '', s.freshness.text));
+      item.title = s.freshness.title;
+      item.setAttribute('data-freshness', 'stale');
+    }
+    if (s.checking) {
+      const item = add(this.status, el('span', 'mlv-status__fresh is-checking', 'Checking source freshness…'));
+      item.setAttribute('data-freshness', 'checking');
+    }
   }
+}
+
+/** One `12 nodes` pill for the toolbar's stat row. */
+function stat(value: string, label: string): HTMLElement {
+  const wrap = el('span', 'mlv-stat');
+  add(wrap, el('span', 'mlv-stat__value', value));
+  add(wrap, el('span', '', label));
+  return wrap;
 }

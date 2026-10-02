@@ -1,34 +1,27 @@
 /**
  * `project(D, scope) -> D'` — the scoped view (CONTRACTS 11.2, normative).
  *
- * A scope is a PURE PROJECTION of the finished whole-workspace document. It is
- * never a smaller set of files handed to the parser and never a smaller audit:
- * the analyzer always walked the whole workspace, so cross-file resolution and
- * workspace-wide rules keep working, and this filters the already-sorted arrays
- * and re-derives the aggregates.
+ * A scope is a PURE PROJECTION of the authored document as the viewer holds
+ * it: it filters the arrays and re-derives the aggregates. Nothing is asked of
+ * the host or the model.
  *
- * THE ORDERING INVARIANT (11.2.1) — and the reason parity with the Python
- * implementation is affordable: every step only REMOVES elements from arrays
- * that are already canonically sorted, and only FILTERS the nodeIds / edgeIds /
- * issueIds lists. NO OUTPUT ARRAY IS EVER RE-SORTED, so `nodes`, `edges` and
- * `issues` in D' are subsequences of D's in the same relative order. The single
- * non-filter operation in the whole algorithm is the stable rotation in step 6.
- * A PORT THAT SORTS ANYTHING IS WRONG, even when its output happens to match.
+ * THE ORDERING INVARIANT (11.2.1): every step only REMOVES elements from arrays
+ * in document order, and only FILTERS the nodeIds / edgeIds / issueIds lists.
+ * NO OUTPUT ARRAY IS EVER RE-SORTED, so `nodes`, `edges` and `issues` in D' are
+ * subsequences of D's in the same relative order. The single non-filter
+ * operation in the whole algorithm is the stable rotation in step 6.
  *
- * This file is a line-for-line port of `analyzer/src/mlview/core/project.py`;
- * `webview/test/scope_parity.test.mjs` deep-compares the two over the frozen
- * `contracts/graph.sample.json` on every case of `contracts/scope.cases.json`.
+ * This file began as a port of the retired analyzer's projection; the analyzer
+ * and its parity test were removed on 2026-09-18.
  *
  * Pure: no DOM, no clock, no randomness, no set-iteration-order leak.
  */
 
-import { CONCERNS, ScopeError, asciiLower, isAll, viewLabel } from './selector.js';
+import { ScopeError, asciiLower, isAll, viewLabel } from './selector.js';
 import type { Scope } from './selector.js';
-import { resolvePipelineScope } from './pipelines.js';
 import type { Diagnostic, Issue, IssueCounts, MLEdge, MLGraph, MLNode, Severity, Stage, View, ViewAnchor, ViewRole } from '../types.js';
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
-const MAX_PRUNE_ROUNDS = 8;
 
 export interface ScopeResolution {
   scope: Scope;
@@ -40,17 +33,6 @@ export interface ScopeResolution {
   /** `config_warning` messages to append to `diagnostics`. */
   warnings: string[];
   empty: boolean;
-  /**
-   * MLV-P12 (11.47 C). Nodes this scope REACHES but does not claim, because
-   * another entrypoint reaches them too. They are kept, they are never assigned
-   * `boundary`, and step 8 therefore gives every one of them `context` — which
-   * is the roadmap's clause ("mark a node reachable from several entrypoints as
-   * `viewRole: context` rather than forcing it into one pipeline") falling out
-   * of the three-role vocabulary that already exists.
-   *
-   * Absent for every other kind, where it is simply an empty set.
-   */
-  forcedContext?: string[];
 }
 
 /* ── step 1: resolve the anchors ─────────────────────────────────────── */
@@ -70,10 +52,9 @@ function fileOf(node: MLNode): string {
 }
 
 /**
- * The five `unit:` tiers, in order; the FIRST NON-EMPTY tier wins and every node
- * in it is an anchor. Tier 3 is what makes `unit:train` mean the function
- * `train.train` (a whole subtree) rather than also dragging in the unrelated
- * `model.train()` op node `train.train.train`.
+ * The `unit:` tiers, in order; the FIRST NON-EMPTY tier wins and every node in
+ * it is an anchor. The id comes first (VIEWUI-7); the label tiers let a reader
+ * type what the card says.
  */
 function unitTiers(nodes: MLNode[], target: string, fold: boolean): MLNode[][] {
   const f = (value: string): string => (fold ? asciiLower(value) : value);
@@ -82,11 +63,10 @@ function unitTiers(nodes: MLNode[], target: string, fold: boolean): MLNode[][] {
   const eq = (value: string | undefined, expected: string): boolean => !!value && f(value) === expected;
   const definition = (n: MLNode): boolean => n.level === 'stage' || n.level === 'unit';
   return [
-    // VIEWUI-7: an authored node is addressed by its stable id; labels are
-    // free text and may repeat. Exact only (never case-folded).
-    fold ? [] : nodes.filter((n) => n.authored === true && n.id === target),
+    // VIEWUI-7: a node is addressed by its stable id; labels are free text and
+    // may repeat. Exact only (never case-folded).
+    fold ? [] : nodes.filter((n) => n.id === target),
     nodes.filter((n) => eq(n.qualname, want)),
-    nodes.filter((n) => eq(n.fqn, want)),
     nodes.filter((n) => eq(lastSegment(n.qualname || ''), want) && definition(n)),
     nodes.filter((n) => eq(lastSegment(n.qualname || ''), want)),
     nodes.filter((n) => eq(n.label, want) || eq(n.label, wantCall)),
@@ -96,12 +76,6 @@ function unitTiers(nodes: MLNode[], target: string, fold: boolean): MLNode[][] {
 function resolveUnit(nodes: MLNode[], target: string): { anchors: MLNode[]; warnings: string[] } {
   const warnings: string[] = [];
   const text = target.length > 2 && target.slice(-2) === '()' ? target.slice(0, -2) : target;
-  // The tools hand back node ids; a human types a qualname. Both must work, or
-  // somebody has to translate.
-  if (text.indexOf('n:') === 0) {
-    const exact = nodes.filter((n) => n.id === text);
-    if (exact.length) return { anchors: exact, warnings };
-  }
   for (const tier of unitTiers(nodes, text, false)) {
     if (tier.length) return { anchors: tier, warnings };
   }
@@ -145,11 +119,6 @@ export function resolveScope(graph: MLGraph, scope: Scope): ScopeResolution {
     return { scope, anchors: ids, core: ids, ambiguous: false, warnings, empty: !ids.length };
   }
 
-  // MLV-P12 (11.47 B and C). A pipeline resolves against `workspace.entrypoints`
-  // rather than against the nodes, and its core/forced-context split replaces
-  // step 2 outright, so it returns from here rather than falling through.
-  if (scope.kind === 'pipeline') return resolvePipelineScope(graph, scope, nodes, warnings);
-
   let anchors: MLNode[];
   if (scope.kind === 'stage') {
     anchors = nodes.filter((n) => n.stage === scope.target);
@@ -157,9 +126,6 @@ export function resolveScope(graph: MLGraph, scope: Scope): ScopeResolution {
       const candidates = (graph.stages || []).map((stage) => stage.id);
       if (candidates.indexOf(scope.target) < 0) throw new ScopeError('unknown_stage', scope.target, candidates);
     }
-  } else if (scope.kind === 'concern') {
-    const wanted = CONCERNS[scope.target] || [];
-    anchors = nodes.filter((n) => wanted.indexOf(n.stage) >= 0);
   } else if (scope.kind === 'file') {
     const found = resolveFile(nodes, scope.target);
     anchors = found.anchors;
@@ -181,7 +147,7 @@ export function resolveScope(graph: MLGraph, scope: Scope): ScopeResolution {
     warnings.push('scope unit:' + scope.target + ' is ambiguous: ' + anchorIds.length + ' nodes match. Use one of: ' + names.join(', '));
   }
   // Step 2: `unit:` means a whole DEFINITION, so the descendant closure comes
-  // with it. `stage:` / `file:` / `concern:` already denote a set, and a closure
+  // with it. `stage:` and `file:` already denote a set, and a closure
   // would drag in nodes that are by definition outside it.
   const core = scope.kind === 'unit' && anchorIds.length ? withDescendants(nodes, anchorIds) : anchorIds.slice();
   return { scope, anchors: anchorIds, core, ambiguous, warnings, empty: !anchorIds.length };
@@ -222,25 +188,6 @@ export function project(graph: MLGraph, scope: Scope): MLGraph {
   return projectResolved(graph, scope, resolveScope(graph, scope));
 }
 
-/**
- * Steps 3-11 of 11.2, over an ALREADY-RESOLVED core set.
- *
- * `project()` is the only caller that resolves a selector; this half takes the
- * anchors as given, which is what lets VIEW-08's "changed only" be a projection
- * rather than a second rendering path. A diff IS another projection — core = the
- * nodes the overlay says moved, boundary = one hop — and every property the
- * scope projection already guarantees (boundary stubs carry no badge, ghosts
- * with no retained finding are pruned, `nodeIds[0]` is rotated to a core node,
- * no output array is ever re-sorted) comes with it for free.
- *
- * `labelOverride` exists because `viewLabel` is the FROZEN breadcrumb naming for
- * the six selector kinds and the parity gate deep-compares it against the Python
- * port; a caller outside the grammar names its own view instead of teaching that
- * function a seventh case.
- *
- * `project()`'s behaviour is byte-for-byte what it was — this is an extraction,
- * not a change, and `test/scope_parity.test.mjs` is what says so.
- */
 /** What steps 3-7 decide: the sets, before anything is copied. */
 interface KeptSets {
   core: Set<string>;
@@ -255,10 +202,8 @@ interface KeptSets {
 /**
  * Steps 3-7 of 11.2 — which nodes, edges and issues survive — and nothing else.
  *
- * This is an EXTRACTION from `projectResolved`, in the same sense that
- * `projectResolved` is one from `project()`: the lines and their order are
- * unchanged, and `webview/test/scope_parity.test.mjs` is what says so. It exists
- * because step 8 clones every kept node and every kept edge, and a caller that
+ * It is separate from `projectResolved` because step 8 clones every kept node
+ * and every kept edge, and a caller that
  * only wants `|nodes(D')|` pays that for nothing: `projectedNodeCount` is asked
  * once per row by the scope picker — 222 rows on a 400-node, 2 220-edge public
  * repository, where the copying measured 97 % of the work and none of the
@@ -274,23 +219,14 @@ function keptSets(graph: MLGraph, scope: Scope, resolution: ScopeResolution): Ke
   for (const node of nodes) byId.set(node.id, node);
 
   const core = new Set(resolution.core);
-  // MLV-P12 (11.47 C): nodes this scope reaches and does not claim. Empty for
-  // every kind but `pipeline:`, which is why the three lines below are a no-op
-  // on every existing projection.
-  const forced = new Set(resolution.forcedContext || []);
 
   // Steps 3-4: boundary rings, then the ancestor closure.
   const boundary = boundaryRing(edges, core, scope.depth);
-  // `boundary <- boundary - forced context`: a shared node is NEVER a boundary
-  // stub. A stub is badge-free and faded because its findings are out of scope;
-  // a shared node's findings are in another pipeline, which is a different
-  // statement, and step 8 says it that way by giving it `context`.
-  for (const id of forced) boundary.delete(id);
-  const seeds = union(union(core, boundary), forced);
+  const seeds = union(core, boundary);
   const context = ancestorClosure(byId, seeds);
-  let kept = union(seeds, context);
+  const kept = union(seeds, context);
 
-  let keptEdges = edges.filter((e) => kept.has(e.source) && kept.has(e.target));
+  const keptEdges = edges.filter((e) => kept.has(e.source) && kept.has(e.target));
   const coreEdgeIds = new Set(keptEdges.filter((e) => core.has(e.source) && core.has(e.target)).map((e) => e.id));
 
   // CONTRACTS 11.30 F1-F2: `retainIssues` may PROMOTE a retaining edge's source
@@ -298,12 +234,8 @@ function keptSets(graph: MLGraph, scope: Scope, resolution: ScopeResolution): Ke
   // the promotions the reverse link is built from.
   const edgesById = new Map<string, MLEdge>(keptEdges.map((e) => [e.id, e]));
   const retention = retainIssues(issues, core, kept, new Set(keptEdges.map((e) => e.id)), coreEdgeIds, edgesById);
-  let retained = retention.retained;
+  const retained = retention.retained;
   const promoted = retention.promoted;
-  const pruned = pruneGhosts(retained, kept, keptEdges, byId);
-  retained = pruned.retained;
-  kept = pruned.kept;
-  keptEdges = pruned.keptEdges;
 
   return { core, boundary, kept, keptEdges, retained, promoted, byId };
 }
@@ -326,12 +258,8 @@ export function projectedNodeCount(graph: MLGraph, scope: Scope): number {
   return drawn;
 }
 
-export function projectResolved(
-  graph: MLGraph,
-  scope: Scope,
-  resolution: ScopeResolution,
-  labelOverride?: string,
-): MLGraph {
+/** Steps 3-11 of 11.2, over the resolved core set. */
+function projectResolved(graph: MLGraph, scope: Scope, resolution: ScopeResolution): MLGraph {
   const nodes = graph.nodes || [];
   const { core, boundary, kept, keptEdges, retained, promoted } = keptSets(graph, scope, resolution);
 
@@ -358,7 +286,7 @@ export function projectResolved(
 
   const counts = { core: 0, boundary: 0, context: 0 };
   for (const node of outNodes) counts[node.viewRole as ViewRole]++;
-  return assemble(graph, scope, resolution, outNodes, outEdges, retained, counts, kept, labelOverride);
+  return assemble(graph, scope, resolution, outNodes, outEdges, retained, counts, kept);
 }
 
 /** `depth` BFS rings over `edges[]` in both directions. Containment is not a hop. */
@@ -471,50 +399,9 @@ function rotateToCore(nodeIds: string[], core: Set<string>): string[] {
   return nodeIds;
 }
 
-/**
- * Step 7: a kept ghost with no retained issue is dropped, and so is an issue
- * whose `nodeIds` emptied out. Two rounds converge (a ghost is never the parent
- * of a non-ghost); the loop is bounded so a malformed document cannot spin.
- */
-function pruneGhosts(
-  retained: Issue[],
-  kept: Set<string>,
-  keptEdges: MLEdge[],
-  byId: Map<string, MLNode>,
-): { retained: Issue[]; kept: Set<string>; keptEdges: MLEdge[] } {
-  for (let round = 0; round < MAX_PRUNE_ROUNDS; round++) {
-    const live = new Set(retained.map((i) => i.id));
-    const doomed = new Set<string>();
-    for (const id of kept) {
-      const node = byId.get(id);
-      if (!node || !node.ghost) continue;
-      if ((node.issueIds || []).some((i) => live.has(i))) continue;
-      doomed.add(id);
-    }
-    if (!doomed.size) break;
-    const next = new Set<string>();
-    for (const id of kept) {
-      if (!doomed.has(id)) next.add(id);
-    }
-    kept = next;
-    keptEdges = keptEdges.filter((e) => kept.has(e.source) && kept.has(e.target));
-    const edgeIds = new Set(keptEdges.map((e) => e.id));
-    const survivors: Issue[] = [];
-    for (const issue of retained) {
-      const workflowLevel = !issue.nodeIds.length && !issue.edgeIds.length;
-      issue.nodeIds = issue.nodeIds.filter((n) => kept.has(n));
-      issue.edgeIds = issue.edgeIds.filter((e) => edgeIds.has(e));
-      if (issue.nodeIds.length || workflowLevel) survivors.push(issue);
-    }
-    retained = survivors;
-  }
-  return { retained, kept, keptEdges };
-}
-
 function issueCounts(issues: Issue[], stage?: string): IssueCounts {
   const counts: IssueCounts = { low: 0, medium: 0, high: 0 };
   for (const issue of issues) {
-    if (issue.suppressed) continue;
     if (stage !== undefined && issue.stage !== stage) continue;
     const severity = issue.severity as Severity;
     if (counts[severity] !== undefined) counts[severity]++;
@@ -536,7 +423,6 @@ function assemble(
   retained: Issue[],
   counts: { core: number; boundary: number; context: number },
   kept: Set<string>,
-  labelOverride?: string,
 ): MLGraph {
   const byStage = new Map<string, number>();
   for (const node of outNodes) byStage.set(node.stage, (byStage.get(node.stage) || 0) + 1);
@@ -554,7 +440,6 @@ function assemble(
   stats.nodes = outNodes.length;
   stats.edges = outEdges.length;
   stats.issues = issueCounts(retained);
-  stats.suppressed = retained.filter((i) => i.suppressed).length;
 
   const allNodes = graph.nodes || [];
   const allEdges = graph.edges || [];
@@ -578,7 +463,7 @@ function assemble(
   }));
   const view: View = {
     scope: scope.spec,
-    label: labelOverride || viewLabel(scope, graph, anchorNodes.map((n) => n.label || '')),
+    label: viewLabel(scope, graph, anchorNodes.map((n) => n.label || '')),
     depth: scope.depth,
     counts: { core: counts.core, boundary: counts.boundary, context: counts.context },
     of: {
@@ -597,10 +482,9 @@ function assemble(
     empty: !!resolution.empty,
   };
 
-  // Step 10: a projection NEVER restates project-level truth. `workspace`,
-  // `generator` and `diagnostics` all describe the analysis, which really was
-  // whole-workspace. Scope notes are appended, then the array is re-sorted by
-  // its existing key.
+  // Step 10: a projection NEVER restates document-level truth. `workspace`,
+  // `generator` and `diagnostics` describe the whole authored document. Scope
+  // notes are appended, then the array is re-sorted by its existing key.
   const diagnostics: Diagnostic[] = (graph.diagnostics || []).map((d) => clone(d) as Diagnostic);
   for (const message of resolution.warnings) diagnostics.push({ kind: 'config_warning', message });
   if (resolution.empty) {
@@ -609,13 +493,6 @@ function assemble(
       message:
         'scope ' + scope.spec + ' matched no nodes; the whole graph has ' + allNodes.length +
         ' node(s). This is a finding, not an error.',
-    });
-  }
-  if (graph.stats && graph.stats.truncated) {
-    // --max-nodes runs BEFORE projection and is not re-applied (11.2.2).
-    diagnostics.push({
-      kind: 'truncated',
-      message: 'the graph was capped by --max-nodes BEFORE this scope was applied; view.of reports the pre-projection totals.',
     });
   }
   diagnostics.sort(diagnosticOrder);
@@ -632,14 +509,9 @@ function assemble(
   return out;
 }
 
-/** The analyzer's own key: (kind, file, line, message). Nothing else re-sorts. */
+/** (kind, message). Nothing else re-sorts. */
 function diagnosticOrder(a: Diagnostic, b: Diagnostic): number {
-  return (
-    cmp(a.kind || '', b.kind || '') ||
-    cmp(a.file || '', b.file || '') ||
-    (a.line || 0) - (b.line || 0) ||
-    cmp(a.message || '', b.message || '')
-  );
+  return cmp(a.kind || '', b.kind || '') || cmp(a.message || '', b.message || '');
 }
 
 function cmp(a: string, b: string): number {

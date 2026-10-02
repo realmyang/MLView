@@ -6,6 +6,332 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer M1: verification loop and cleanup
+
+Step 1 of the viewer's first milestone: check a claim against its source
+without losing your place in the diagram, and see where a cited file changed
+on the diagram itself. These changes are checked by local tests only (jsdom
+and the mock `vscode` module in `vscode-extension/test/verification-loop.test.js`
+and `webview/test/verification-loop.test.mjs`); none of it has been tried in a
+live VS Code window. No contract change, no new setting, and the version is
+unchanged. The diagram's layout is unchanged (the geometry golden is
+byte-identical).
+
+Opening source (`vscode-extension/`):
+- A jump opens the cited file beside the diagram and leaves focus in the
+  diagram, so the arrow keys and Enter keep working. The whole cited range is
+  selected and highlighted in the theme's range-highlight colour; the
+  highlight moves to the next jump and is removed when the panel closes.
+- Alt+Enter (or Alt+click on an Open link) opens the same range and moves
+  focus to the editor. VS Code binds Alt+Enter only in editors, notebooks,
+  chat, search, testing and the terminal, not in a focused webview.
+- A notebook citation opens the notebook beside the diagram with the cited
+  cell selected and revealed. Its lines are highlighted when VS Code has the
+  cell's editor ready within about half a second; otherwise only the cell is
+  selected.
+- A jump into a file whose saved bytes match the last check no longer
+  revalidates the whole revision first. A file that changed is still checked
+  before the jump, and the jump is refused if it went stale.
+
+Clicking (`webview/`):
+- A click on a card, connection, finding or Outline row selects it and shows
+  its claim in the Inspector; it no longer opens source. Enter, a
+  double-click and the Inspector's Open links open the cited range. Space
+  selects a finding row without opening it. The shortcut sheet, the legend
+  and the docs say so.
+
+Freshness on the diagram:
+- The extension's `stale` message now lists each stale file with its reason
+  (changed, missing, unreadable, too large). Cards, connections and findings
+  that cite such a file get a warning mark whose tooltip and screen-reader
+  label say how many quotes are affected. In the Inspector each stale quote
+  says why and its Open link is disabled. The status bar shows a short count,
+  for example "1 of 4 cited files changed". Unchanged files get no mark and no
+  colour.
+- Once the diagram is shown, the extension's banner is drawn under the header
+  with an icon instead of as plain text above the diagram. "Checking source
+  freshness" goes to the status bar, so the layout does not jump on each save.
+  The plain-text banner remains only for errors before anything can be shown.
+
+Wrong workspace root (`vscode-extension/`):
+- When most tracked files are missing from the workspace root but exist, with
+  the published hashes, under the artifact's folder or a folder between it and
+  the root, the banner names that folder and says the files there are
+  unchanged, instead of saying the files no longer match (its wording changed
+  again in the review fixes below). It
+  offers **Add folder to workspace** and **Open folder** (a new window). The
+  extension never resolves a citation against another folder by itself; the
+  panel rechecks whenever the workspace folders change.
+
+Step 2: the Inspector shows the claim (`webview/`, rebuilt into
+`vscode-extension/media/`). Checked by local jsdom tests only
+(`webview/test/inspector-content.test.mjs`, which loads the shipped
+stylesheet and checks visibility, plus updated cases in `authored-ui` and
+`workflow`); not tried in live VS Code. The cards, the chip row and the edge
+labels are unchanged, so the geometry golden is byte-identical.
+
+- The Inspector shows a step's full authored detail as a paragraph under the
+  title, the phase label (never the phase id) and the kind. Before, the detail
+  was only in the hover card.
+- The monospace line that repeated the title is gone. The basis appears once,
+  as a chip: the Attributes table no longer repeats it, and a connection's
+  title is its authored label without the " · basis" suffix. An inferred or
+  unresolved claim gets one sentence saying what that means; observed gets
+  none.
+- A finding's suggestion is shown, labelled "What to change", in the Inspector
+  and in the expanded Findings row. A rule left from the static analyzer had
+  hidden every suggestion while the "Suggested check" heading stayed visible;
+  a finding without a suggestion now shows no label. In a step's Inspector
+  its findings come before its quotes.
+- Document-wide limitations are listed once, in the header's Details. Every
+  Inspector used to repeat all of them; it now shows one line, for example
+  "6 document-wide limitations apply. Show", and Show opens Details at the
+  list.
+- Under the evidence heading a caption says: "A matching quote shows these
+  lines exist unchanged since publishing. Whether they support the claim is
+  for you to judge."
+- A card's accessible name, and the announcement when you select it, end with
+  the first sentence of its claim (cut at 160 characters) and name the phase
+  by its label.
+- Notebook cells print as the artifact records them, counted from 0
+  (`train.ipynb › cell 34, line 2`). The viewer used to add one, so a step the
+  model labelled "(cell 34)" showed "cell 35"; the skill, the helper's
+  `--cell` and the extension already count from 0. Authored labels are not
+  changed.
+- The phase chip's tooltip says what a click does ("Hide the Data preparation
+  phase" or "Show …"); it used to say "Show only the … stage".
+- A connection's hover card is titled with its authored label, so the basis
+  appears once there too.
+
+Steps 3 and 4: the code left from the static analyzer's viewer is removed
+(`webview/`, rebuilt into `vscode-extension/media/`). The viewer only ever
+shows a model-authored document, so this code could not be reached. Checked
+by local tests only; not tried in live VS Code.
+
+- Removed: the diff overlay, the pipeline chooser, the answer card, the
+  config, fix, suppression and rule-doc panels, the banners, the Findings
+  tab's hidden "Group by" control, the loading skeleton, the standalone
+  report's bridge and theme switch, the `concern:` scope presets, and the
+  fields, messages and styles only that viewer used. The viewer no longer
+  posts `selectNode`, `scopeChanged`, `askAssistant` or `action`, which the
+  extension never handled, and no longer accepts `setFilter`, `setScope`,
+  `requestExport` or `cursorHint`, which the extension never sends.
+- Kept: everything steps 1 and 2 added, the scope picker and phase chips
+  (to be reworked in M2), and `revealNode` / `revealIssue` for the planned
+  "Reveal in Diagram". A saved view state with old keys still loads; the
+  old keys are ignored.
+- Two small visible changes: a merged connection's tooltip now reads
+  "3 connections merged into this edge." (it described the retired rollup),
+  and its screen-reader name states the count once.
+- Size: TypeScript in `webview/src` went from 26,061 to 18,499 lines and the
+  stylesheets from 5,428 to 3,986 lines; `mlview.js` from 364,619 to 286,353
+  bytes and `mlview.css` from 82,027 to 61,726 bytes.
+- Checks: the geometry golden is byte-identical. A jsdom tour of 39 authored
+  documents (6,454 steps) gave the same page, saved state, posted messages
+  and SVG export before and after each code batch, apart from the retired
+  messages, the ignored old keys and the tooltip changes above. Computed styles at 195 points of a shorter tour are unchanged after
+  the stylesheet cleanup. Webview tests at that step: 142 (one removed, "file
+  groups report the weakest authored basis", which tested the removed
+  grouping); extension tests: 281.
+
+Screenshot harness (`webview/tools/screenshots/`): an opt-in script that opens
+documents in the built viewer in headless Chrome and saves one PNG per state
+plus an `index.json` of what was clicked, what the page posted and what it
+showed. The capture is opt-in: `npm test`, CI and the e2e gates do not run
+it, and it needs a local Chrome or Chromium (`CHROME` overrides the lookup).
+Its plumbing test, `webview/test/screenshot-pipe.test.mjs`, does run in
+`npm test`, so in CI and both e2e drivers (see the review fixes below).
+
+- The host is simulated: VS Code theme colours for Dark Modern, Light Modern
+  and Dark High Contrast, a stub `acquireVsCodeApi`, the panel's own inline
+  bootstrap, and the frames the extension posts (`init`, `workflow`, and for
+  the stale states `stale` and the stale banner). No validation, no editor.
+- States: initial, step selected, hover on a step and on a connection, focus
+  mode, a severity filter, search, a finding with its suggestion, a stale
+  file (with and without a step selected) and a 900x800 panel.
+- Inputs: the repository's sample and a synthetic 120-step document by
+  default, or your own artifact and workspace. `--viewer` loads another
+  checkout's build for before/after pictures.
+- It runs on Node 20: Chrome is driven over `--remote-debugging-pipe`, not a
+  WebSocket. `webview/test/screenshot-pipe.test.mjs` checks the pipe framing
+  and the Chrome lookup without Chrome.
+- The pictures are a rendering check only. They are not live VS Code
+  validation, usability evidence or a semantic review.
+
+Review fixes (findings from independent model reviews of this branch). Each
+code fix has a local regression test that fails without it (jsdom, the mock
+`vscode` module, or a child Node process); none of it was tried in live VS
+Code. The geometry golden is byte-identical. Webview tests: 155; extension
+tests: 282.
+
+- Double-click on a finding or an Outline step opened nothing in a real
+  browser: the first click rebuilt the rows, so the second click's
+  `dblclick` went to a detached row. A double-click also failed, once per
+  viewer, when its first click opened the rail (docked, the canvas refit and
+  moved the card; in a narrow panel the drawer and its scrim covered it), and
+  the second click could press an Inspector control such as **Challenge this
+  claim**. Now the first click arms an opener, and the second click of the
+  same double-click (the browser's own count) opens what the first one
+  selected, wherever it lands; the rest of that gesture is swallowed. A
+  finding expanded above the clicked one no longer makes the double-click
+  select another row. The tests send click, click and `dblclick` in Chrome's
+  order instead of a bare `dblclick`.
+- A notebook jump that waited for its cell editor cleared the highlight of a
+  jump made after it (always for a markdown cell in preview). Each jump now
+  has a sequence number, and an overtaken jump stops before it touches the
+  editor or the highlight.
+- The cited-range highlight was invisible in High Contrast themes, which
+  define no `editor.rangeHighlightBackground`. It now also draws
+  `editor.rangeHighlightBorder`, which only High Contrast themes define.
+- Wrong workspace root: the host sends the hinted files with the reason
+  `elsewhere`. Cards, connections, findings, quotes, the status bar ("1 of 1
+  cited files in another folder") and a blocked jump now say the file is in
+  another folder and point to the notice; they used to call it changed or
+  missing while the notice said it was unchanged. The notice leads with the
+  files: "source.py is not in the workspace root (MLView/). It is in ./copy/,
+  unchanged (it matches its published hash). Add ./copy/ to the workspace, or
+  open it in its own window."
+- The Inspector's stale note no longer ends "the claim was not re-checked"
+  (nothing in MLView checks claims). It reads "… cite a file that changed or
+  went missing since publishing; those jumps are blocked. To compare the claim
+  with the code as it is now, ask the assistant for a fresh revision."
+- The stale marks and dashed border use the warning colour mixed 30 % toward
+  the text colour. In Light Modern and 2026 Light they were 2.2 to 3.0:1
+  against the card; now at least 4.2:1 (WCAG 1.4.11 asks 3:1).
+  `webview/test/stale-contrast.test.mjs` checks six default themes.
+- A card's spoken claim stopped at "i.e." or "e.g.". A period after a dotted
+  abbreviation or after etc., vs., cf., approx. and a few others no longer
+  ends the sentence.
+- The shortcut sheet and the docs promised a double-click opens every row a
+  click selects. A double-click on a group collapses it, and the Outline's
+  connection and phase rows only select; the sheet now says which targets
+  open.
+- `findChrome` built the macOS and Linux candidates with the host's `path`,
+  so on Windows it looked for `\Applications\Google Chrome.app\…` and its test
+  would fail the Windows CI job. Those candidates now use `path.posix`; a
+  test runs the lookup in a child Node process whose `node:path` is
+  `path.win32`. The docs no longer say the harness is outside every gate.
+
+Live check fix (`vscode-extension/`): **Add folder to workspace** in a
+single-folder window left a dead diagram tab. VS Code turns the window into an
+untitled multi-root workspace and restarts every extension host. The panel
+stayed open, still showing the hint, and its buttons did nothing: VS Code
+1.139 calls a panel serializer only for tabs it restores when a window loads,
+not after an extension host restart. Re-running **MLView: Open Generated
+Diagram** gave a second panel beside the dead one.
+
+- Before it asks VS Code to add the folder in a single-folder window, the
+  extension saves a short note in its global state: the window's session, the
+  folder, and each open diagram's artifact and tab title. The note goes in
+  the global state because VS Code 1.139 starts the new workspace with an
+  empty workspace state. After the restart, the new extension host closes the
+  dead diagram tab (one per noted diagram, matched by title) and opens the
+  diagram again in the same editor group. There it validates against the
+  added folder. The note is used once. It is ignored if it is more than a
+  minute old, belongs to another window, or names a folder the workspace does
+  not contain. Other tabs, including a restored diagram tab never shown, are
+  left alone.
+- A multi-root window keeps its extension host, so the panel still validates
+  again in place and no note is saved. **Developer: Reload Window** already
+  revived the panel through the serializer, with the artifact and view state
+  the webview saves. One change there: a revived tab whose diagram is already
+  shown in another panel is now closed, so each artifact has one panel. Before,
+  the revived panel replaced the other in the extension's list, and the other
+  stopped receiving file changes. Two existing restore tests now close the
+  first panel before restoring the same artifact.
+- Tests: `vscode-extension/test/folder-add-restart.test.js` (11 cases with the
+  mock `vscode` module, which gains `window.tabGroups`, `TabInputWebview`,
+  `workspace.workspaceFile` and `env.sessionId`). Extension tests: 293.
+- Checked in an isolated VS Code 1.139 Extension Development Host (throwaway
+  profile, driven over the DevTools protocol). In a single-folder window on
+  the parent folder, **Add folder to workspace** now ends with one diagram
+  tab, revalidated with no notice, and Enter on a selected card opens the
+  cited range. With two diagrams in two editor groups, both were replaced in
+  their groups (checked with a build from before the one-panel-per-artifact
+  change, which that path does not use). Reload Window revives the panel, both
+  when it is in front and when it is a background tab that is then shown. In
+  a multi-root window the panel revalidates in place. This was a check of
+  these paths only, not a usability study or a review.
+
+Live check follow-up (`vscode-extension/`): an independent check found that
+only the root hint's own button saved the reopen note above, so every other
+extension restart in a window still left a dead diagram tab: VS Code's
+**Workspaces: Add Folder to Workspace...**, **Save Workspace As...**,
+**Developer: Restart Extension Host**, and an extension install or update that
+restarts extensions. The root hint's notification also outlived the restart,
+with its old text and buttons that did nothing.
+
+- The one-minute note is gone. Each extension host keeps a registry of its
+  open panels in the global state (`mlview.openPanels`): per window session
+  (`vscode.env.sessionId`), each panel's artifact, tab title and editor group.
+  It is written when a panel opens, changes title or group, or closes, and not
+  when the host shuts down, so it outlives the host. After a restart in the
+  same window the new host replaces each dead tab with a new panel for its
+  artifact in the same group, checked against the workspace as it is then.
+  The root hint's **Add folder** now only makes sure the registry is stored
+  before VS Code adds the folder.
+- The tabs API shows a dead tab and a tab VS Code restored at startup but has
+  not shown yet the same way (same title, view type and flags; checked live).
+  A restored tab comes to life through the serializer as soon as it comes to
+  the front of its group, so only front tabs are judged, half a second after
+  activation or after a tab change: a diagram tab in front that no panel of
+  the new host shows by then is dead. VS Code revives a restored panel with
+  column 0 and reports its group about 20 ms later (live), so until then a
+  visible panel with the tab's title counts as showing it. A dead tab behind
+  other tabs is therefore replaced only when it is brought to the front,
+  after showing a blank page for about half a second. A dead tab takes the
+  registry entry with its title, in its own group first, so two diagrams with
+  the same title in one group can come back in each other's places. A front
+  tab with no entry is left as it is (Reload Window still revives it). If its
+  diagram was opened again since the restart, the dead tab is only closed.
+  Entries whose title is on no tab are dropped. Other windows' and earlier
+  sessions' entries (each reload leaves one) are pruned after 14 days, and at
+  most 20 are kept. The recovery shows no UI beyond a log line.
+- The root hint no longer shows a VS Code notification. The panel's notice,
+  drawn by the live host, carries both actions. Showing the notification only
+  while the panel is hidden was the other option; it would still leave dead
+  buttons after a restart and needs visibility tracking.
+- Tests: `vscode-extension/test/host-restart.test.js` (17 cases) replaces
+  `folder-add-restart.test.js`. Its two-diagram decoy test passed for the
+  wrong reason: both decoys were behind the front tab, so the "front tabs
+  first" ordering never reached them. The new cases bring a restored tab with
+  the same title and group as a pending entry to the front and revive it, and
+  cover the dedupe against an open panel, a column VS Code has not reported,
+  shutdown, pruning, malformed values, the hint's write before the folder is
+  added, and title, group and close updates. The mock gains `Disposable`, tab
+  change events, `TabGroup.activeTab`, tabs linked to panels and view state
+  changes. A mutation check (19 mutations of the new logic, each rebuilt and
+  run against the restart and verification-loop tests) was caught 19 times
+  out of 19. Extension tests: 299.
+- Checked in an isolated VS Code 1.139 Extension Development Host (throwaway
+  profiles, driven over the DevTools protocol): the root hint's **Add folder**
+  and VS Code's **Add Folder to Workspace...** in a single-folder window,
+  **Save Workspace As...**, **Developer: Restart Extension Host** with the
+  diagram in front, behind a text tab (left alone, then replaced when brought
+  to the front) and with two diagrams of the same title in two groups (each
+  came back in its group with its own artifact), **Reload Window** with the
+  diagram in front and behind, a restart while a restored tab was still
+  unshown (left alone, then revived when shown), a dead duplicate of a revived
+  diagram (closed, no second panel), and a multi-root window (revalidated in
+  place). Each ended with one panel per artifact whose card opened the cited
+  source on Enter, and no dead tab. A restored tab brought to the front while
+  an entry with its title was pending (revived, not closed) and the dead
+  duplicate were checked with the build before the column 0 rule, which only
+  adds a case where a tab counts as shown; the other paths ran on the final
+  code. An extension install or update was not tried. This was a check of
+  these paths only, not a usability study or a review.
+- A second independent check passed these paths again live and found three
+  guards the tests did not pin: the settle delay restarting at every tab
+  change, matching a front tab by title even when an entry has its group, and
+  a column-0 panel covering only a tab with its own title. Three tests now pin
+  them; removing each guard fails its test. The docs now say that a diagram
+  put back after a restart starts with a fresh view (its selection and zoom
+  reset), while Reload Window keeps them. Known limits: two windows writing
+  the registry within about 40 ms can lose one write, which heals on that
+  window's next panel change; a dead tab closed from behind while its diagram
+  is open again leaves its entry until no tab has that title. Extension
+  tests: 302.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

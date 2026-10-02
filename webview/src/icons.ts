@@ -118,16 +118,10 @@ export function authoredGlyphKind(kind: string | undefined): string {
   return 'step';
 }
 
-/**
- * The glyph a card or group header draws. A collapsed authored group is still
- * a group; a legacy collapsed unit keeps the artifact cube it always drew.
- */
-export function nodeGlyphKind(node: Pick<MLNode, 'kind' | 'authored'>, groupLike: boolean): string {
-  if (node.authored) return groupLike ? 'group' : authoredGlyphKind(node.kind);
-  return groupLike ? 'artifact' : node.kind;
+/** The glyph a card or group header draws. A collapsed group is still a group. */
+export function nodeGlyphKind(node: Pick<MLNode, 'kind'>, groupLike: boolean): string {
+  return groupLike ? 'group' : authoredGlyphKind(node.kind);
 }
-
-export const KNOWN_KINDS = Object.keys(KIND_PATHS).sort();
 
 export function kindPath(kind: string): string {
   return KIND_PATHS[kind] || AUTHORED_PATHS[kind] || KIND_PATHS.unknown;
@@ -176,6 +170,8 @@ const UI_PATHS: Record<string, string> = {
   filter: 'M2.4 3.4h11.2L9.2 8.4v4.2L6.8 13.6V8.4Z',
   target: 'M8 2.6v2.2M8 11.2v2.2M2.6 8h2.2M11.2 8h2.2M8 5.2A2.8 2.8 0 1 0 8 10.8 2.8 2.8 0 0 0 8 5.2Z',
   check: 'M3 8.4 6.4 11.8 13 5.2',
+  // Viewer M1: a source file no longer matches its published hash (with text beside it, never alone).
+  warning: 'M8 2.2 14.4 13.4H1.6ZM8 6.4v3.4M8 11.6v.1',
   scope: 'M2.4 3.2h11.2v9.6H2.4ZM5.6 6.2h4.8v3.6H5.6Z',
   flow: 'M2.4 8h8.4M8.4 5.2 11.6 8l-3.2 2.8M13.2 6.4v3.2',
   /** The legend key (VIEW-10): a list with a swatch beside each row. */

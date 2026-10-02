@@ -9,8 +9,6 @@
  * three steps below are testable as what they are: pure functions of the state.
  */
 
-import { COVERAGE_KINDS, SPECIALLY_RENDERED, coverageChipText, notebooksAnalyzedText } from './chromenotes.js';
-import { NOTEBOOK_ANALYZED } from '../notebook.js';
 import type { ChromeState } from './chrome.js';
 import type { MLGraph } from '../types.js';
 
@@ -66,18 +64,16 @@ function chipSpec(text: string, opts: Partial<ChipSpec> = {}): ChipSpec {
 }
 
 /**
- * STEP 1 — collect, in the order the row has always drawn them.
+ * STEP 1 — collect: the phases a scope leaves out, then the document's notes.
  *
- * Every branch is the one that was there before; the only change is that each
- * produces a descriptor instead of appending an element. A diagnostic kind this
- * renderer has never heard of still says what it says (invariant 1.1/6).
+ * The authored coverage limitations are listed in the header's Details (and
+ * counted in each Inspector), so they draw no chip. A scope note
+ * (`config_warning`) is a sentence, so its full text is also its tooltip. A
+ * note of any other kind still says what it says (invariant 1.1/6).
  */
 export function collectChips(s: ChromeState): ChipSpec[] {
   const g = s.graph as MLGraph;
   const out: ChipSpec[] = [];
-  for (const stage of (g.stages || []).filter((st) => !st.present)) {
-    out.push(chipSpec(stage.label || stage.id, { label: 'not detected' }));
-  }
   for (const stage of s.outOfScopeStages) {
     out.push(
       chipSpec(stage.label || stage.id, {
@@ -88,60 +84,12 @@ export function collectChips(s: ChromeState): ChipSpec[] {
     );
   }
   for (const d of g.diagnostics || []) {
-    // VIEWUI-13: authored coverage limitations are already listed in the
-    // workflow panel (and per item in the Inspector); a chip per sentence
-    // would repeat them a third time in the top chrome.
     if (d.kind === 'workflow_limitation') continue;
-    if (d.kind === 'notebook_skipped') {
-      out.push(chipSpec((d.count || 0) + ' notebooks not analyzed'));
-    } else if (d.kind === NOTEBOOK_ANALYZED) {
-      // NB. Without `--include-notebooks` this never appears, because the
-      // diagnostic is never emitted.
-      //
-      // VW-06: ONE diagnostic per notebook, and its `count` is that notebook's
-      // code cells — so the chip is one notebook (the hook keeps its name) and
-      // the cell count is its own attribute.
-      out.push(
-        chipSpec(notebooksAnalyzedText(d), {
-          title: d.message,
-          attrs: [
-            ['data-notebooks-analyzed', '1'],
-            ['data-notebook-cells', String(d.count || 0)],
-          ],
-        }),
-      );
-    } else if (d.kind === 'framework_suppressed') {
-      out.push(chipSpec(d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '')));
-    } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
-      // VW-08. These are SENTENCES, not chips — CI-ADOPT's baseline and
-      // --changed-paths warnings carry absolute paths and an instruction, and
-      // the `--changed-paths` one measured 1779 px wide at a 1600 px window,
-      // running 191 px off the page with no scrollbar and no `title`, so the
-      // instruction it exists to give ("Pass the diff itself, or
-      // --changed-since <rev>") was the half that was cut. The full text is
-      // now on the chip's tooltip, and `.mlv-chiprow .mlv-chip` wraps.
-      //
-      // HOSTS-UX-CHIPWALL: and because they are sentences, a repository that
-      // could not open eight config files drew the SAME sentence eight times.
+    if (d.kind === 'config_warning') {
       out.push(chipSpec(d.message, { title: d.message, attrs: [['data-config-note', d.kind]] }));
-    } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
-      // COVERAGE: a chip that says the analysis was BLIND here, distinct from
-      // the "not detected" row beside it, which says it looked and found none.
-      out.push(
-        chipSpec(coverageChipText(d), {
-          cls: 'mlv-chip--coverage',
-          title: d.message,
-          attrs: [['data-coverage', d.kind]],
-        }),
-      );
-    } else if (SPECIALLY_RENDERED.indexOf(d.kind) < 0) {
-      // A kind this renderer has never heard of still says what it says
-      // (invariant 1.1/6) rather than vanishing into the "N notes" count.
+    } else {
       out.push(chipSpec(d.message || d.kind, { attrs: [['data-diagnostic-kind', d.kind]] }));
     }
-  }
-  if ((g.workspace.filesFailed || 0) > 0) {
-    out.push(chipSpec(g.workspace.filesFailed + ' files failed to parse'));
   }
   return foldChips(out);
 }
@@ -149,11 +97,10 @@ export function collectChips(s: ChromeState): ChipSpec[] {
 /**
  * STEP 2 — fold identical chips into one that carries its count.
  *
- * Identity is the heading, the variant and the TEXT: two coverage chips that
- * both read `1 value not traced` are one fact repeated, and drawing it 36 times
- * (measured on `analyzer/tests/fixtures`) tells a reader nothing the count does
- * not. The distinct MESSAGES behind the fold are kept for the tooltip, so the
- * per-file detail is one hover away rather than gone.
+ * Identity is the heading, the variant and the TEXT: two chips with one text
+ * are one fact repeated, and the count says so. The distinct MESSAGES behind
+ * the fold are kept for the tooltip, so the detail is one hover away rather
+ * than gone.
  */
 function foldChips(specs: ChipSpec[]): ChipSpec[] {
   const out: ChipSpec[] = [];
@@ -177,11 +124,9 @@ function foldChips(specs: ChipSpec[]): ChipSpec[] {
 /**
  * The tooltip: a folded chip states its count and lists what it folded.
  *
- * TAB2-10: every chip now carries one, falling back to its own text. The
- * stylesheet ellipsises a chip wider than `CHIP_TEXT_CH`, and a reader must
- * always have somewhere to recover the tail from — the generic chip of
- * invariant 1.1/6 had no `title` at all, so a long message from a kind this
- * renderer has never heard of would have been the one that could not be read.
+ * TAB2-10: every chip carries one, falling back to its own text. The
+ * stylesheet ellipsises a long chip (`.mlv-chiprow .mlv-chip__text`), and a
+ * reader must always have somewhere to recover the tail from.
  */
 export function chipTitle(spec: ChipSpec): string {
   if (spec.count <= 1) return spec.title || spec.text;

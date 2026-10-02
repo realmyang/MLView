@@ -97,17 +97,33 @@ Diagram**. With several artifacts in the workspace, select the intended one.
 The owning workspace folder supplies the citation root. The artifact cannot
 select another folder or supply absolute source paths.
 
-Select a node or edge to inspect its basis and evidence. Supporting and
+Click a node, edge or finding to select it and inspect its basis and evidence;
+a click never opens source. Enter, a double-click (on a step, connection,
+finding or Outline step; a double-click on a group collapses it) or an
+Inspector **Open** link opens the cited range beside the diagram, selects and highlights the whole
+range, and keeps focus in the diagram so the keyboard keeps working. Alt+Enter
+(or Alt+click on an Open link) also moves focus to the editor. A notebook
+citation selects its cell; the cell's lines are highlighted when VS Code has
+that cell's editor ready. Supporting and
 counter-evidence remain separate. Notebook anchors name a zero-based cell and
-one-based lines inside that cell. Reading a notebook does not establish its
+one-based lines inside that cell. The viewer prints the cell number as
+recorded: `cell 7, line 3` is the cell the helper's `--cell 7` names (the
+eighth, counting markdown cells), so it matches the model's own labels.
+Reading a notebook does not establish its
 execution order. Unresolved steps and conceptual groups can lack navigation
 targets; MLView does not invent locations for them.
 
-The Inspector displays every authored source quote and keeps finding support
-and counter-evidence distinct. Previous/Next evidence opens adjacent anchors;
-source-less items explain why navigation is unavailable. **Challenge this claim**
-opens the refinement composer for the current item; you still decide whether to
-send the copied request.
+The Inspector shows the item's title, phase and kind, its basis once (with a
+one-line note for inferred or unresolved claims), the full authored detail,
+the findings on the item with their suggestion under **What to change**, and
+then every authored source quote, keeping finding support and counter-evidence
+distinct. A caption over the quotes says that a matching quote shows the
+lines are unchanged since publishing, not that they support the claim.
+Document-wide limitations are listed once in the header's **Details**; the
+Inspector says how many apply and links there. Previous/Next evidence opens
+adjacent anchors; source-less items explain why navigation is unavailable.
+**Challenge this claim** opens the refinement composer for the current item;
+you still decide whether to send the copied request.
 
 Use **Outline → Text relationships** to enumerate connections without relying
 on the canvas. All shows relationships in the current scope; Incoming and
@@ -210,9 +226,36 @@ dependencies, not every file the model could have read through opaque host
 tools.
 
 When a saved source file changes after publication, the diagram stays visible
-as a historical diagram. The banner names the changed or missing files; jumps
-into those files are blocked, and evidence in unchanged files still opens.
-Ask the assistant to publish a fresh revision to update the diagram.
+as a historical diagram. The banner names the changed or missing files, and the
+diagram marks the steps, connections and findings that cite them; the status
+bar counts them. Each stale quote says why its Open link is disabled; evidence
+in unchanged files still opens. The marks do not say whether a claim is still
+right. Ask the assistant to publish a fresh revision to update the diagram.
+
+If most tracked files are missing from the workspace root but exist, with
+their published hashes, under the artifact's folder or a folder between it and
+the root, the source did not change: the workspace root is wrong. The banner
+says "source.py is not in the workspace root (<root>/). It is in ./<folder>/,
+unchanged (it matches its published hash)." and offers **Add folder to
+workspace** and **Open folder**. The marks, the status bar, the Inspector and
+a blocked jump say the file is "in another folder" and point to that notice,
+not that it changed or went missing. MLView never resolves citations against
+another folder on its own; the panel checks again when the workspace folders
+change. The two actions are only in the panel's notice, not in a notification.
+
+In a single-folder window, adding the folder makes VS Code turn the window into
+an untitled multi-root workspace and restart its extensions. MLView handles
+every extension restart inside a window the same way, whatever caused it
+(**Developer: Restart Extension Host**, an extension install or update that
+restarts extensions, **Save Workspace As...**, the notice's **Add folder to
+workspace** or VS Code's **Add Folder to Workspace...**): each open diagram
+comes back in its tab's place and is checked against the workspace as it is
+then, here against the added folder. A diagram in front of its editor group
+comes back at once; one behind other tabs comes back when it is brought to the
+front, after a blank half second, because until then it cannot be told from a
+tab VS Code restored at startup and has not shown yet. A diagram put back this
+way starts with a fresh view (the selection and zoom start over); Reload Window
+keeps them.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is
@@ -221,9 +264,10 @@ source changes before asking for a new analysis: the assistant and its helper
 read the files on disk.
 
 During edit bursts, the viewer marks freshness as pending immediately and
-coalesces validation work. Navigation rechecks the displayed revision before
-jumping, and an obsolete validation result cannot replace a newer revision or
-clear its warning.
+coalesces validation work. Navigation checks the cited file before jumping:
+when its saved bytes still match the last check the jump goes ahead, and
+otherwise the displayed revision is validated again first. An obsolete
+validation result cannot replace a newer revision or clear its warning.
 
 If validation fails, read the reported field/error, repair the draft, and try
 again. Do not overwrite the prior artifact with a static fallback. Cancellation,

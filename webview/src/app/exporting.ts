@@ -35,12 +35,8 @@ function exportRequest(app: App): ExportRequest | null {
   const summary = app.scopes.summary();
   return {
     plan,
-    // VW-05: the LIVE theme, not the one the host handed us at construction.
-    // The standalone report's Auto / Light / Dark / High contrast chips go
-    // through `ThemeController.choose`, which never called back into the app,
-    // so every export stamped `data-mlview-theme="light"` and the
-    // high-contrast branch in `buildExportSvg` (outlined severity glyphs)
-    // could not be reached from the standalone report at all.
+    // VW-05: the LIVE theme (the host's `theme` frame may have changed it),
+    // not the one the host handed us at construction.
     palette: resolvePalette(app.root, app.themes.kind),
     theme: app.themes.kind,
     graph: app.graph,

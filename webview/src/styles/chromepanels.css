@@ -1,12 +1,11 @@
 /*
  * The chrome's PANELS: the narrow-window scrim, the `?` shortcut sheet and
- * its keycaps, the theme switch, the search list's foot, the flow and legend
- * toggles, the legend itself, and the `role="toolbar"` wrapper that holds the
- * two chrome rows together.
+ * its keycaps, the search list's foot, the flow and legend toggles, the
+ * legend itself, and the `role="toolbar"` wrapper that holds the two chrome
+ * rows together.
  *
- * Third of the four `chrome*.css` layers, concatenated in order (build.mjs):
- * chrome -> chromestates -> chromepanels -> chromeanswers. Every rule keeps
- * the source position, and therefore the cascade, it always had.
+ * Last of the three `chrome*.css` layers, concatenated in order (build.mjs):
+ * chrome -> chromestates -> chromepanels.
  */
 
 /*
@@ -108,42 +107,6 @@
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-10);
   white-space: nowrap;
-}
-
-/*
- * The standalone theme switch is a radio group, not a set of filters, so the
- * struck-through "off" treatment of .mlv-chip--btn would be wrong here.
- */
-.mlv-themeswitch {
-  display: flex;
-  align-items: center;
-  flex: none;
-  gap: 0;
-  border: 1px solid var(--mlv-border);
-  border-radius: var(--mlv-r-btn);
-  overflow: hidden;
-}
-
-.mlv-themeswitch .mlv-chip--btn {
-  border: 0;
-  border-radius: 0;
-  background: var(--mlv-surface);
-  color: var(--mlv-text-2);
-}
-
-.mlv-themeswitch .mlv-chip--btn[aria-pressed="false"] {
-  opacity: 1;
-  text-decoration: none;
-}
-
-.mlv-themeswitch .mlv-chip--btn[aria-pressed="true"] {
-  background: var(--mlv-surface-2);
-  color: var(--mlv-text);
-  font-weight: var(--mlv-fw-semi);
-}
-
-.mlv-themeswitch .mlv-chip--btn + .mlv-chip--btn {
-  border-left: 1px solid var(--mlv-border);
 }
 
 /* ── VIEW-09b: the search list says when it was cut ─────────────────────── */
@@ -293,21 +256,6 @@
   overflow: visible;
 }
 
-/* A miniature of the real card, so the key and the picture cannot disagree. */
-.mlv-legend__card.mlv-node {
-  position: static;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  min-width: 0;
-  height: 16px;
-  min-height: 0;
-  padding: 0;
-  transform: none;
-  font-size: var(--mlv-fs-10);
-}
-
 @media (max-width: 900px) {
   .mlv-legend {
     right: var(--mlv-s3);
@@ -335,4 +283,30 @@ h1.mlv-brand {
   margin: 0;
   font-size: var(--mlv-fs-11);
   font-weight: var(--mlv-fw-regular);
+}
+
+/*
+ * HOSTS-UX-ANSWERSCROLL — a panel that scrolls says so, in both themes.
+ *
+ * The cue is the classic two-layer scroll shadow, and it is honest by
+ * construction: the covering gradients are `background-attachment: local`, so
+ * they travel with the content and hide the edge shadow exactly when that end
+ * of the content is reached. No JavaScript, no measurement, nothing to keep in
+ * step with a re-render — a panel that fits shows no shadow at all.
+ *
+ * `scrollbar-gutter: stable` reserves the classic scrollbar's width so a
+ * scrollbar that does appear never lands on top of a sentence.
+ */
+.mlv-legend__body {
+  background-color: var(--mlv-surface);
+  background-image:
+    linear-gradient(to bottom, var(--mlv-surface) 30%, transparent),
+    linear-gradient(to top, var(--mlv-surface) 30%, transparent),
+    linear-gradient(to bottom, var(--mlv-border-strong), transparent),
+    linear-gradient(to top, var(--mlv-border-strong), transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 24px, 100% 24px, 100% 8px, 100% 8px;
+  background-position: top, bottom, top, bottom;
+  background-attachment: local, local, scroll, scroll;
+  scrollbar-gutter: stable;
 }

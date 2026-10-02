@@ -1,11 +1,4 @@
-/*
- * Side rail: Issues, Inspector, Outline.
- *
- * The first of three `rail*.css` layers: MLV-P6's confidence chip,
- * evidence list and rule card are in `railevidence.css`, and RAIL-GROUP's
- * group headers with CI-ADOPT's tints in `railgroups.css`. They
- * concatenate in that order (build.mjs).
- */
+/* Side rail: Findings, Inspector, Outline. */
 
 .mlv-rail {
   position: relative;
@@ -82,16 +75,6 @@
   display: none;
 }
 
-.mlv-rail__filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--mlv-s3);
-  padding-bottom: var(--mlv-s4);
-  border-bottom: 1px solid var(--mlv-border);
-  margin-bottom: var(--mlv-s4);
-}
-
 .mlv-rail__section {
   margin: 0 0 var(--mlv-s5);
 }
@@ -161,10 +144,6 @@
   background: var(--mlv-surface-2);
 }
 
-.mlv-issue.is-suppressed {
-  opacity: 0.6;
-}
-
 .mlv-issue__text {
   flex: 1 1 auto;
   min-width: 0;
@@ -224,32 +203,6 @@
   word-break: break-all;
 }
 
-.mlv-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--mlv-fs-11);
-}
-
-.mlv-table th,
-.mlv-table td {
-  padding: 3px var(--mlv-s3);
-  border-bottom: 1px solid var(--mlv-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.mlv-table th {
-  width: 40%;
-  color: var(--mlv-text-2);
-  font-weight: var(--mlv-fw-regular);
-}
-
-.mlv-table td {
-  font-family: var(--mlv-font-mono);
-  font-size: var(--mlv-fs-10);
-  word-break: break-word;
-}
-
 .mlv-insp__issue {
   margin-bottom: var(--mlv-s5);
   padding: var(--mlv-s4);
@@ -273,8 +226,59 @@
 }
 
 .mlv-insp__fix {
+  margin: 0 0 var(--mlv-s3);
   padding-left: var(--mlv-s4);
   border-left: 3px solid var(--mlv-accent);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M1: "What to change", the label over the author's suggestion. */
+.mlv-insp__fix-label {
+  margin: 0 0 2px;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.mlv-insp__fix-text {
+  margin: 0;
+  color: var(--mlv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Viewer M1: the authored claim, in full, near the top of the Inspector. */
+.mlv-insp__detail {
+  margin: 0 0 var(--mlv-s4);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Viewer M1: what an inferred or unresolved basis means; observed gets no sentence. */
+.mlv-insp__basis {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-style: italic;
+}
+
+/* Viewer M1: under the evidence heading, what a matching quote does and does not show. */
+.mlv-insp__caption {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M1: "6 document-wide limitations apply. Show" (they are listed in the header Details). */
+.mlv-insp__limits {
+  margin: var(--mlv-s4) 0 0;
+  color: var(--mlv-text-2);
   font-size: var(--mlv-fs-11);
 }
 
@@ -436,21 +440,7 @@
   margin-bottom: var(--mlv-s4);
 }
 
-/* the zero-issue result (MLV-R1-013) */
-.mlv-clean {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--mlv-s2);
-  padding: var(--mlv-s9) var(--mlv-s5);
-  text-align: center;
-  color: var(--mlv-text-2);
-}
-
-.mlv-clean .mlv-uicon {
-  color: var(--mlv-stage-train);
-}
-
+/* the zero-finding and empty states' title and detail (MLV-R1-013) */
 .mlv-clean__title {
   color: var(--mlv-text);
   font-size: var(--mlv-fs-14);
@@ -460,19 +450,6 @@
 .mlv-clean__detail {
   font-size: var(--mlv-fs-12);
   max-width: 34ch;
-}
-
-/*
- * HOSTS-UX-CLEANSTATE — the caveat under a clean result. Quieter than the
- * detail above it and wider, because it is a sentence rather than a count, and
- * it must never be mistaken for a finding: the rail's severity colours mean a
- * finding and this is the opposite of one.
- */
-.mlv-clean__caveat {
-  max-width: 44ch;
-  color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-11);
-  overflow-wrap: anywhere;
 }
 
 /* the selected issue row expands in place (MLV-R1-006) */
@@ -519,4 +496,16 @@
     max-width: 86%;
     box-shadow: var(--mlv-sh-3);
   }
+}
+
+/* A finding row's meta line wraps: a 360 px rail with an id, a location, a
+ * basis chip and a freshness chip would otherwise clip the last one. */
+.mlv-issue__meta {
+  flex-wrap: wrap;
+  row-gap: var(--mlv-s1);
+  min-width: 0;
+}
+
+.mlv-issue__meta .mlv-chip {
+  max-width: 100%;
 }
