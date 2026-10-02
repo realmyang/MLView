@@ -64,6 +64,20 @@ the arrow keys choose one; `b` shows or hides the rail. A resize or a rail
 change that hides the selected card pans just enough to show it again, and a
 panel shown again after being hidden keeps its selection and an open sheet.
 Notebook cells are numbered from 0, as the artifact records them.
+`r` (or **Review** in the header, or **Review the claims** in the **⋯** menu)
+starts the review walk: claim by claim in the diagram's order (each step, its
+outgoing connections, then the findings whose first cited step it is;
+findings citing no step last), starting on the claims not observed, with
+**Findings**, **All** and, after a cited file changed, **Changed files** as the
+other filters. `j` / `k` or ↓ / ↑ move, `[` / `]` change quote, Enter opens
+again, `u` / Shift+U and `n` / `p` go through the claims not observed and the
+findings, and Escape or `r` ends it. About 150 ms after each step the claim's
+cited lines open beside the diagram, highlighted, with the keyboard kept on
+the diagram; a quote whose file changed or is missing is not opened, and the
+walk bar (under the diagram) and the Selection tab say why, with no
+notification. The walk remembers its place per revision in the panel's view
+state and records nothing else; the changed-files notice offers **Review
+affected claims**.
 Enter, a double-click (on a step, connection, finding or Outline step) or a
 quote's **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
 stays in the diagram. The source goes to an editor group you already have
@@ -90,19 +104,20 @@ document if it fits at 62% or more, otherwise the first phase at 90%); `0`
 returns there, and **Fit the whole diagram** shows everything. Zoomed out,
 cards show only their titles, at about 11 px.
 The header is one row of about 36 px: the title, the assistant and revision,
-search (Ctrl+F, or Cmd+F on macOS), the severity toggles, **N not observed**, a **⋯** menu
-and **Refine…**, which names the step, connection or finding it will refine.
+search (Ctrl+F, or Cmd+F on macOS), the severity toggles, **N not observed**,
+**Review**, a **⋯** menu and **Refine…**, which names the step, connection or
+finding it will refine.
 Below 620 px wide only the title, the severity toggles, **N not observed**,
-**⋯** and **Refine…** stay in the row; search and the revision move into the
-**⋯** menu, which also holds the legend, the flow animation, the overview map,
+**⋯** and **Refine…** stay in the row; search, the revision and **Review** move
+into the **⋯** menu, which always has **Review the claims** and also holds the legend, the flow animation, the overview map,
 the side or bottom panel, **Fit the whole diagram**, the exports and the shortcut sheet.
 The overview map item is disabled, with the reason, when the map is not drawn
 (at 900 px wide or narrower, under 350 px tall, or below 30 cards). The
 viewer's other keys are single keys, so VS Code's Ctrl and Cmd shortcuts are
 left alone; the shortcut sheet prints the keys for your platform.
 Escape in the diagram closes the topmost thing (the menu, the shortcut sheet,
-the Refine popover, the legend, the open bottom panel, focus mode, the
-selection) or clears the search, and VS Code does not also act on that key
+the Refine popover, the legend, the review walk, the open bottom panel, focus
+mode, the selection) or clears the search, and VS Code does not also act on that key
 press. Once nothing is left to close and the focus is off the diagram, Escape
 goes to VS Code, for example to hide a notification.
 The status bar reads, for example, "31 steps · 41 connections",

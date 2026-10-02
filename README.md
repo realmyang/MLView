@@ -53,9 +53,10 @@ in the runbook. Only install one copy of the skill in each discovery path.
 To refine a particular node, edge, or finding, select it and use **Refine →
 Copy prompt**. Choose an intent or enter a specific question, then paste the
 prompt into the same assistant. The header is one row: the title, the
-assistant and revision, search, the severity toggles, **N not observed**, a
-**⋯** menu (legend, flow animation, fit, exports, shortcuts) and **Refine…**.
-In a narrow panel, such as beside your code, search and the revision move
+assistant and revision, search, the severity toggles, **N not observed**,
+**Review**, a **⋯** menu (legend, flow animation, fit, exports, shortcuts) and
+**Refine…**.
+In a narrow panel, such as beside your code, search, the revision and **Review** move
 into the **⋯** menu, and a row that is still too full folds **N not
 observed** into it too, so **Refine…** stays in view. The status bar counts steps and connections, shows the
 coverage status with its limitations, and says whether the cited files are
@@ -81,6 +82,16 @@ Incoming, Outgoing and Unresolved views alongside the diagram. In a panel
 narrower than about 1260 px the rail is a bottom sheet under the diagram: a
 tab strip until you select something, then about half the height, with the
 selected card kept in view above it; Escape collapses it.
+
+To check a diagram claim by claim, press `r` (or **Review**). The review walk
+starts on the claims marked inferred or unresolved, the header's **N not
+observed** count, and can also walk the findings, every claim, or, after a
+cited file changed, the claims citing it. Each step selects the claim, shows
+it in Selection and, after a short pause, opens its cited lines beside the
+diagram, highlighted, while the keyboard stays on the diagram: `j` / `k` (or
+↓ / ↑) move, `[` / `]` change quote, Enter opens again and Escape ends the
+walk. A quote whose file changed is not opened; the walk says why. The walk
+remembers its place for each revision and records nothing else.
 
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.

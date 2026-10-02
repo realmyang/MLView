@@ -143,6 +143,30 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
+button or **Review the claims** in the **⋯** menu goes through the displayed
+revision claim by claim, in the diagram's order (each step, its outgoing
+connections, then the findings whose first cited step it is; findings that
+cite no step come last). Every claim is visited once: 79 in vit-cc, 176 in
+yolov5-cc2. It starts on **Not observed** (7 and 16, the header's counts);
+**Findings**, **All** and, when cited files changed, **Changed files** are the
+other filters. `j` / `k` or ↓ / ↑ step, `[` / `]` change quote, Enter opens
+again, `u` / Shift+U go through the claims not observed, `n` / `p` through the
+findings, and Escape or `r` ends it. About 150 ms after each step the cited
+lines open beside the diagram, highlighted, with the keyboard kept on the
+diagram; a quote VS Code did not open says why in the walk bar and the
+Selection tab, with no notification. The bar sits under the diagram, above the
+bottom panel's tabs, and shrinks to "3/16", the filters and Exit below 620 px.
+The place is remembered per revision in the panel's view state; nothing marks
+a claim as checked. The changed-files notice offers **Review affected
+claims**. The host gained a `walk` `clear` message and clears the highlight
+on a blocked walk open. Checked by local jsdom and mock `vscode` tests (with
+synthetic documents of the vit-cc and yolov5-cc2 shape, the real host with
+the built viewer, and mutation checks) and briefly in an isolated VS Code
+1.139 Extension Development Host on macOS (vit-cc beside its notebook at about
+393, 543 and 902 px); not with a screen reader, on Windows or Linux, or as a
+usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M3, step 12 (the host side of the review walk) and Escape:
 an `openLocation` request may carry a sequence number, a request id, a walk
 flag and `highlight: false`. The host drops an open a later one has
@@ -154,8 +178,7 @@ double-click or an Open link still does. A `walk` end message clears the
 cited-range highlight and its overview-ruler mark, as closing the panel does.
 The check behind a jump is cached per revision and freshness: 60 jumps into a
 synthetic 3.8 MB notebook hashed it once instead of 60 times
-([performance](PERFORMANCE.md)). The walk itself (step 11) is not in the
-viewer yet. An Escape the viewer used no longer also reaches VS Code (where
+([performance](PERFORMANCE.md)). An Escape the viewer used no longer also reaches VS Code (where
 it hid a notification); with nothing left to close and the focus off the
 diagram, Escape goes to VS Code. The M2 report of focus lost on Escape after
 Enter opened a notebook was not reproduced in 14 live attempts, so this fixes

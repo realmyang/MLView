@@ -8,16 +8,88 @@ truth lives in [docs/STATUS.md](docs/STATUS.md) and
 
 ## Unreleased — viewer M3: review walk and the way back
 
-The viewer's third milestone, in progress. This part is the host side of the
-review walk (roadmap step 12), a fix for Escape, and a look at the cost of
-jumping through a large notebook. The walk itself, which steps through the
-diagram's claims and opens each one's source, comes in a later step; until
-then nothing here changes what a reader sees except Escape and less work on
-repeated notebook jumps. Checked by local jsdom and mock `vscode` tests
-(mutation-checked against the fixes) and in an isolated VS Code 1.139 Extension
-Development Host on macOS driven over the DevTools protocol. Not tried on
-Windows or Linux, with a screen reader or as a usability check. No contract
-change, no new setting, no geometry change, and the version is unchanged.
+The viewer's third milestone, in progress. So far: the review walk, which goes
+through the diagram claim by claim and opens each one's cited lines beside it
+(roadmap step 11), the host side of that walk (step 12), a fix for Escape, and
+a look at the cost of jumping through a large notebook. Checked by local jsdom
+and mock `vscode` tests (mutation-checked against the fixes) and in an isolated
+VS Code 1.139 Extension Development Host on macOS driven over the DevTools
+protocol. Not tried on Windows or Linux, with a screen reader or as a usability
+check. No contract change, no new setting, no geometry change, and the version
+is unchanged.
+
+The review walk (step 11):
+- Press `r` on the diagram, **Review** in the header or **Review the claims**
+  in the **⋯** menu to go through the displayed revision claim by claim. The
+  order is the diagram's: phase by phase, each step, then its outgoing
+  connections, then the findings whose first cited step it is. A finding that
+  cites no step (only connections, or the workflow as a whole) has no place
+  in that order; the roadmap does not say where it goes, so these come last,
+  in document order. Every step, connection and finding is visited exactly
+  once: 79 claims (31 + 41 + 7) in the vit-cc shakedown artifact and 176
+  (59 + 113 + 4) in yolov5-cc2, counted by the walk's own order on both
+  documents and pinned by synthetic test documents of the same shape.
+- The walk starts on **Not observed**, the claims marked inferred or
+  unresolved: 7 in vit-cc and 16 in yolov5-cc2, the same numbers as the
+  header's **N not observed**. The other filters are **Findings**, **All**
+  and, only when VS Code reports changed or missing cited files, **Changed
+  files**. Each shows its count; a filter with nothing in it is not offered.
+- Keys while walking: `j` / `k` or ↓ / ↑ for the next or previous claim, `[`
+  / `]` for the claim's quotes, Enter to open the current quote again
+  (Alt+Enter also moves the focus to the editor), `n` / `p` for the next or
+  previous finding in the walk's order, and `r` or Escape to end it. `u` starts
+  the walk on Not observed, and `u` / Shift+U then step through those claims
+  whatever the filter. ← and → still move to the nearest card. Outside the
+  walk `j`, `k`, `[`, `]` and the arrows do what they did; the walk uses no Ctrl
+  or Cmd keys.
+- Each step selects the claim and brings it into view (a finding frames the
+  steps it cites), shows it in the Selection tab (a hidden side panel or a
+  collapsed bottom panel opens), and, once you stop for about 150 ms, opens
+  its cited lines in the editor beside the diagram with the range highlighted
+  while the keyboard stays on the diagram. A claim with no quotes opens
+  nothing and says so, and the previous claim's highlight goes. A quote VS
+  Code did not open (its file changed, went missing or has unsaved edits)
+  shows the reason in the walk bar and under the quote in the Selection tab;
+  nothing is opened and no notification appears. A screen reader hears, for
+  example, "Claim 3 of 16, not observed: Step Load batches, inferred."
+- The walk bar sits at the foot of the diagram, directly above the bottom
+  panel's tabs (with the side panel, along the bottom of the diagram), and is
+  shown only while walking: "Claim 3 of 16 · Not observed", the filters, the
+  keys, **Exit**, and a line such as "In the editor beside: train.py · lines
+  12–14, highlighted. Focus stays here." Below 620 px wide it is one row:
+  "3/16", the filters and **Exit**; a quote that was not opened adds a warning
+  mark there and the Selection tab says why. It sits under the diagram rather
+  than under the header so the diagram stays within four Tab presses of the
+  top, and Tab goes from the diagram to the walk's controls to the claim.
+- The walk remembers where it was for each revision in the panel's saved view
+  state: `r` resumes there, and a panel VS Code rebuilt brings a running walk
+  back without opening anything until you move or press Enter. A new revision
+  starts fresh. Nothing marks a claim as checked, and nothing is written to
+  any file.
+- The notice for changed cited files has **Review affected claims**, which
+  walks the claims whose quotes cite those files.
+- The header's **Review** button is shown from 620 px wide and folds into the
+  **⋯** menu with the revision when the row is short; the menu always has it.
+- Clicking or searching to another claim the walk holds moves the walk there
+  without opening it (Enter opens it), and clears the earlier highlight.
+- The walk counts every claim in the document; the severity toggles and the
+  **N not observed** fade do not change what it visits.
+- Live (vit-cc, VS Code 1.139, macOS, the diagram about 393, 543 and 902 px
+  wide beside the notebook): `r` started the walk on 7 claims, each step
+  opened the notebook beside it with the cited cell lines highlighted and the
+  focus left in the diagram, `]` opened the second quote, Escape ended the
+  walk, and no notification appeared. Found in that run: after `]` the
+  second quote stayed below the Selection tab's fold. The tab now scrolls the
+  walk's quote into view; that fix is checked in jsdom only, not live.
+
+The host side, for the walk (added with step 11):
+- A new `walk` message state, `clear`, sent when the walk moves to a claim it
+  opens nothing for (no quotes, or a claim you only selected): the host clears
+  the highlight and drops a walk open still on its way, as for the walk's
+  end.
+- A blocked walk open also clears the previous claim's highlight, so the
+  editor never shows an earlier claim's lines while the walk says this one was
+  not opened. A blocked Enter, double-click or Open link keeps it, as before.
 
 Opening a cited range for the walk (`openLocation`, no change for Enter,
 double-click or an Open link):
@@ -25,9 +97,8 @@ double-click or an Open link):
   `highlight: false`. The host drops an open whose number is not above the
   last one it saw, and one a later open overtook while it waited (for example
   for a notebook cell's editor). A new page starts the numbering again. The
-  walk is expected to wait about 150 ms after the reader stops moving before
-  it asks for a jump; that pause belongs to the walk step and is not in the
-  viewer yet.
+  walk waits about 150 ms after the reader stops moving before it asks for a
+  jump.
 - Each open with a request id gets one answer: done, blocked, cancelled or
   failed. A blocked answer names the reason and says nothing was
   opened, for example "vit_pytorch/efficient.py changed after revision
@@ -48,7 +119,7 @@ double-click or an Open link):
 
 Escape:
 - An Escape the viewer used (closing the menu, the shortcut sheet, the Refine
-  popover or the legend, collapsing the bottom panel, leaving focus mode,
+  popover or the legend, ending the review walk, collapsing the bottom panel, leaving focus mode,
   clearing the selection or the search) no longer also reaches VS Code. VS
   Code's webview forwards every key to the workbench, even one the page has
   handled, so a viewer Escape also hid a visible notification, which was

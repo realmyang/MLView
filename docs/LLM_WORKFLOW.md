@@ -168,6 +168,36 @@ again keeps its tab, its selection and an open bottom panel. With VS Code's
 screen-reader optimisation on, a selection is announced by its claim and
 nothing animates.
 
+The review walk goes through the displayed revision claim by claim. Press `r`
+on the diagram, **Review** in the header or **Review the claims** in the **⋯**
+menu. It follows the diagram's order: phase by phase, each step, then its
+outgoing connections, then the findings whose first cited step it is;
+findings that cite no step (only connections, or the workflow as a whole) come
+last, in document order. It starts on **Not observed**, the claims marked
+inferred or unresolved, with the same count as the header's **N not
+observed**; **Findings**, **All** and, while VS Code reports changed or
+missing cited files, **Changed files** are the other filters, each with its
+count. `j` / `k` or ↓ / ↑ go to the next or previous claim, `[` / `]` to the
+claim's other quotes, Enter opens the current quote again (Alt+Enter moves the
+focus to the editor), `n` / `p` go to the next or previous finding, `u` /
+Shift+U to the next or previous claim not observed (`u` also starts the walk
+there), and Escape or `r` ends the walk. ← and → still move to the nearest
+card. Each step selects the claim, brings it into view and shows it in the
+Selection tab; about 150 ms after you stop, its cited lines open in the editor
+beside the diagram with the range highlighted, and the keyboard stays on the
+diagram. A claim with no quotes opens nothing and clears the previous
+highlight. A quote whose file changed, went missing or has unsaved edits is
+not opened: the walk bar and the quote in the Selection tab say why, and no
+notification appears. A screen reader hears, for example, "Claim 3 of 16, not
+observed: Step Load batches, inferred." The walk bar sits under the diagram,
+above the bottom panel's tabs (with the side panel, along the bottom of the
+diagram), and shows the place and filter, the filters, the keys, **Exit** and
+what the editor beside shows; below 620 px wide it is "3/16", the filters and
+**Exit**. The walk remembers its place for each revision in the panel's view
+state, so `r` resumes there; a new revision starts fresh. It marks nothing as
+checked and writes nothing to any file. When cited files change, the notice
+offers **Review affected claims**, which walks the claims citing them.
+
 On the diagram, observed claims carry no basis mark. An inferred step or
 connection has a dashed border or line and an `inferred` tag; an unresolved
 one has a dotted border or line and a `? unresolved` tag. Line style shows
@@ -196,19 +226,20 @@ every group. Zoomed out below 62%, cards show only their titles, at about
 11 px on screen down to about 35% zoom; the full title is in the hover card.
 
 The header is one row: the title, the assistant and revision, search, the
-severity toggles (each with its count), **N not observed**, a **⋯** menu and
-**Refine…**. In a panel under 620 px wide, such as beside your code, search
-and the revision move into the **⋯** menu; a row still too full folds **N not
+severity toggles (each with its count), **N not observed**, **Review**, a
+**⋯** menu and **Refine…**. In a panel under 620 px wide, such as beside your
+code, search, the revision and **Review** move into the **⋯** menu; a row still too full folds **N not
 observed** into it as well, so **Refine…** stays in view. The menu also holds the legend, the
 flow animation, the overview map, the side or bottom panel, **Fit the whole diagram**,
-zoom to the selection, the SVG and PNG exports and the shortcut sheet. The
-overview map item is disabled, with the reason, when the map is not drawn: in
+zoom to the selection, the SVG and PNG exports and the shortcut sheet, and
+always **Review the claims**. The overview map item is disabled, with the reason, when the map is not drawn: in
 a panel 900 px wide or narrower, a diagram under 350 px tall, or with fewer
 than 30 cards. Ctrl+F (Cmd+F on macOS), or `/` on the diagram, focuses
 search; the viewer's other keys are single keys, so VS Code's own Ctrl and Cmd
 shortcuts keep working, and the shortcut sheet prints them for your platform.
-Escape closes one thing at a time in the viewer (a menu or panel, the bottom
-sheet, focus mode, the selection, then the focus on the diagram) without VS
+Escape closes one thing at a time in the viewer (a menu or panel, the review
+walk, the bottom sheet, focus mode, the selection, then the focus on the
+diagram) without VS
 Code also acting on it; after that it goes to VS Code, for example to hide a
 notification. Each search result shows its
 title and, under it, where it is cited. The status bar counts steps and

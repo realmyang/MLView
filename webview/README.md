@@ -182,7 +182,8 @@ golden is byte-identical):
   canvas (the extension sets no `enableFindWidget`, so the webview has no find
   bar of its own; Ctrl/Cmd+K did the same until the live-check fixes). Search rows print the title first and the location under
   it, cut from the start; `.mlv-result__count` heads the list.
-- Chrome icons are 19 inline SVG paths in `src/icons.ts` (`uiIcon`), drawn in
+- Chrome icons are 20 inline SVG paths in `src/icons.ts` (`uiIcon`; viewer M3
+  added `review`), drawn in
   the codicon style; there is no icon font, so the CSP is unchanged.
 - `test/header-m2.test.mjs` injects the shipped stylesheet and stubs the root
   width to check the header at 1440, 900 and 541 px, the ⋯ menu, the removed
@@ -340,9 +341,8 @@ setting; the golden is byte-identical):
 - The host drops a numbered open whose `seq` is not above the last one it saw
   on this page (answered `cancelled`), and an open a later open overtook while
   it waited (a notebook's cell editor, for example). A new page (`ready`)
-  starts the numbering again. The walk itself (step 11) should send a jump
-  only after the reader has stopped moving for about 150 ms; that debounce is
-  not in the viewer yet.
+  starts the numbering again. The walk sends a jump only after the reader has
+  stopped moving for `WALK_OPEN_DEBOUNCE_MS` (150 ms, `src/app/walk.ts`).
 - `actionResult` answers `openLocation` too: `done`, `blocked` (not opened,
   with `reason` and a short `message` such as "train.py changed after
   revision r3 was published; not opened."), `cancelled` or `failed`. It
@@ -356,7 +356,11 @@ setting; the golden is byte-identical):
   a `requestId`.
 - `{ type: 'walk', state: 'end' }` is new: the walk ended, so the host clears
   the cited-range highlight (and its overview-ruler mark) and drops a walk open
-  still waiting. Closing the panel clears it too.
+  still waiting. Closing the panel clears it too. `state: 'clear'` (added with
+  step 11) does the same while the walk goes on: the walk moved to a claim it
+  opens nothing for (no quotes, or a claim the reader only selected). A
+  blocked walk open also clears the previous claim's highlight; a blocked
+  ordinary open keeps it.
 - The checks behind a jump are cached per revision and freshness version, keyed
   by each cited file's device, inode, size, and modification and change times
   (`checkCitedFile` in `vscode-extension/src/authoredPanel.ts`). The first jump
@@ -376,6 +380,53 @@ setting; the golden is byte-identical):
   handled too. `authoredEscapeHandshake` in `test/authored-handshake.mjs` pins
   both with a stand-in forwarder attached before the scripts.
 
+Viewer M3 review walk, the viewer (roadmap step 11; no contract change, no new
+setting; the golden is byte-identical):
+
+- `src/walk.ts` is pure: `claimOrder(index)` walks the drawn order (lanes, then
+  `roots` and `laneChildren` depth first, as the Outline lists them): each
+  step, its `outEdges`, then the findings whose first cited step in that order
+  it is; then any connection whose source no lane reached (none can today),
+  then findings citing no step, in document order (the roadmap is silent on
+  those). It also holds the
+  filters (`notObserved` uses `isNotObserved`, the same test as the header's
+  count; `changed` is offered unless every stale file is only in another
+  folder, the root hint's case),
+  `positionFor` (keep the claim, else the next one in drawn order), and the
+  bar, pane and live-region wording.
+- `src/app/walk.ts` (`ReviewWalk`) runs it: start, stop, step, quotes, the
+  `u` and `n` / `p` jumps, filters, the debounced numbered open
+  (`openLocation` with `walk: true`, `seq`, `requestId` via
+  `App.postRequest`), only the latest answer shown, `walk: 'clear'` for a
+  claim with nothing to open, and the place per revision. A reader's own
+  selection of a claim in the list moves the walk without opening it.
+- `src/ui/walkbar.ts` is the bar: a labelled region at the end of `.mlv-main`
+  (after the canvas, before the rail), one `role="toolbar"` tab stop for the
+  filters and Exit, `data-layout="narrow"` below 620 px. Escape inside it ends
+  the walk; j, k, [, ], u, n and p pressed there go to the walk.
+- `ViewState.walk` (`WalkViewState`: `filter`, `claim`, `quote` when not the
+  first, `active` while running) is written only once a walk ran for the
+  displayed revision, restored only for the same `workflowRevision`
+  (`sanitizeWalk`), and a remount resumes a running walk without posting an
+  open. No other walk state is kept; nothing is a verdict.
+- Keys (`KEYMAP`, `handleCanvasKey`): `r` toggles, `u` / Shift+U, and only
+  while walking `j` / `k`, ↓ / ↑ and `[` / `]`; `n` / `p` follow the walk's
+  order while it runs (`CommandPort.walkFindings`). The Escape cascade ends
+  the walk after the legend and before the bottom sheet (`appkeys.ts`), and an
+  Escape inside the open sheet ends a running walk first.
+- The header's `.mlv-header__review` goes with the revision chip (below
+  620 px or at fit level 1); the ⋯ menu always has `review`. `HostNotice`
+  offers `[data-notice-action="review"]` for `stale` while claims cite a
+  changed file. The Selection pane marks the walk's quote (`applyWalkMark`:
+  `.mlv-quote.is-walk`, `.mlv-quote__walk`) in place and scrolls it into view
+  on `[` / `]`.
+- `test/walk.test.mjs` covers the order on synthetic documents with the
+  vit-cc and yolov5-cc2 shapes (79 and 176 claims), filter counts against the
+  header, keys, debounce and `seq`, blocked answers, announcements, the place
+  per revision, Changed files, Tab order and 541 / 900 px.
+  `authoredWalkHandshake` in `test/authored-handshake.mjs` drives the real
+  host with the built viewer.
+
 Viewer M1 cleanup (no contract change):
 
 - The bundle contains only the authored path. Inbound, the viewer handles
@@ -384,8 +435,8 @@ Viewer M1 cleanup (no contract change):
   Diagram") and `restoreState` (the tests drive collapse with it); any other
   type is answered with a `log` frame and ignored. Outbound it posts
   `openLocation`, `workspaceHint`, `refineWorkflow`, `copy`, `exportFile` and
-  `log` (viewer M3 adds `walk` to the protocol for the review walk; the viewer
-  does not send it yet); the host bootstrap posts `ready`.
+  `log`, and since viewer M3 `walk` (sent by the review walk); the host
+  bootstrap posts `ready`.
 - A saved `ViewState` with keys the viewer no longer writes (for example
   `showSuppressed` or `railGroupBy`) still loads; those keys are ignored.
 - `MLGraph` carries only what an authored document fills in. Fields of the
