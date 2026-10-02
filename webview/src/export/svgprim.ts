@@ -11,7 +11,7 @@
  * one file, and the pen is the half nothing about the diagram depends on.
  */
 
-import { SEVERITY_INK, SEVERITY_SHAPE, SEVERITY_ORDER, countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
+import { SEVERITY_INK, SEVERITY_SHAPE, SEVERITY_ORDER, badgeText, countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { severityColor, severityInk, Palette } from './palette.js';
 import type { Rect } from '../render/canvas.js';
 import type { IssueCounts } from '../types.js';
@@ -28,14 +28,6 @@ export const EXPORT_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Libe
 const ADVANCE_SANS = 0.51;
 const ADVANCE_SANS_BOLD = 0.55;
 const ADVANCE_MONO = 0.6;
-/**
- * Uppercase is much wider than the mixed-case average, and the lane header is
- * the one place the export sets an all-caps string. Measured in Chromium: the
- * mixed-case factor put "CONFIGURATION" 14 px short and the node count landed
- * on top of the label.
- */
-export const ADVANCE_CAPS = 0.72;
-
 export interface TextOptions {
   size: number;
   fill: string;
@@ -101,11 +93,12 @@ export function severityGlyphMarkup(severity: string, x: number, y: number, size
 }
 
 /** The node badge: highest glyph, plus the total when there is more than one. */
-export function badge(counts: IssueCounts, right: number, top: number, palette: Palette, hc: boolean): string {
+export function badge(counts: IssueCounts, right: number, top: number, palette: Palette, hc: boolean, labels: readonly string[] = []): string {
   const sev = highestSeverity(counts);
   if (!sev) return '';
   const total = countsTotal(counts);
-  const countText = total > 1 ? String(total) : '';
+  // Viewer M2: the short labels (`F2 F5`), as the DOM badge prints them; else the total.
+  const countText = labels.length ? badgeText(labels) : total > 1 ? String(total) : '';
   const w = 8 + 18 + (countText ? width(countText, 10.5, false, true) + 4 : 0);
   const x = right - w;
   const out = [

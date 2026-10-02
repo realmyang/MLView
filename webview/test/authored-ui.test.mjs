@@ -42,19 +42,23 @@ const issueRows = (ctx) => Array.from(ctx.document.querySelectorAll('.mlv-issue[
 
 test('zero authored findings are described as none recorded, never as a clean check', async () => {
   const ctx = await mount(workflow({ findings: [] }));
+  // Viewer M2: the tab counts them, and the list says why it is empty.
+  assert.equal(ctx.root.querySelector('[role="tab"][data-tab="issues"]').textContent, 'Findings (0)');
+  ctx.app.setRailTab('issues');
   const panel = ctx.root.querySelector('.mlv-rail__panel:not([hidden])').textContent;
   assert.match(panel, /No findings recorded in this revision/);
-  assert.match(panel, /The assistant recorded no findings\. Coverage: partial; 1 limitation listed above\. This is not a check result\./);
+  assert.match(panel, /The assistant recorded no findings\. Coverage: partial; 1 limitation listed in About\. This is not a check result\./);
   assert.doesNotMatch(panel, /nothing to flag|checked|No issues found/);
   ctx.app.destroy();
 
   const scoped = await mount(workflow({ findings: [], coverage: { status: 'scoped', summary: 's', inspectedFiles: ['src/train.py'], limitations: [] } }));
+  scoped.app.setRailTab('issues');
   assert.match(scoped.root.querySelector('.mlv-rail__panel:not([hidden])').textContent,
     /The assistant recorded no findings\. Coverage: scoped\. This is not a check result\./);
   scoped.app.destroy();
 });
 
-test('a workflow-level finding stays listed under phase filters and every scope', async () => {
+test('a workflow-level finding stays listed under every severity filter, and an old phase filter is ignored', async () => {
   // Port of critic-repros/wf_finding.mjs.
   const doc = {
     workflowVersion: '1.0', title: 'T', producer: { kind: 'host-llm', host: 'codex' }, revision: { id: 'r1' },
@@ -73,21 +77,23 @@ test('a workflow-level finding stays listed under phase filters and every scope'
     coverage: { status: 'scoped', summary: 's', inspectedFiles: ['train.py'], limitations: [] },
   };
   const ctx = await mount(doc);
+  ctx.app.setRailTab('issues');
   assert.deepEqual(issueRows(ctx).sort(), ['node-level', 'workflow-level']);
+  // Viewer M2 removed the phase chips and the scope picker: a host still sending the old phase
+  // filter changes nothing, and the whole document stays drawn.
   ctx.app.setFilters({ stages: ['load'] });
-  assert.deepEqual(issueRows(ctx), ['workflow-level'], 'a phase filter keeps the workflow-level finding');
-  ctx.app.setFilters({ stages: ['load', 'train'] });
-  assert.deepEqual(issueRows(ctx).sort(), ['node-level', 'workflow-level']);
-  ctx.app.setFilters({ stages: [] });
-  ctx.app.setScope('stage:train');
-  assert.equal(ctx.app.getScope().spec, 'stage:train');
+  assert.deepEqual(issueRows(ctx).sort(), ['node-level', 'workflow-level'], 'the old phase filter is ignored');
+  assert.equal('stages' in ctx.app.getState().filters, false, 'and never written back');
+  ctx.app.setFilters({ severities: ['high'] });
+  assert.deepEqual(issueRows(ctx), ['workflow-level']);
+  ctx.app.setFilters({ severities: ['medium'] });
+  assert.deepEqual(issueRows(ctx), ['node-level']);
   assert.deepEqual(Array.from(ctx.app.graph.issues, (issue) => issue.id).sort(), ['node-level', 'workflow-level']);
-  ctx.app.setScope('stage:load');
-  assert.deepEqual(Array.from(ctx.app.graph.issues, (issue) => issue.id), ['workflow-level']);
+  assert.equal(typeof ctx.app.setScope, 'undefined');
   ctx.app.destroy();
 });
 
-test('three authored entrypoints open no pipeline chooser, and the picker offers no analyzer sections', async () => {
+test('three authored entrypoints open no pipeline chooser and no scope picker', async () => {
   const doc = workflow({
     request: { question: 'q', scope: 's', entrypoints: ['a.py', 'b.py', 'c.py'] },
     phases: [{ id: 'train', label: 'Train' }],
@@ -104,43 +110,11 @@ test('three authored entrypoints open no pipeline chooser, and the picker offers
   doc.nodes.push({ id: 'child', label: 'Concept child', phase: 'train', parent: 'concept', basis: 'unresolved', evidence: [] });
   const ctx = await mount(doc);
   assert.equal(ctx.root.querySelector('.mlv-pipechooser'), null, 'no pipeline chooser is built');
-  ctx.root.querySelector('.mlv-btn--scope').click();
-  const picker = ctx.root.querySelector('.mlv-scopepicker');
-  const headings = Array.from(picker.querySelectorAll('.mlv-scopepicker__heading'), (h) => h.textContent);
-  assert.equal(headings.includes('Pipelines'), false);
-  assert.equal(headings.includes('Concerns'), false);
-  assert.doesNotMatch(picker.textContent, /not detected in this project/);
-  assert.equal(picker.querySelector('input[type="search"]').placeholder, 'Search steps, phases, files…');
-  const conceptRow = Array.from(picker.querySelectorAll('.mlv-scopepicker__row')).find((row) => /Concept group/.test(row.textContent));
-  assert.ok(conceptRow, 'the evidence-less group is offered as a unit');
-  assert.doesNotMatch(conceptRow.textContent, /:1\b/, 'no fake location for a step without evidence');
-  ctx.app.destroy();
-});
-
-test('scoping to a step uses its stable id, even when labels repeat or the id has a colon', async () => {
-  const doc = workflow({
-    phases: [{ id: 'load', label: 'Load' }, { id: 'eval', label: 'Evaluate' }],
-    nodes: [
-      { id: 'train:read', label: 'Read records', phase: 'load', basis: 'observed', evidence: ['ev-load'] },
-      { id: 'train:fit', label: 'Fit', phase: 'load', basis: 'observed', evidence: ['ev-load'] },
-      { id: 'eval:read', label: 'Read records', phase: 'eval', basis: 'observed', evidence: ['ev-load'] },
-      { id: 'eval:score', label: 'Score', phase: 'eval', basis: 'observed', evidence: ['ev-load'] },
-    ],
-    edges: [
-      { id: 'e1', source: 'train:read', target: 'train:fit', label: 'rows', basis: 'observed', evidence: ['ev-load'] },
-      { id: 'e2', source: 'eval:read', target: 'eval:score', label: 'rows', basis: 'observed', evidence: ['ev-load'] },
-    ],
-    findings: [],
-  });
-  const ctx = await mount(doc);
-  ctx.app.scopeToNode('train:read');
-  assert.equal(ctx.app.getScope().spec, 'unit:train:read');
-  const drawn = Array.from(ctx.root.querySelectorAll('[data-node-id]'), (n) => n.getAttribute('data-node-id')).sort();
-  assert.deepEqual(drawn, ['train:fit', 'train:read'], 'only the selected step and its neighbourhood');
-  ctx.app.setScope(null);
-  ctx.root.querySelector('.mlv-btn--scope').click();
-  const specs = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row'), (row) => row.getAttribute('data-scope-spec')).filter(Boolean);
-  assert.equal(specs.some((spec) => spec === 'unit:Read records'), false, 'picker units are addressed by id, never by label');
+  // Viewer M2: the scope picker is gone; every step of the three entrypoints is drawn.
+  assert.equal(ctx.root.querySelector('.mlv-btn--scope'), null);
+  assert.equal(ctx.root.querySelector('.mlv-scopepicker'), null);
+  assert.doesNotMatch(ctx.root.textContent, /not detected in this project|Pipelines|Concerns/);
+  assert.equal(ctx.root.querySelectorAll('[data-node-id]').length, doc.nodes.length);
   ctx.app.destroy();
 });
 
@@ -157,7 +131,9 @@ test('authored notebook evidence names its cell as the artifact records it, coun
   const anchor = ctx.root.querySelector('.mlv-rail__panel:not([hidden]) [data-evidence-id="ev-load"]');
   // Viewer M1: cell 7 is cell 7 everywhere (the skill, the helper's --cell, the extension and
   // the model's own labels count from 0); it used to print as "cell 8 : 3".
-  assert.equal(anchor.textContent, 'Open nb/explore.ipynb › cell 7, line 3');
+  assert.equal(anchor.textContent, 'Open');
+  assert.equal(anchor.getAttribute('aria-label'), 'Open nb/explore.ipynb › cell 7, line 3');
+  assert.equal(anchor.closest('.mlv-quote').querySelector('.mlv-quote__loc').textContent, 'nb/explore.ipynb › cell 7, line 3');
   assert.equal(anchor.title, 'cell 7, counted from 0 as the artifact records it (markdown cells count too); line 3 of that cell');
   assert.doesNotMatch(ctx.root.textContent, /concatenated code cells/);
   const card = ctx.root.querySelector('[data-node-id="dataset"]');
@@ -182,41 +158,49 @@ test('search finds stable ids and cited text, and shows no fake location', async
   ctx.app.destroy();
 });
 
-test('the status bar names revision, host and model, and limitations are not chips', async () => {
+test('the header names host and revision, its tooltip the model, and limitations are not chips', async () => {
   const ctx = await mount();
-  const status = ctx.root.querySelector('.mlv-status') || ctx.app.chrome.status;
-  assert.match(status.textContent, /revision r1 · codex · gpt-test/);
-  assert.doesNotMatch(status.textContent, /mlview gpt-test/);
+  // Viewer M2: the provenance chip is the one place the revision is named; the status bar no
+  // longer repeats it.
+  const chip = ctx.root.querySelector('.mlv-header__prov');
+  assert.equal(chip.textContent, 'codex · r1');
+  assert.match(chip.title, /^Revision r1 by codex \(gpt-test\)\. Published without source hashes\./);
+  assert.doesNotMatch(ctx.app.chrome.status.textContent, /r1|codex|gpt-test/);
   assert.equal(ctx.root.querySelector('[data-diagnostic-kind="workflow_limitation"]'), null);
-  assert.doesNotMatch(ctx.root.querySelector('.mlv-chiprow') ? ctx.root.querySelector('.mlv-chiprow').textContent : '', /Approval implementation/);
+  assert.equal(ctx.root.querySelector('.mlv-chiprow'), null, 'no chip row to hold a limitation');
+  assert.doesNotMatch(ctx.root.querySelector('.mlv-header').textContent, /Approval implementation/);
   ctx.app.destroy();
   const unnamed = await mount(workflow({ producer: { kind: 'host-llm', host: 'claude-code' } }));
-  const text = (unnamed.root.querySelector('.mlv-status') || unnamed.app.chrome.status).textContent;
-  assert.match(text, /revision r1 · claude-code/);
-  assert.doesNotMatch(text, /unspecified model/);
+  const named = unnamed.root.querySelector('.mlv-header__prov');
+  assert.equal(named.textContent, 'claude-code · r1');
+  assert.match(named.title, /^Revision r1 by claude-code\. /);
+  assert.doesNotMatch(named.title, /unspecified model/);
   unnamed.app.destroy();
 });
 
 test('authored readers see finding wording, no adapter chips and no duplicated message', async () => {
   const ctx = await mount();
   ctx.app.focusIssue('loss-risk');
-  assert.match(ctx.app.liveEl.textContent, /^Finding loss-risk, medium severity: Loss is aggregated late$/);
+  assert.match(ctx.app.liveEl.textContent, /^Finding F1 \(loss-risk\), medium severity: Loss is aggregated late$/);
+  ctx.app.setRailTab('issues');
   const list = ctx.root.querySelector('.mlv-issues[role="listbox"]');
   assert.equal(list.getAttribute('aria-label'), 'medium severity findings');
   const row = ctx.root.querySelector('.mlv-issue[data-issue-id="loss-risk"]');
   assert.equal((row.textContent.match(/The update uses a delayed aggregate\./g) || []).length <= 1, true, 'the message is printed once');
   assert.equal(row.querySelector('.mlv-insp__why'), null);
+  ctx.app.setRailTab('inspector');
   ctx.app.focusNode('dataset');
-  const meta = Array.from(ctx.root.querySelectorAll('.mlv-rail__panel:not([hidden]) .mlv-insp__meta .mlv-chip'), (chip) => chip.textContent);
-  assert.equal(meta.includes('unknown'), false, 'no kind chip when the author gave no kind');
-  assert.equal(meta.includes('unit') || meta.includes('op'), false, 'no level chip');
+  const eyebrow = ctx.root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-insp__eyebrow').textContent;
+  assert.equal(eyebrow, '1 · Load', 'the phase only: no kind when the author gave none, no level');
   ctx.app.focusNode('step');
-  const headings = Array.from(ctx.root.querySelectorAll('.mlv-rail__panel:not([hidden]) h4, .mlv-rail__panel:not([hidden]) h5'), (h) => h.textContent);
-  assert.ok(headings.includes('Findings'));
+  const headings = Array.from(ctx.root.querySelectorAll('.mlv-rail__panel:not([hidden]) h4, .mlv-rail__panel:not([hidden]) .mlv-rail__headtext'), (h) => h.textContent);
+  assert.ok(headings.includes('Findings on this step'));
   assert.equal(headings.includes('Issues'), false);
   const badge = ctx.root.querySelector('[data-node-id="step"] [aria-label*="highest severity"]');
   assert.ok(badge);
-  assert.match(badge.getAttribute('aria-label'), /^1 finding, highest severity medium$/);
+  // Viewer M2: the badge names its finding by short label (F1…Fn, document order), not a bare count.
+  assert.match(badge.getAttribute('aria-label'), /^Finding F\d+, highest severity medium$/);
+  ctx.app.setRailTab('issues');
   ctx.app.setFilters({ severities: ['high'] });
   assert.match(ctx.root.querySelector('.mlv-rail').textContent, /No findings match these filters\./);
   ctx.app.destroy();
@@ -288,7 +272,7 @@ test('card DOM ids are injective, so aria-activedescendant names the selected ca
 test('exports keep a title containing a slash whole, and stay well-formed XML with U+FFFF', async () => {
   const exportOf = async (title) => {
     const ctx = await mount(workflow({ title }));
-    ctx.root.querySelector('.mlv-btn--exportmenu').click();
+    ctx.root.querySelector('.mlv-btn--more').click();
     ctx.root.querySelector('[data-export-action="svg"]').click();
     const frame = ctx.bridge.posted.findLast((m) => m.type === 'exportFile');
     const svg = Buffer.from(frame.base64, 'base64').toString('utf8');
@@ -307,7 +291,7 @@ test('exports keep a title containing a slash whole, and stay well-formed XML wi
 
 // ---- Review round 1 ----
 
-test('scope picker rows name an authored notebook cell like the card does (WEBVIEW1-3)', async () => {
+test('search rows name an authored notebook cell like the card does, title first (WEBVIEW1-3)', async () => {
   const ctx = await mount(workflow({
     evidence: [
       { id: 'ev-load', file: 'nb/explore.ipynb', cell: 7, line: 3, endLine: 3, quote: 'df = load()' },
@@ -315,38 +299,17 @@ test('scope picker rows name an authored notebook cell like the card does (WEBVI
       { id: 'ev-loss', file: 'src/train.py', line: 35, endLine: 36, quote: 'loss.mean()' },
     ],
   }));
-  ctx.root.querySelector('.mlv-btn--scope').click();
-  const rows = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row'), (row) => row.textContent);
-  assert.ok(rows.some((text) => /^Read recordsnb\/explore\.ipynb › cell 7, line 3 · \d+ nodes?$/.test(text)), rows.join(' | '));
-  assert.equal(rows.some((text) => /explore\.ipynb:3/.test(text)), false);
-  const row = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row')).find((r) => /explore/.test(r.textContent));
-  assert.match(row.title, /cell 7, counted from 0 as the artifact records it .*; line 3 of that cell/);
+  // Viewer M2 removed the scope picker; the search rows are where a step's location is listed.
+  const input = ctx.root.querySelector('.mlv-search .mlv-input');
+  input.value = 'Read records';
+  input.dispatchEvent(new ctx.window.Event('input', { bubbles: true }));
+  const row = Array.from(ctx.root.querySelectorAll('.mlv-search__results .mlv-result')).find((r) => /Read records/.test(r.textContent));
+  assert.ok(row);
+  const parts = Array.from(row.children, (child) => child.className.baseVal === undefined ? child.className : child.className.baseVal);
+  assert.ok(parts.indexOf('mlv-result__label') < parts.indexOf('mlv-result__meta'), 'the title comes before the location: ' + parts.join(','));
+  assert.match(row.querySelector('.mlv-result__meta').textContent, /nb\/explore\.ipynb › cell 7, line 3/);
+  assert.doesNotMatch(row.textContent, /explore\.ipynb:3/);
   assert.match(ctx.root.querySelector('[data-node-id="dataset"]').textContent, /nb\/explore\.ipynb › cell 7, line 3/);
-  ctx.app.destroy();
-});
-
-test('the scope picker search finds phases by label or id and steps by id (WEBVIEW1-6)', async () => {
-  const ctx = await mount();
-  ctx.root.querySelector('.mlv-btn--scope').click();
-  const picker = ctx.root.querySelector('.mlv-scopepicker');
-  const input = picker.querySelector('input[type="search"]');
-  assert.equal(input.placeholder, 'Search steps, phases, files…');
-  assert.equal(picker.querySelector('label.mlv-sr').textContent, 'Search steps, phases, files');
-  const search = (text) => {
-    input.value = text;
-    input.dispatchEvent(new ctx.window.Event('input', { bubbles: true }));
-    return {
-      stages: Array.from(picker.querySelectorAll('[data-scope-spec^="stage:"]'), (b) => b.getAttribute('data-scope-spec')),
-      units: Array.from(picker.querySelectorAll('[data-scope-spec^="unit:"]'), (b) => b.getAttribute('data-scope-spec')),
-      empty: picker.querySelector('.mlv-empty-note')?.textContent || '',
-    };
-  };
-  assert.deepEqual(search('Repeated training'), { stages: ['stage:loop'], units: [], empty: '' });
-  assert.deepEqual(search('loop'), { stages: ['stage:loop'], units: [], empty: '' });
-  assert.deepEqual(search('epoch'), { stages: [], units: ['unit:epoch'], empty: '' });
-  assert.deepEqual(search('src/data.py'), { stages: [], units: ['unit:dataset'], empty: '' });
-  assert.deepEqual(search('nothing like this'), { stages: [], units: [], empty: 'No unit matches “nothing like this”.' });
-  assert.equal(search('').stages.length, 2);
   ctx.app.destroy();
 });
 

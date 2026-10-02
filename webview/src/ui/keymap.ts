@@ -15,6 +15,7 @@ export interface KeyCommands {
   escape(): void;
   cycleIssue(backwards: boolean): boolean;
   zoom(direction: number): void;
+  /** `0`: the readable view (viewer M2), the first paint again. */
   fit(): void;
   toggleFocusMode(): void;
   zoomToSelection(): void;
@@ -24,24 +25,27 @@ export interface KeyCommands {
   toggleLegend(): void;
   /** `a`: turn the connection-flow animation on or off. */
   toggleFlow(): void;
+  /**
+   * `Shift+A` (viewer M2): play the flow on screen again. A flow stops after two passes; false
+   * when nothing is lit, the layer is off, or motion is reduced.
+   */
+  replayFlow(): boolean;
   toggleCollapse(): boolean;
   /** Enter: open beside the panel, focus kept; Alt+Enter (`focusEditor`): open and move focus there. */
   openSelection(focusEditor: boolean): boolean;
   move(key: string): void;
   /** 0 = high, 1 = medium, 2 = low. */
   toggleSeverity(index: number): void;
+  /** `b` (viewer M2 live fix; it was Ctrl+B): show or hide the side panel, open or collapse the bottom one. */
   toggleRail(): void;
-  /** 0 = Issues, 1 = Inspector, 2 = Outline. */
-  selectRailTab(index: number): void;
+  /**
+   * `t` (viewer M2 live fix; it replaced Ctrl+1 to Ctrl+4): move the focus to the panel's current
+   * tab, opening the panel first; the tab strip's arrow keys then pick a tab.
+   */
+  focusRailTabs(): void;
   toggleShortcuts(): void;
   /** `e` / `Shift+E`: walk the selection's connections. */
   cycleConnections(backwards: boolean): boolean;
-  /** `s`: scope the diagram to the selection. */
-  scopeToSelection(): boolean;
-  /** `Shift+S`: clear the scope. False when there is none. */
-  clearScope(): boolean;
-  /** `[` / `]`: step the scope depth. False when there is no scope. */
-  stepDepth(delta: number): boolean;
 }
 
 export interface KeyBinding {
@@ -51,15 +55,20 @@ export interface KeyBinding {
 }
 
 export const KEYMAP: KeyBinding[] = [
-  { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
+  // Viewer M2: the find key too, from anywhere in the viewer (app.ts), since the webview has no find
+  // bar. `Mod+F` is printed Cmd+F (⌘F) on macOS and Ctrl+F elsewhere (ui/platform.ts). Viewer M2
+  // live fix: Ctrl/Cmd+K is gone; the workbench reads Cmd+K (macOS) and Ctrl+K as a chord prefix.
+  { keys: ['Mod+F', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
   { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous finding (document order)' },
   // Viewer M1: a click selects and shows the claim; opening the source is Enter (or a double-click).
   { keys: ['Enter'], action: 'open', description: 'Open the cited source beside the diagram; focus stays here' },
   { keys: ['Alt+Enter'], action: 'openFocus', description: 'Open the cited source and move focus to the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection' },
-  { keys: ['0'], action: 'fit', description: 'Fit the whole diagram' },
-  { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit' },
+  // Viewer M2: key 0 is the readable first view; the whole document is the ... menu's "Fit the
+  // whole diagram" (and Shift+0, which also folds the groups).
+  { keys: ['0'], action: 'fit', description: 'Readable view: the whole diagram if it fits at reading size, otherwise phase 1' },
+  { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit the whole diagram' },
   { keys: ['+', '='], action: 'zoomIn', description: 'Zoom in' },
   { keys: ['-', '_'], action: 'zoomOut', description: 'Zoom out' },
   { keys: ['z'], action: 'zoomToSelection', description: 'Zoom to the selection' },
@@ -68,18 +77,19 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['f'], action: 'focusMode', description: 'Focus mode: light the full lineage of the selection' },
   { keys: ['l'], action: 'legend', description: 'Show or hide the legend' },
   { keys: ['a'], action: 'flow', description: 'Turn the connection flow animation on or off' },
-  { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },
-  { keys: ['s', 'Shift+S'], action: 'scope', description: 'Scope the diagram to the selection / clear the scope' },
-  { keys: ['[', ']'], action: 'scopeDepth', description: 'Narrow / widen the scope by one hop' },
+  // Viewer M2: a flow stops after two passes, so nothing moves while you read.
+  { keys: ['Shift+A'], action: 'replayFlow', description: 'Play the connection flow again (it stops after two passes)' },
+  { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected step' },
   { keys: ['1', '2', '3'], action: 'toggleSeverity', description: 'Toggle the high / medium / low filters' },
-  { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side rail' },
-  { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3'], action: 'railTab', description: 'Findings / Inspector / Outline' },
+  // Viewer M2 live fix: plain keys. Ctrl/Cmd+B also toggled the workbench's side bar, Cmd+1 to Cmd+4
+  // (Ctrl on Windows and Linux) focus editor groups, and Ctrl+1 to Ctrl+4 on macOS (Alt elsewhere)
+  // bring the group's Nth tab to the front, hiding the diagram.
+  { keys: ['b'], action: 'toggleRail', description: 'Show or hide the side panel; open or collapse the bottom panel' },
+  { keys: ['t'], action: 'railTab', description: 'Go to the panel tabs, About / Findings / Selection / Outline (opens the panel); ← and → pick a tab' },
   { keys: ['?'], action: 'shortcuts', description: 'Show this shortcut sheet' },
   // The rungs, in the order `dismissTopmost` runs them (CONTRACTS 11.13). The
-  // sheet is the only place the cascade is described to the user, and a scoped
-  // diagram is exactly where someone presses Escape expecting the selection to
-  // go and loses the scope instead (MLV-R1-F2-06).
-  { keys: ['Escape'], action: 'escape', description: 'Close the picker, sheet or legend, exit focus mode, clear the scope, clear the selection, leave the canvas' },
+  // sheet is the only place the cascade is described to the user (MLV-R1-F2-06).
+  { keys: ['Escape'], action: 'escape', description: 'Close the menu, this sheet, the Refine popover or the legend, collapse the bottom panel, exit focus mode, clear the selection, leave the canvas' },
   { keys: ['Tab', 'Shift+Tab'], action: 'browser', description: 'Move focus out of the diagram (never intercepted)' },
 ];
 
@@ -96,17 +106,11 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
   // so swallowing it strands keyboard users inside the diagram.
   if (key === 'Tab') return false;
 
+  // Viewer M2 live fix: the find key is the only chord the canvas answers. Every other Ctrl or Cmd
+  // chord is left alone, unconsumed, for the workbench (ui/platform.ts says why).
   if (mod) {
-    if (key === 'k' || key === 'K') {
+    if (key === 'f' || key === 'F') {
       cmd.focusSearch();
-      return consume();
-    }
-    if (key === 'b' || key === 'B') {
-      cmd.toggleRail();
-      return consume();
-    }
-    if (key === '1' || key === '2' || key === '3') {
-      cmd.selectRailTab(Number(key) - 1);
       return consume();
     }
     return false;
@@ -168,7 +172,13 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     cmd.toggleLegend();
     return consume();
   }
+  // Viewer M2: `a` turns the flow on or off; Shift+A plays it again. Branch on shiftKey
+  // explicitly: with Caps Lock on, a plain `a` arrives as 'A'.
   if (key === 'a' || key === 'A') {
+    if (ev.shiftKey) {
+      if (!cmd.replayFlow()) return false;
+      return consume();
+    }
     cmd.toggleFlow();
     return consume();
   }
@@ -178,17 +188,16 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     if (!cmd.cycleConnections(ev.shiftKey)) return false;
     return consume();
   }
-  if (key === 's' || key === 'S') {
-    const done = ev.shiftKey ? cmd.clearScope() : cmd.scopeToSelection();
-    if (!done) return false;
-    return consume();
-  }
-  if (key === '[' || key === ']') {
-    if (!cmd.stepDepth(key === ']' ? 1 : -1)) return false;
-    return consume();
-  }
   if (key === 'z' || key === 'Z') {
     cmd.zoomToSelection();
+    return consume();
+  }
+  if (key === 'b' || key === 'B') {
+    cmd.toggleRail();
+    return consume();
+  }
+  if (key === 't' || key === 'T') {
+    cmd.focusRailTabs();
     return consume();
   }
   if (key === ' ') {

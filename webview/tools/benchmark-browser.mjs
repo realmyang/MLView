@@ -37,14 +37,14 @@ async function run(size) {
   const app = mount.value;
   assertNodes(host, fixture, 'mount');
   const select = await measured(() => app.focusNode(`node-${Math.floor(size / 2)}`, { center: false, pulse: false }));
-  const target = fixture.nodes.find((node) => node.parent);
-  const scope = await measured(() => app.setScope(`unit:${target.label}`, { depth: 1 }));
-  if (app.getScope().nodes !== 5) throw new Error(`scope: expected 5 nodes, got ${app.getScope().nodes}`);
-  const reset = await measured(() => app.setScope(null));
-  if (app.getScope().nodes !== size) throw new Error(`reset: expected ${size} nodes, got ${app.getScope().nodes}`);
-  assertNodes(host, fixture, 'reset');
+  assertNodes(host, fixture, 'select');
+  // Viewer M2 removed the scope picker (no scope or reset timing any more) and the export request
+  // message: an export starts from the header's ... menu, as a reader starts it.
   const postedBefore = wire.posted.length;
-  const exportSvg = await measured(() => wire.send({ v: 1, type: 'requestExport', kind: 'svg', scope: 'all' }));
+  const exportSvg = await measured(() => {
+    host.querySelector('.mlv-btn--more').click();
+    document.querySelector('[data-export-action="svg"]').click();
+  });
   const exported = wire.posted.slice(postedBefore).find((message) => message.type === 'exportFile' && message.kind === 'svg');
   if (!exported?.base64) throw new Error('export: no SVG exportFile payload');
   const update = benchmarkWorkflow(size, 'synthetic-r2');
@@ -54,7 +54,7 @@ async function run(size) {
   const liveHeapAfterUpdateMiB = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null;
   const dispose = await measured(() => app.destroy());
   if (host.childElementCount) throw new Error(`dispose: ${host.childElementCount} rendered children remain`);
-  return { size, features: benchmarkFeatures(fixture), mount: mount.ms, select: select.ms, scope: scope.ms, reset: reset.ms, exportSvg: exportSvg.ms, update: changed.ms, dispose: dispose.ms, elements,
+  return { size, features: benchmarkFeatures(fixture), mount: mount.ms, select: select.ms, exportSvg: exportSvg.ms, update: changed.ms, dispose: dispose.ms, elements,
     exportBytes: Math.floor(exported.base64.length * 3 / 4), liveHeapAfterUpdateMiB };
 }
 
@@ -78,8 +78,8 @@ runButton.addEventListener('click', async () => {
       const sample = await run(size);
       samples.push(sample);
       const row = document.createElement('tr');
-      [sample.size, sample.mount, sample.select, sample.scope, sample.reset, sample.exportSvg, sample.update, sample.dispose, sample.elements, sample.liveHeapAfterUpdateMiB]
-        .forEach((value, index) => cell(row, index > 0 && index < 8 ? value.toFixed(1) : value === null ? 'unavailable' : String(Math.round(value))));
+      [sample.size, sample.mount, sample.select, sample.exportSvg, sample.update, sample.dispose, sample.elements, sample.liveHeapAfterUpdateMiB]
+        .forEach((value, index) => cell(row, index > 0 && index < 6 ? value.toFixed(1) : value === null ? 'unavailable' : String(Math.round(value))));
       results.appendChild(row);
     }
     report = { metadata, samples };

@@ -11,7 +11,6 @@
 import { handleCanvasKey } from '../ui/keymap.js';
 import { canvasCommands } from '../ui/commands.js';
 import { commandPortFor } from '../ui/appkeys.js';
-import { scopeToNode, setScope, stepDepth, toggleScopePicker } from './documents.js';
 import type { CommandPort } from '../ui/commands.js';
 import type { App } from '../app.js';
 import type { Issue } from '../types.js';
@@ -32,9 +31,11 @@ function commandPort(app: App): CommandPort {
     },
     select: (sel) => app.select(sel),
     clearSelection: () => app.clearSelection(),
-    focusSearch: () => app.search.focus(),
+    focusSearch: () => app.focusSearch(),
     visibleIssues: () => filteredIssues(app),
-    focusIssue: (id) => app.focusIssue(id),
+    // `n` / `p` walk the findings in the Findings list's order: that list keeps its place while it
+    // is the tab on screen, and expands each finding in turn (viewer M2 review, M2-INT-1).
+    focusIssue: (id) => app.focusIssue(id, { fromList: 'issues' }),
     // Viewer M1: Enter opens beside the panel and keeps focus here, so the keys keep working;
     // Alt+Enter moves focus to the editor.
     openSelection: (focusEditor) => {
@@ -48,16 +49,11 @@ function commandPort(app: App): CommandPort {
     move: (key) => moveSelection(app, key),
     toggleSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
     toggleRail: () => app.toggleRail(),
-    setRailTab: (tab) => app.setRailTab(tab),
+    focusRailTabs: () => app.focusRailTabs(),
     toggleShortcuts: (next) => app.toggleShortcuts(next),
     sheetOpen: () => app.sheet.open,
-    closeScopePicker: () => app.scopeBar.closePicker(),
-    scopeSpec: () => app.scopes.spec,
-    setScope: (spec) => setScope(app, spec),
-    stepDepth: (delta) => stepDepth(app, delta),
-    scopeToNode: (id) => scopeToNode(app, id),
-    openScopePicker: () => toggleScopePicker(app),
-    selectedNodeId: () => app.selectedNodeId(),
+    closeHeaderPanels: () => app.closeHeaderPanels(),
+    collapseSheet: () => app.collapseSheet(false),
     announce: (text) => app.announce(text),
     toggleLegend: () => app.setLegend(!app.legendOpen),
     legendOpen: () => app.legendOpen,

@@ -3,8 +3,8 @@
  * revision was published, as the host reports them in its `stale` frame.
  *
  * Everything here is derived from the host's hash check and the authored evidence ids: a file is
- * stale or it is not. Nothing says the claim is right or wrong, and nothing is shown when every
- * file is unchanged (colour and marks are for problems only).
+ * stale or it is not. Nothing says the claim is right or wrong, and no mark is drawn when every
+ * file is unchanged (colour and marks are for problems only); the status bar says so in muted text.
  */
 
 import type { Loc, StaleFile, StaleReason, WorkflowDocument } from './types.js';
@@ -126,4 +126,39 @@ export function freshnessSummary(document: WorkflowDocument | null, state: Fresh
     : 'Source files that no longer match the published revision. Jumps into them are blocked.';
   const title = head + '\n' + lines.join('\n');
   return { text, title };
+}
+
+/** Viewer M2: the status bar's freshness item in every state, not only when something is stale. */
+export interface FreshnessStatus {
+  /** `stale`: a warning icon and words. `unchanged` and `unverified`: muted text, no icon, no colour. */
+  state: 'stale' | 'unchanged' | 'unverified';
+  text: string;
+  title: string;
+}
+
+/**
+ * What the status bar says about the cited files. Colour and the icon are for problems only, so
+ * `unchanged` is plain muted text: never a green mark, which would read as a check of the claims.
+ * The host checks the published hashes before it posts a revision, so a revision with
+ * `verification` and no stale file had every hashed file unchanged at that check.
+ */
+export function freshnessStatus(document: WorkflowDocument | null, state: FreshnessState): FreshnessStatus | null {
+  if (!document) return null;
+  const stale = freshnessSummary(document, state);
+  if (stale) return { state: 'stale', text: stale.text, title: stale.title };
+  if (!document.verification) {
+    return {
+      state: 'unverified',
+      text: 'Freshness not checked',
+      title: 'This revision was published without source hashes, so MLView cannot tell whether the cited files changed since.',
+    };
+  }
+  const cited = new Set((document.evidence || []).map((item) => item.file)).size;
+  return {
+    state: 'unchanged',
+    text: cited + (cited === 1 ? ' cited file unchanged' : ' cited files unchanged'),
+    title:
+      'The ' + (cited === 1 ? 'file' : cited + ' files') + ' the quotes cite still match the hashes published with revision ' +
+      document.revision.id + '. Unchanged means the quoted lines still exist as published; it does not mean they support the claims.',
+  };
 }

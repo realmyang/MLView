@@ -31,14 +31,21 @@ const THEMES = { 'dark-modern': 'dark', 'light-modern': 'light', 'hc-dark': 'hc'
 const NARROW = [900, 800];
 
 const STATES = {
-  'initial': 'as opened',
+  'initial': 'as opened (viewer M2: a new revision opens on the About tab)',
   'select-node': 'clicked a step card',
+  'select-connection': 'clicked a connection',
   'hover-node': 'pointer resting on a step card',
   'hover-connection': 'pointer resting on a connection',
   'focus-mode': 'clicked a step card, then pressed F',
-  'filter': 'turned off the lowest severity that has findings (a phase chip when there are none)',
-  'search': 'typed a word from a step label into the search box',
+  'focus-settled': 'clicked a step card, pressed F, then waited 7 s for the flow to settle',
+  'exceptions': 'turned on the "not observed" toggle, which fades the observed claims',
+  'legend': 'pressed L to open the legend',
+  'compact': 'pressed - until the zoom was under 62 % (the compact level of detail)',
+  'whole': 'chose "Fit the whole diagram" (in the ... menu since viewer M2)',
+  'filter': 'turned off the lowest severity that has findings (a phase chip in a viewer older than M2)',
+  'search': 'opened the search (the field, its icon or the ... menu) and typed a word from a step label',
   'finding': 'clicked a finding with a suggestion in the Findings list',
+  'finding-pane': 'clicked a finding in the Findings list, then the Selection tab (its claim-first pane)',
   'stale': 'opened with a stale frame for one cited file',
   'stale-selected': 'opened with a stale frame, then clicked a step that cites that file',
   'narrow-selected': `${NARROW[0]}x${NARROW[1]} panel, clicked a step card`,
@@ -326,7 +333,50 @@ function pageHelpers() {
       const r = rect(status);
       return { x: r.x + r.w * 0.75, y: r.y + r.h / 2 };
     },
-    severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[title^="Toggle"]')].filter(shown).map((c, i) => ({ i, title: c.title, count: Number(txt(c)) || 0 })),
+    /**
+     * Step card titles wholly inside the canvas: how big they are on screen (the computed font size
+     * times the scale the canvas transform applies, measured from the box rather than read from the
+     * zoom readout), how many lines each shows, how many end clamped, and how many characters the
+     * shown lines hold. A rendering measurement, not a readability judgement.
+     */
+    titles() {
+      const m = main();
+      const sizes = [];
+      const lines = [];
+      let clamped = 0;
+      let chars = 0;
+      let total = 0;
+      for (const t of document.querySelectorAll('.mlv-node[data-node-id] .mlv-node__title')) {
+        if (!shown(t) || !t.offsetWidth) continue;
+        const r = t.getBoundingClientRect();
+        if (r.x < m.x || r.y < m.y || r.x + r.width > m.x + m.w || r.y + r.height > m.y + m.h) continue;
+        const scale = r.width / t.offsetWidth;
+        const style = getComputedStyle(t);
+        const font = parseFloat(style.fontSize);
+        const lh = parseFloat(style.lineHeight) || font * 1.35;
+        sizes.push(Math.round(font * scale * 10) / 10);
+        const shownLines = Math.max(1, Math.round(t.clientHeight / lh));
+        lines.push(shownLines);
+        const isClamped = t.scrollHeight > t.clientHeight + 1 || t.scrollWidth > t.clientWidth + 1;
+        if (isClamped) clamped++;
+        // The characters the shown lines can hold: all of them unless the title is clamped, then
+        // the share of its full height that is shown.
+        const text = (t.textContent || '').length;
+        total += text;
+        chars += isClamped ? Math.round(text * Math.min(1, t.clientHeight / Math.max(1, t.scrollHeight))) : text;
+      }
+      sizes.sort((a, b) => a - b);
+      const at = (q) => (sizes.length ? sizes[Math.min(sizes.length - 1, Math.floor(q * sizes.length))] : null);
+      return {
+        visible: sizes.length,
+        screenPx: { min: sizes.length ? sizes[0] : null, median: at(0.5), max: sizes.length ? sizes[sizes.length - 1] : null },
+        lines: lines.length ? { min: Math.min(...lines), max: Math.max(...lines) } : null,
+        clamped,
+        charsShown: total ? Math.round((chars / total) * 100) / 100 : null,
+      };
+    },
+    severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter(shown)
+      .map((c, i) => ({ i, severity: c.getAttribute('data-severity'), count: Number(txt(c.querySelector('.mlv-chip__count'))) || 0 })),
     facts() {
       const panel = [...document.querySelectorAll('.mlv-rail [role="tabpanel"]')].find((p) => !p.hidden && shown(p));
       const tab = document.querySelector('.mlv-rail__tab[aria-selected="true"]');
@@ -337,10 +387,40 @@ function pageHelpers() {
       const rail = document.querySelector('.mlv-rail');
       return {
         viewport: `${innerWidth}x${innerHeight}`,
+        canvasBox: (() => { const m = main(); return `${Math.round(m.x)},${Math.round(m.y)} ${Math.round(m.w)}x${Math.round(m.h)}`; })(),
+        bars: Object.fromEntries(['.mlv-header', '.mlv-toolbar', '.mlv-status'].map((sel) => { const e = document.querySelector(sel); return [sel.slice(5), e && shown(e) ? Math.round(rect(e).h) : 0]; })),
+        // Everything above and below the canvas, in CSS px: the chrome the diagram does not get.
+        chrome: (() => { const m = main(); return { above: Math.round(m.y), below: Math.round(innerHeight - (m.y + m.h)) }; })(),
+        // Viewer M2: which header controls are on screen, in order, and the header's layout.
+        header: (() => {
+          const h = document.querySelector('.mlv-header');
+          if (!h) return null;
+          const names = [['.mlv-header__title', 'title'], ['.mlv-header__prov', 'provenance'], ['.mlv-search', 'search'], ['.mlv-header__searchbtn', 'search icon'],
+            ['.mlv-chip--btn[data-severity]', 'severity'], ['.mlv-chip--exceptions', 'not observed'], ['.mlv-btn--more', 'more'], ['.mlv-workflow__refine', 'refine']];
+          const items = [];
+          for (const [sel, name] of names) for (const e of h.querySelectorAll(sel)) if (shown(e)) items.push(name === 'severity' ? 'severity:' + e.getAttribute('data-severity') : name);
+          return { layout: h.getAttribute('data-layout'), height: Math.round(rect(h).h), items, provenance: txt(h.querySelector('.mlv-header__prov')) || null };
+        })(),
         zoom: txt(document.querySelector('.mlv-zoom__level')) || null,
         selected: [...document.querySelectorAll('.is-selected[data-node-id], .is-selected[data-edge-id], .mlv-issue.is-selected')]
           .map((e) => e.getAttribute('data-node-id') || e.getAttribute('data-edge-id') || e.getAttribute('data-issue-id')),
         railOpen: shown(rail) && rail.offsetWidth > 0,
+        // Viewer M2: docked beside the canvas or a bottom sheet under it; its box, and the Selection
+        // pane's columns.
+        rail: rail ? {
+          mode: rail.getAttribute('data-mode'),
+          expanded: rail.getAttribute('data-mode') === 'sheet' ? rail.getAttribute('data-expanded') === 'true' : null,
+          box: shown(rail) ? (() => { const r = rect(rail); return `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}`; })() : null,
+          columns: (() => { const p = document.querySelector('.mlv-rail__panel:not([hidden]) .mlv-sel'); return p ? Number(p.getAttribute('data-columns')) : null; })(),
+        } : null,
+        // Viewer M2: the selected card or connection is wholly inside the canvas (so above an open sheet).
+        selectedInCanvas: (() => {
+          const sel = document.querySelector('.mlv-node.is-selected, .mlv-group.is-selected, .mlv-edge.is-selected .mlv-edge__path');
+          const canvas = document.querySelector('.mlv-canvas');
+          if (!sel || !canvas) return null;
+          const r = sel.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+          return r.width > 0 && r.left >= c.left - 1 && r.top >= c.top - 1 && r.right <= c.right + 1 && r.bottom <= c.bottom + 1;
+        })(),
         railTab: tab ? txt(tab) : null,
         railText: panel ? txt(panel).slice(0, 500) : null,
         suggestionShown: !!fix,
@@ -354,9 +434,17 @@ function pageHelpers() {
           rail: document.querySelectorAll('.mlv-rail .is-stale').length,
         },
         focusMode: !!document.querySelector('.is-focusing'),
+        flow: {
+          lit: document.querySelectorAll('.mlv-edge.is-flowing, .mlv-edge.is-flowing--pulse').length,
+          moving: document.querySelectorAll('.mlv-edge__flow, .mlv-edge__charge').length,
+          settled: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-flow-settled') === 'true',
+        },
+        exceptions: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-exceptions') === 'on',
         tooltip: tip ? txt(tip).slice(0, 300) : null,
+        titles: this.titles(),
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
+        searchCount: txt(document.querySelector('.mlv-result__count')) || null,
       };
     },
   };
@@ -513,6 +601,15 @@ try {
       if (!node) return { skip: 'no step card visible to click' };
       return { frames, did: `clicked ${node.id}`, target: { node: node.id, preferred: node.preferred } };
     },
+    async 'select-connection'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const edge = await evaluate(`window.__shots.pickEdge(${JSON.stringify(input.edgeOrder)})`);
+      if (!edge) return { skip: 'no connection visible to click' };
+      await click(edge.x, edge.y);
+      await sleep(700);
+      await rest();
+      return { frames, did: `clicked connection ${edge.id}`, target: { edge: edge.id } };
+    },
     async 'hover-node'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
       const node = await evaluate(`window.__shots.pickNode(${JSON.stringify(input.nodeOrder)})`);
@@ -537,19 +634,81 @@ try {
       await sleep(900);
       return { frames, did: `clicked ${node.id}, pressed F`, target: { node: node.id, preferred: node.preferred } };
     },
+    async 'focus-settled'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const node = await clickNode(input, input.nodeOrder);
+      if (!node) return { skip: 'no step card visible to click' };
+      await key('f');
+      await sleep(7000);
+      return { frames, did: `clicked ${node.id}, pressed F, waited 7 s`, target: { node: node.id, preferred: node.preferred } };
+    },
+    async 'legend'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const canvas = await evaluate(`window.__shots.pointOf('.mlv-canvas')`);
+      if (canvas) { await click(canvas.x, canvas.y); await sleep(300); }
+      await key('l');
+      await sleep(500);
+      await rest();
+      return { frames, did: 'pressed L' };
+    },
+    async 'compact'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      // Focus the canvas without clicking: a click could select a card and, beside the code, open
+      // the bottom sheet under the cards being measured.
+      await evaluate(`(document.querySelector('.mlv-canvas') || document.body).focus()`);
+      let presses = 0;
+      while (presses < 12 && (parseFloat(await evaluate(`(document.querySelector('.mlv-zoom__level') || {}).textContent || '100'`)) || 100) >= 62) {
+        await key('-');
+        presses++;
+        await sleep(150);
+      }
+      await sleep(400);
+      await rest();
+      return { frames, did: `pressed - ${presses} time(s)` };
+    },
+    async 'whole'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const button = await evaluate(`window.__shots.pointOf('button[aria-label="Fit the whole diagram"]')`);
+      if (button) {
+        await click(button.x, button.y);
+        await sleep(600);
+        await rest();
+        return { frames, did: 'clicked "Fit the whole diagram"' };
+      }
+      // Viewer M2: the item is in the header's ... menu.
+      const more = await evaluate(`window.__shots.pointOf('.mlv-btn--more')`);
+      if (!more) return { skip: 'no "Fit the whole diagram" control (the viewer predates it)' };
+      await click(more.x, more.y);
+      await sleep(300);
+      const item = await evaluate(`window.__shots.pointOf('[data-more-item="fit"]')`);
+      if (!item) return { skip: 'the ... menu has no "Fit the whole diagram"' };
+      await click(item.x, item.y);
+      await sleep(600);
+      await rest();
+      return { frames, did: 'chose "Fit the whole diagram" in the ... menu' };
+    },
+    async 'exceptions'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--exceptions')`);
+      if (!chip) return { skip: 'no "not observed" toggle (every claim is observed, or the viewer predates it)' };
+      await click(chip.x, chip.y);
+      await sleep(700);
+      await rest();
+      return { frames, did: 'turned on the "not observed" toggle' };
+    },
     async 'filter'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
       const chips = await evaluate('window.__shots.severityChips()');
-      const pick = ['low', 'medium', 'high'].map((sev) => chips.find((c) => c.title.includes(sev) && c.count > 0)).find(Boolean);
+      const pick = ['low', 'medium', 'high'].map((sev) => chips.find((c) => c.severity === sev && c.count > 0)).find(Boolean);
       if (pick) {
-        const p = await evaluate(`(() => { const c = [...document.querySelectorAll('.mlv-chip--btn[title^="Toggle"]')].filter((e) => e.getClientRects().length)[${pick.i}]; const b = c.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
+        const p = await evaluate(`(() => { const c = [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter((e) => e.getClientRects().length)[${pick.i}]; const b = c.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
         await click(p.x, p.y);
         await sleep(700);
         await rest();
-        return { frames, did: `${pick.title.replace('Toggle', 'turned off')} (${pick.count})` };
+        return { frames, did: `turned off ${pick.severity} severity findings (${pick.count} findings)` };
       }
-      const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--stage:not(:first-child)')`);
-      if (!chip) return { skip: 'no finding severity or phase chip to click' };
+      const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--stage[data-stage-filter]:not(:first-child)')`);
+      if (!chip) return { skip: 'no finding severity to turn off (and no phase chips, which viewer M2 removed)' };
       await click(chip.x, chip.y);
       await sleep(700);
       await rest();
@@ -557,12 +716,31 @@ try {
     },
     async 'search'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
-      const box = await evaluate(`window.__shots.pointOf('.mlv-search input')`);
-      if (!box) return { skip: 'no search box' };
-      await click(box.x, box.y);
+      let how = 'clicked the search field';
+      let box = await evaluate(`window.__shots.pointOf('.mlv-search input')`);
+      if (!box) {
+        // Viewer M2: below 1000 px the field is behind an icon, below 620 px in the ... menu.
+        const icon = await evaluate(`window.__shots.pointOf('.mlv-header__searchbtn')`);
+        if (icon) {
+          await click(icon.x, icon.y);
+          how = 'clicked the search icon';
+        } else {
+          const more = await evaluate(`window.__shots.pointOf('.mlv-btn--more')`);
+          if (!more) return { skip: 'no search box' };
+          await click(more.x, more.y);
+          await sleep(300);
+          const item = await evaluate(`window.__shots.pointOf('[data-more-item="search"]')`);
+          if (!item) return { skip: 'no search box or menu item' };
+          await click(item.x, item.y);
+          how = 'chose Search in the ... menu';
+        }
+        await sleep(300);
+        box = await evaluate(`window.__shots.pointOf('.mlv-search input')`);
+        if (!box) return { skip: 'the search field did not open' };
+      } else await click(box.x, box.y);
       await page.send('Input.insertText', { text: input.search });
       await sleep(900);
-      return { frames, did: `typed "${input.search}"` };
+      return { frames, did: `${how}, typed "${input.search}"` };
     },
     async 'finding'(input, theme, size) {
       if (!input.findingOrder.length) return { skip: 'the document has no findings' };
@@ -589,6 +767,24 @@ try {
       await sleep(300);
       await rest();
       return { frames, did: `clicked finding ${id} in the Findings list${scrolled ? ', scrolled its expanded row into view' : ''}`, target: { finding: id } };
+    },
+    async 'finding-pane'(input, theme, size) {
+      if (!input.findingOrder.length) return { skip: 'the document has no findings' };
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const id = input.findingOrder[0];
+      const selector = `.mlv-rail .mlv-issue[data-issue-id="${id.replace(/["\\]/g, '\\$&')}"]`;
+      const tab = await evaluate(`window.__shots.pointOf('.mlv-rail__tab[id$="-tab-issues"]')`);
+      if (tab) { await click(tab.x, tab.y); await sleep(500); }
+      const row = await evaluate(`window.__shots.pointOf(${JSON.stringify(selector)})`);
+      if (!row) return { skip: `finding ${id} is not in a visible Findings list` };
+      await click(row.x, row.y);
+      await sleep(900);
+      const selection = await evaluate(`window.__shots.pointOf('.mlv-rail__tab[id$="-tab-inspector"]')`);
+      if (!selection) return { skip: 'no Selection tab (the viewer predates it)' };
+      await click(selection.x, selection.y);
+      await sleep(500);
+      await rest();
+      return { frames, did: `clicked finding ${id} in the Findings list, then the Selection tab`, target: { finding: id } };
     },
     async 'stale'(input, theme, size) {
       await ensureStale(input, theme, size);

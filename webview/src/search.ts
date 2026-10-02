@@ -100,7 +100,8 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
       hit: {
         kind: 'issue',
         id: issue.id,
-        label: issue.code + ' · ' + issue.title,
+        // Viewer M2: the title first, after the finding's short label (the id stays searchable).
+        label: (issue.short ? issue.short + ' · ' : '') + issue.title,
         meta: issue.loc.file ? locLabel(issue.loc) : '',
         stage: issue.stage,
         severity: issue.severity,

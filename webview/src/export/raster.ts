@@ -182,31 +182,3 @@ export function bytesToBase64(bytes: Uint8Array): string {
 export function utf8ToBase64(text: string): string {
   return bytesToBase64(utf8Bytes(text));
 }
-
-/** base64 → bytes, for the download anchor and the clipboard image item. */
-export function base64ToBytes(base64: string): Uint8Array {
-  const g: any = typeof globalThis === 'undefined' ? {} : globalThis;
-  if (typeof g.atob === 'function') {
-    const binary = g.atob(base64);
-    const out = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i) & 0xff;
-    return out;
-  }
-  const clean = String(base64).replace(/[^A-Za-z0-9+/]/g, '');
-  const size = Math.floor((clean.length * 3) / 4);
-  const out = new Uint8Array(size);
-  let at = 0;
-  for (let i = 0; i < clean.length; i += 4) {
-    const n =
-      (B64.indexOf(clean.charAt(i)) << 18) |
-      (B64.indexOf(clean.charAt(i + 1)) << 12) |
-      (Math.max(0, B64.indexOf(clean.charAt(i + 2))) << 6) |
-      Math.max(0, B64.indexOf(clean.charAt(i + 3)));
-    if (at < size) out[at++] = (n >> 16) & 0xff;
-    if (at < size) out[at++] = (n >> 8) & 0xff;
-    if (at < size) out[at++] = n & 0xff;
-  }
-  return out;
-}
-
-export const MIME = { svg: SVG_MIME, png: PNG_MIME };

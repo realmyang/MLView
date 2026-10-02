@@ -57,21 +57,28 @@ function cluster(element) {
 
 const laneCluster = (ctx, lane) => ctx.document.querySelector(`.mlv-lane[data-lane-id="${lane}"] .mlv-cluster`);
 const headerCount = (ctx, sev) => Number(ctx.document.querySelector(`.mlv-chip--btn[data-severity="${sev}"] .mlv-chip__count`).textContent);
-const statusCounts = (ctx) => Array.from(ctx.document.querySelectorAll('.mlv-status .mlv-stat__value'), (v) => Number(v.textContent));
+/** Viewer M2: the findings are counted once, on the header's severity toggles; the status bar never repeats them. */
+const statusFindingText = (ctx) => /finding/.test(ctx.document.querySelector('.mlv-status').textContent);
 
+/** The Outline lane row's count. Viewer M2: it names its unit ("2 findings touch this phase"). */
 function outlineLaneCount(ctx, lane) {
   ctx.app.setRailTab('outline');
   const count = ctx.document.querySelector(`[data-outline-lane="${lane}"] .mlv-outline__row--lane .mlv-outline__stage`);
-  return count ? Number(count.textContent) : 0;
+  if (!count) return 0;
+  const m = /^(\d+) (finding touches|findings touch) this phase$/.exec(count.textContent);
+  assert.ok(m, 'the Outline lane count names its unit: ' + count.textContent);
+  return Number(m[1]);
 }
 
 test('one finding on three steps and two connections of a phase counts once on the lane badge and the outline row', async () => {
   const ctx = await mount(doc());
-  assert.equal(headerCount(ctx, 'medium'), 1, 'precondition: the toolbar counts one finding');
-  assert.deepEqual(statusCounts(ctx), [0, 1, 0], 'precondition: so does the status bar (high, medium, low)');
+  assert.equal(headerCount(ctx, 'medium'), 1, 'precondition: the header counts one finding');
+  assert.equal(statusFindingText(ctx), false, 'precondition: the status bar does not count them a second time');
   const lane = laneCluster(ctx, 'persist');
   assert.deepEqual(cluster(lane), { medium: 1 }, 'the lane header agrees with the toolbar');
-  assert.equal(lane.getAttribute('aria-label'), '1 finding, highest severity medium');
+  // Viewer M2: the lane says what it counts, and that this is not a partition (PR #14 rule).
+  assert.equal(lane.getAttribute('aria-label'), '1 finding touches this phase, highest severity medium. A finding that cites steps or connections in several phases counts in each of them.');
+  assert.equal(ctx.document.querySelector('.mlv-lane[data-lane-id="persist"] .mlv-lane__unit').textContent, '1 finding touches this phase');
   assert.equal(laneCluster(ctx, 'train'), null, 'the finding names nothing in the other phase');
   assert.equal(outlineLaneCount(ctx, 'persist'), 1, 'the Outline lane row agrees too');
   assert.deepEqual(plain(ctx.app.index.laneCounts('persist', () => true)), { low: 0, medium: 1, high: 0 });
@@ -94,6 +101,21 @@ test('a finding that touches two phases is counted once in each lane', async () 
   assert.deepEqual(cluster(laneCluster(ctx, 'train')), { high: 1 });
   assert.deepEqual(cluster(laneCluster(ctx, 'persist')), { high: 1, medium: 1 });
   assert.equal(outlineLaneCount(ctx, 'persist'), 2);
+  assert.equal(outlineLaneCount(ctx, 'train'), 1);
+  // Viewer M2 keeps the PR #14 rule: the lanes count findings TOUCHING each phase, so they add up
+  // to more than the header (3 > 2), and each lane says so instead of posing as a partition.
+  assert.equal(outlineLaneCount(ctx, 'persist') + outlineLaneCount(ctx, 'train'), 3);
+  assert.equal(headerCount(ctx, 'high') + headerCount(ctx, 'medium'), 2);
+  // Viewer M2 review (M2R-4): with two severities the phrase follows their TOTAL. It used to follow
+  // the last per-severity number, so "1 1 findings touch this phase" read as one finding.
+  const persist = ctx.document.querySelector('.mlv-lane[data-lane-id="persist"]');
+  const unit = persist.querySelector('.mlv-lane__unit');
+  assert.equal(unit.textContent, '2 findings touch this phase');
+  const numbers = Object.values(cluster(laneCluster(ctx, 'persist'))).reduce((a, b) => a + b, 0);
+  assert.equal(Number(unit.textContent.split(' ')[0]), numbers, 'the total is the sum of the numbers before it');
+  const parts = Array.from(persist.querySelectorAll('.mlv-lane__header > *'));
+  assert.ok(parts.indexOf(unit) > parts.indexOf(laneCluster(ctx, 'persist')), 'after the per-severity numbers');
+  assert.match(laneCluster(ctx, 'train').getAttribute('aria-label'), /^1 finding touches this phase, highest severity high\. A finding that cites steps or connections in several phases counts in each of them\.$/);
   ctx.app.destroy();
 });
 

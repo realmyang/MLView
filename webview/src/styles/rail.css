@@ -1,4 +1,8 @@
-/* Side rail: Findings, Inspector, Outline. */
+/*
+ * The rail (viewer M2): About · Findings (n) · Selection · Outline. Docked beside the canvas when
+ * the canvas keeps at least 900 px; otherwise a bottom sheet under the canvas (see the sheet block
+ * below), never a drawer over it.
+ */
 
 .mlv-rail {
   position: relative;
@@ -40,16 +44,25 @@
   background: var(--mlv-accent);
 }
 
+.mlv-rail__bar {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  border-bottom: 1px solid var(--mlv-border);
+}
+
 .mlv-rail__tabs {
   display: flex;
-  flex: none;
+  flex: 1 1 auto;
+  min-width: 0;
   height: 36px;
-  border-bottom: 1px solid var(--mlv-border);
 }
 
 .mlv-rail__tab {
   flex: 1 1 auto;
-  padding: 0 var(--mlv-s4);
+  min-width: 0;
+  padding: 0 var(--mlv-s3);
+  white-space: nowrap;
   border: 0;
   border-bottom: 2px solid transparent;
   background: none;
@@ -62,6 +75,123 @@
   color: var(--mlv-text);
   border-bottom-color: var(--mlv-accent);
   font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-rail__tab:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+.mlv-rail__tabcount {
+  color: var(--mlv-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-rail__chevron {
+  flex: none;
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  margin: 0 var(--mlv-s2);
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-rail__chevron[hidden] {
+  display: none;
+}
+
+/* The chevron points down when the sheet is open (collapse) and up when it is collapsed. */
+.mlv-rail__chevron .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-rail__chevron[aria-expanded="false"] .mlv-uicon {
+  transform: rotate(-90deg);
+}
+
+.mlv-rail__panel:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+/* The count beside a section heading always names its unit: "3 quotes", "2 findings". */
+.mlv-rail__count {
+  color: var(--mlv-text-3);
+  font-weight: var(--mlv-fw-regular);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/*
+ * Viewer M2: the bottom sheet. Below the width where a docked rail would leave the canvas under
+ * 900 px, the body stacks the canvas over the rail. The sheet takes --mlv-sheet-fraction of the
+ * height when open (the handle drags it) and only its 32 px tab strip when collapsed. The canvas
+ * keeps at least min(240px, 45%) whatever the sheet's height: it is the main surface at every width.
+ */
+.mlv-body[data-rail="sheet"] {
+  flex-direction: column;
+}
+
+.mlv-body[data-rail="sheet"] > .mlv-main {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.mlv-rail[data-mode="sheet"] {
+  flex: 0 0 calc(var(--mlv-sheet-fraction, 0.47) * 100%);
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 32px;
+  max-height: calc(100% - min(240px, 45%));
+  border-left: 0;
+  border-top: 1px solid var(--mlv-border-strong);
+}
+
+.mlv-rail[data-mode="sheet"][data-expanded="false"] {
+  flex-basis: 32px;
+  height: 32px;
+}
+
+.mlv-rail[data-mode="sheet"] .mlv-rail__tabs {
+  height: 31px;
+}
+
+.mlv-rail[data-mode="sheet"][data-expanded="false"] .mlv-rail__bar {
+  border-bottom: 0;
+}
+
+/* The handle: a full-width strip over the sheet's top edge, with a short visible bar. */
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip {
+  top: -4px;
+  left: 0;
+  width: 100%;
+  height: 9px;
+  cursor: row-resize;
+}
+
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip::after {
+  left: 50%;
+  top: 2px;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: var(--mlv-border-strong);
+}
+
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip:hover::after,
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip:focus-visible::after {
+  background: var(--mlv-accent);
+}
+
+.mlv-rail__grip:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
 }
 
 .mlv-rail__panel {
@@ -149,6 +279,16 @@
   min-width: 0;
 }
 
+/* Viewer M2: the short label (F1…Fn) the canvas badges print; the real id stays in the meta line. */
+.mlv-issue__short,
+.mlv-insp__short {
+  flex: none;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
 .mlv-issue__title {
   font-size: 12.5px;
   font-weight: var(--mlv-fw-medium);
@@ -181,26 +321,315 @@
   text-align: center;
 }
 
-/* inspector */
-.mlv-insp__title {
+/* The Selection pane (viewer M2): the claim first, then what backs it (ui/selection.ts). */
+.mlv-sel[data-columns="2"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  column-gap: var(--mlv-s7, 20px);
+  align-items: start;
+}
+
+.mlv-sel__col {
+  min-width: 0;
+}
+
+.mlv-insp__eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--mlv-s2);
   margin: 0 0 var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__phase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-insp__phasedot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-insp__sep {
+  color: var(--mlv-text-3);
+}
+
+.mlv-insp__severity {
+  color: var(--mlv-text);
+}
+
+.mlv-insp__title {
+  margin: 0 0 var(--mlv-s3);
   font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+  line-height: var(--mlv-lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__ends {
+  margin: 0 0 var(--mlv-s3);
+  font-size: var(--mlv-fs-12);
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__section {
+  margin: var(--mlv-s5) 0 0;
+}
+
+.mlv-sel__col--evidence > .mlv-insp__section:first-child {
+  margin-top: 0;
+}
+
+.mlv-insp__issue-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--mlv-text);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__issue-head .mlv-mono {
+  color: var(--mlv-text-3);
+}
+
+/* Viewer M2 live fix: a listed finding's real id, under its title, muted; a long id wraps at the
+ * box's edge, not in a narrow column beside the title. */
+.mlv-insp__issue-id {
+  margin: calc(-1 * var(--mlv-s2)) 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__note,
+.mlv-insp__aside {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__links,
+.mlv-insp__sentences {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.45;
+}
+
+.mlv-insp__flow-basis {
+  color: var(--mlv-text-2);
+}
+
+/* One quote: number, file and lines, freshness, Open; then the exact lines with their numbers. */
+.mlv-quote {
+  padding: var(--mlv-s3) 0 0;
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-quote__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--mlv-s1) var(--mlv-s3);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-quote__num {
+  flex: none;
+  min-width: 1.4em;
+  color: var(--mlv-text-2);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--mlv-fw-semi);
 }
 
-.mlv-insp__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--mlv-s3);
-  margin-bottom: var(--mlv-s4);
+/* Two rows at every width: the number and the place, then the role, the freshness and Open,
+ * lined up under the place. */
+.mlv-quote__loc {
+  flex: 1 0 calc(100% - 1.4em - var(--mlv-s3));
+  min-width: 0;
+  color: var(--mlv-text);
+  font-family: var(--mlv-font-mono);
+  overflow-wrap: anywhere;
 }
 
-.mlv-insp__fqn {
-  margin-bottom: var(--mlv-s4);
+.mlv-quote__loc + * {
+  margin-left: calc(1.4em + var(--mlv-s3));
+}
+
+.mlv-quote__at {
   color: var(--mlv-text-2);
+}
+
+.mlv-quote__role {
+  color: var(--mlv-text-2);
+  font-style: italic;
+}
+
+/* Freshness: muted words when unchanged or unchecked; colour only for a stale file. */
+.mlv-quote__fresh.is-muted {
+  color: var(--mlv-text-2);
+}
+
+.mlv-quote__fresh.mlv-insp__stale {
+  margin-left: 0;
+}
+
+.mlv-quote__open {
+  flex: none;
+}
+
+.mlv-quote__text {
+  margin: var(--mlv-s2) 0 0;
+  padding: var(--mlv-s2) var(--mlv-s3);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-11);
-  word-break: break-all;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  user-select: text;
+}
+
+.mlv-quote__line {
+  display: inline;
+}
+
+.mlv-quote__ln {
+  display: inline-block;
+  min-width: 3ch;
+  margin-right: var(--mlv-s3);
+  color: var(--mlv-text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.mlv-insp__evidence-nav {
+  display: flex;
+  gap: var(--mlv-s2);
+  margin: 0 0 var(--mlv-s3);
+}
+
+/* The About tab (viewer M2): authored request and coverage only (ui/about.ts). */
+.mlv-about__section {
+  margin: 0 0 var(--mlv-s6);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.5;
+}
+
+.mlv-about__question {
+  margin: 0;
+  color: var(--mlv-text);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__question[data-clamped="true"] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.mlv-about__more {
+  margin-top: var(--mlv-s2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-about__para,
+.mlv-about__text,
+.mlv-about__status {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__lead {
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-about__meta,
+.mlv-about__note {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__kv {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--mlv-surface-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__limitations {
+  color: var(--mlv-text);
+}
+
+.mlv-about__limitations summary {
+  cursor: pointer;
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-about__limitations ul {
+  margin: var(--mlv-s2) 0 0;
+  padding-left: 20px;
+}
+
+.mlv-about__limitations li {
+  margin-bottom: var(--mlv-s2);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__files {
+  list-style: none;
+  margin: 0 0 var(--mlv-s3);
+  padding: 0;
+}
+
+.mlv-about__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--mlv-s3);
+  padding: 2px 0;
+}
+
+.mlv-about__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__file .mlv-quote__fresh {
+  flex: none;
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-about__trust {
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
 }
 
 .mlv-insp__issue {
@@ -249,7 +678,7 @@
   overflow-wrap: anywhere;
 }
 
-/* Viewer M1: the authored claim, in full, near the top of the Inspector. */
+/* Viewer M1: the authored claim, in full, near the top of the Selection pane. */
 .mlv-insp__detail {
   margin: 0 0 var(--mlv-s4);
   color: var(--mlv-text);
@@ -260,12 +689,16 @@
   user-select: text;
 }
 
-/* Viewer M1: what an inferred or unresolved basis means; observed gets no sentence. */
+/* Viewer M1: what an inferred or unresolved basis means; observed gets no sentence. Viewer M2:
+ * after the basis's own tag, so the word and the dashes match the card. */
 .mlv-insp__basis {
   margin: 0 0 var(--mlv-s3);
   color: var(--mlv-text-2);
   font-size: var(--mlv-fs-11);
-  font-style: italic;
+}
+
+.mlv-insp__basis .mlv-basis-tag {
+  vertical-align: 1px;
 }
 
 /* Viewer M1: under the evidence heading, what a matching quote does and does not show. */
@@ -275,7 +708,7 @@
   font-size: var(--mlv-fs-11);
 }
 
-/* Viewer M1: "6 document-wide limitations apply. Show" (they are listed in the header Details). */
+/* Viewer M2: "6 document-wide limitations apply to every claim. Read them in About". */
 .mlv-insp__limits {
   margin: var(--mlv-s4) 0 0;
   color: var(--mlv-text-2);
@@ -369,6 +802,32 @@
   font-size: var(--mlv-fs-10);
   text-transform: uppercase;
   letter-spacing: var(--mlv-track-caps);
+}
+
+/*
+ * Viewer M2 review (A11Y-11): a phase row's "2 findings touch this phase" goes under the phase's
+ * name, in sentence case, so the name is never cut to make room for it.
+ */
+.mlv-outline__row--lane {
+  flex-wrap: wrap;
+}
+
+.mlv-outline__row--lane .mlv-outline__label {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mlv-outline__phasecount {
+  flex: 1 0 100%;
+  font-weight: var(--mlv-fw-regular);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* A finding's basis tag in the rail (viewer M2 review): the canvas tag, in the flow of its row. */
+.mlv-basis-tag--rail {
+  flex: none;
+  vertical-align: middle;
 }
 
 .mlv-relations {
@@ -478,24 +937,6 @@
 
 .mlv-insp__issue.is-selected {
   box-shadow: 0 0 0 2px var(--mlv-accent);
-}
-
-/*
- * Below the 900 px breakpoint the rail is an overlay drawer over the canvas with
- * a 40 % scrim (UX_DESIGN §1) rather than a fixed 360 px column that leaves the
- * diagram 500 px wide (MLV-R1-009). Declared here, after the base .mlv-rail
- * rule, because the stylesheet is concatenated chrome.css → rail.css.
- */
-@media (max-width: 900px) {
-  .mlv-rail {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 40;
-    max-width: 86%;
-    box-shadow: var(--mlv-sh-3);
-  }
 }
 
 /* A finding row's meta line wraps: a 360 px rail with an id, a location, a

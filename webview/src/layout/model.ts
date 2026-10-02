@@ -13,6 +13,18 @@ export interface IssuePredicate {
   (issue: Issue): boolean;
 }
 
+/**
+ * Viewer M2: how many phase colours there are (`--mlv-phase-0` … `--mlv-phase-7` in
+ * styles/tokens.css). Phase i (document order) takes tone i mod PHASE_TONES, so every authored
+ * phase gets a colour whatever its id; past eight phases the colours repeat and the lane label
+ * tells them apart.
+ */
+export const PHASE_TONES = 8;
+
+export function phaseTone(phaseIndex: number): number {
+  return ((phaseIndex % PHASE_TONES) + PHASE_TONES) % PHASE_TONES;
+}
+
 export class GraphIndex {
   readonly graph: MLGraph;
   readonly nodeById = new Map<string, MLNode>();
@@ -40,12 +52,11 @@ export class GraphIndex {
   readonly lanes: Stage[] = [];
   readonly absentStages: Stage[] = [];
   /**
-   * Stages the FULL analysis has but this PROJECTION does not draw. Only ever
-   * populated while `graph.view` is present; `ui/chrome.ts` renders them as a
-   * "not in this scope" chip row beside the existing "not detected" one, so the
-   * information is not lost — it is correctly labelled (CONTRACTS 11.4 F3).
+   * Viewer M2: each phase's position in the document (0-based), the key of its colour. Taken
+   * from the declared phases in authored order, so it does not shift when a lane is not drawn;
+   * a stage id that only appears on nodes comes after them.
    */
-  readonly outOfScopeStages: Stage[] = [];
+  private readonly phaseOrder = new Map<string, number>();
 
   constructor(graph: MLGraph) {
     this.graph = graph;
@@ -84,16 +95,9 @@ export class GraphIndex {
     const declared = new Map<string, Stage>();
     for (const s of graph.stages || []) declared.set(s.id, s);
     const ordered = (graph.stages || []).slice().sort((a, b) => a.order - b.order || cmp(a.id, b.id));
-    // `stage.present` is PROJECT-LEVEL truth and a projection carries it through
-    // verbatim, so under a scope it no longer implies "this lane has content":
-    // a narrow scope leaves other phases present at nodeCount 0, and admitting
-    // them here drew empty swimlane bands. While a view is present a lane is
-    // admitted ONLY when it has drawn roots (CONTRACTS 11.4 F3).
-    const projected = !!graph.view;
     for (const s of ordered) {
       const drawn = (this.rootsByLane.get(s.id) || []).length > 0;
-      if (drawn || (!projected && s.present)) this.lanes.push(s);
-      else if (projected && s.present) this.outOfScopeStages.push(s);
+      if (drawn || s.present) this.lanes.push(s);
       else this.absentStages.push(s);
     }
     // Forward compatibility: a stage id that only appears on nodes still gets a lane.
@@ -106,6 +110,8 @@ export class GraphIndex {
       }
     }
     unknownStages.sort();
+    for (const s of ordered) if (!this.phaseOrder.has(s.id)) this.phaseOrder.set(s.id, this.phaseOrder.size);
+    for (const id of unknownStages) this.phaseOrder.set(id, this.phaseOrder.size);
     let order = this.lanes.length ? this.lanes[this.lanes.length - 1].order + 1 : 0;
     for (const id of unknownStages) {
       this.lanes.push({
@@ -118,6 +124,11 @@ export class GraphIndex {
         maxSeverity: null,
       });
     }
+  }
+
+  /** Viewer M2: the phase's document position (0-based), or 0 for an id this index never saw. */
+  phaseIndexOf(stageId: string): number {
+    return this.phaseOrder.get(stageId) ?? 0;
   }
 
   private hasCycle(start: string): boolean {

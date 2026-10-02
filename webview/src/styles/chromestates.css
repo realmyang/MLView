@@ -82,19 +82,8 @@
   justify-content: center;
 }
 
-.mlv-filterrow {
-  gap: var(--mlv-s3);
-}
-
-.mlv-filterrow .mlv-chip--stage {
-  color: var(--mlv-text);
-}
-
 .mlv-btn[disabled] {
   opacity: 0.4;
   cursor: default;
 }
 
-.mlv-edge.is-filtered {
-  display: none;
-}

@@ -76,34 +76,18 @@ test('search finds authored labels and evidence locations and Enter selects a hi
   ctx.app.destroy();
 });
 
-test('scope projection and clearing preserve the complete authored document', async () => {
+test('the whole-diagram SVG export contains the authored geometry and no external resources', async () => {
+  // Viewer M2 removed scoping: the export is always the whole diagram, opened from the ... menu.
   const ctx = await mount();
-  const all = ctx.app.getScope().of;
-  ctx.app.setScope('stage:phase-3');
-  assert.equal(ctx.app.getScope().spec, 'stage:phase-3');
-  const scoped = Array.from(ctx.document.querySelectorAll('[data-node-id]'));
-  assert.ok(scoped.length > 0 && scoped.length < all);
-  assert.ok(scoped.every((node) => node.getAttribute('data-stage') === 'phase-3'));
-  ctx.app.setScope(null);
-  assert.equal(ctx.document.querySelectorAll('[data-node-id]').length, all);
-  ctx.app.destroy();
-});
-
-test('full and scoped SVG exports contain matching authored geometry and no external resources', async () => {
-  const ctx = await mount();
-  const exportSvg = () => {
-    ctx.document.querySelector('.mlv-btn--exportmenu').click();
-    ctx.document.querySelector('[data-export-action="svg"]').click();
-    const frame = ctx.bridge.posted.findLast((message) => message.type === 'exportFile' && message.kind === 'svg');
-    return Buffer.from(frame.base64, 'base64').toString('utf8');
-  };
-  const full = exportSvg();
+  assert.equal(typeof ctx.app.setScope, 'undefined');
+  ctx.document.querySelector('.mlv-btn--more').click();
+  ctx.document.querySelector('[data-export-action="svg"]').click();
+  const frame = ctx.bridge.posted.findLast((message) => message.type === 'exportFile' && message.kind === 'svg');
+  const full = Buffer.from(frame.base64, 'base64').toString('utf8');
   assert.equal((full.match(/data-node-id=/g) || []).length, 48);
   assert.doesNotMatch(full, /<foreignObject|https?:\/\/(?!www\.w3\.org\/2000\/svg)/);
-  ctx.app.setScope('stage:phase-2');
-  const scoped = exportSvg();
-  assert.ok((scoped.match(/data-node-id=/g) || []).length < 48);
-  assert.match(scoped, /Renderer regression fixture/);
+  assert.match(full, /Renderer regression fixture/);
+  assert.match(full, /whole diagram/);
   ctx.app.destroy();
 });
 

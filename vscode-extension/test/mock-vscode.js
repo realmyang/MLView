@@ -313,6 +313,9 @@ const recorded = {
   executedCommands: [],
   /** Every window.tabGroups.close(tabs, preserveFocus) call. */
   closedTabs: [],
+  /** window.onDidChangeActiveTextEditor and onDidChangeActiveNotebookEditor listeners (`__setActiveEditor`). */
+  activeEditorListeners: [],
+  activeNotebookListeners: [],
   /** H10: every languages.registerCodeLensProvider registration. */
   codeLensProviders: []
 };
@@ -362,6 +365,22 @@ let visibleTextEditors = [];
 let visibleNotebookEditors = [];
 /** Whether showNotebookDocument makes the selected cells' editors visible (as VS Code does once it draws them). */
 let notebookCellEditors = true;
+
+/**
+ * Viewer M2 live fix: the column an editor shown with `viewColumn` lands in. With tab groups set
+ * (`__setTabGroups`), ViewColumn.Beside opens a new group after the last one, as VS Code does
+ * beside a panel that is alone or rightmost, and the editor reports that group's column; without
+ * them the option is reported as it was passed.
+ */
+function resolveColumn(viewColumn, label) {
+  if (viewColumn !== -2 || tabGroups.length === 0) return viewColumn;
+  const column = Math.max(...tabGroups.map((group) => group.viewColumn)) + 1;
+  const group = { viewColumn: column, isActive: false, tabs: [], get activeTab() { return group.tabs.find((tab) => tab.isActive); } };
+  group.tabs = [makeTab(group, { label: label || 'source', uri: '/' + (label || 'source'), isActive: true })];
+  tabGroups = [...tabGroups, group];
+  tabGroupEvents.fire({ opened: [group], closed: [], changed: [] });
+  return column;
+}
 
 /** A text editor stub that records its selection, reveals and decorations. */
 function makeTextEditor(document, viewColumn) {
@@ -611,6 +630,9 @@ const vscode = {
   ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   window: {
     activeTextEditor: undefined,
+    activeNotebookEditor: undefined,
+    onDidChangeActiveTextEditor: recordingEvent(recorded.activeEditorListeners),
+    onDidChangeActiveNotebookEditor: recordingEvent(recorded.activeNotebookListeners),
     get visibleTextEditors() {
       return visibleTextEditors;
     },
@@ -703,7 +725,7 @@ const vscode = {
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
     showTextDocument: async (document, options) => {
-      const editor = makeTextEditor(document, options && options.viewColumn);
+      const editor = makeTextEditor(document, resolveColumn(options && options.viewColumn, document && document.uri && path.basename(document.uri.fsPath)));
       recorded.shownDocuments.push({ document, options, editor });
       return editor;
     },
@@ -715,7 +737,7 @@ const vscode = {
     showNotebookDocument: async (notebook, options) => {
       const editor = {
         notebook,
-        viewColumn: options && options.viewColumn,
+        viewColumn: resolveColumn(options && options.viewColumn, notebook && notebook.uri && path.basename(notebook.uri.fsPath)),
         selections: (options && options.selections) || [],
         revealed: [],
         revealRange(range, revealType) {
@@ -960,6 +982,23 @@ const vscode = {
     }));
     return visibleNotebookEditors;
   },
+  /**
+   * Viewer M2 live fix: the reader moves to an editor outside the panel. `{ path, viewColumn }` is a
+   * text editor, `{ notebook: path, viewColumn }` a notebook editor; it becomes the active one and
+   * the matching change event fires. Pass nothing for "a webview took the focus" (undefined fires).
+   */
+  __setActiveEditor(spec) {
+    if (spec && spec.notebook !== undefined) {
+      const editor = { notebook: notebookDocuments.find((notebook) => notebook.uri.fsPath === spec.notebook), viewColumn: spec.viewColumn };
+      vscode.window.activeNotebookEditor = editor;
+      for (const listener of [...recorded.activeNotebookListeners]) listener(editor);
+      return editor;
+    }
+    const editor = spec ? { document: makeDocument(Uri.file(spec.path)), viewColumn: spec.viewColumn } : undefined;
+    vscode.window.activeTextEditor = editor;
+    for (const listener of [...recorded.activeEditorListeners]) listener(editor);
+    return editor;
+  },
   /** Whether showNotebookDocument makes the selected cells' editors visible (default true). */
   __setNotebookCellEditors(enabled) {
     notebookCellEditors = !!enabled;
@@ -1123,6 +1162,9 @@ const vscode = {
     recorded.workspaceFolderUpdates.length = 0;
     recorded.executedCommands.length = 0;
     recorded.closedTabs.length = 0;
+    recorded.activeEditorListeners.length = 0;
+    recorded.activeNotebookListeners.length = 0;
+    vscode.window.activeNotebookEditor = undefined;
     tabGroups = [];
     tabEvents.dispose();
     tabGroupEvents.dispose();

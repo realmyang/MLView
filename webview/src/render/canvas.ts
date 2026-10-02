@@ -1,72 +1,42 @@
 /**
  * Viewport control: pan by dragging the background, zoom by wheel or buttons,
- * fit, zoom-to-selection, and the minimap. Zoom writes ONE attribute per frame
- * (data-lod) so no component re-renders while zooming (R4.3).
+ * the readable first view, fit, zoom-to-selection, and the minimap. Zoom writes
+ * at most one attribute (data-lod) and one bucketed custom property (--mlv-z)
+ * per frame, so no component re-renders and nothing is laid out again while
+ * zooming (R4.3).
  */
 
 import { svg, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
+import { stampPhase } from './phase.js';
 import type { Viewport } from '../types.js';
 
 export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 2.5;
 
 /**
- * How many canvas-heights of document a top-anchored `fit()` may open (VIEW-01).
- *
- * The tall branch used to be a pure width fit, so the demo — 45 nodes when this
- * was measured, before the ANA-1/2/3 re-baseline — opened at 0.756 in a 1240x848
- * canvas with 22 of its 45 cards and 3 of its 7 lanes below the fold, and `fit()`
- * was a measured no-op, because it chose exactly the transform the viewer had
- * already mounted with. Bounding that width fit to one and three-quarter screens
- * of height opened the same document at 0.575 — 27 of the 45 cards and 5 of the 7
- * lanes, measured in Chromium at 1600x1000. The re-baselined demo is 54 nodes
- * in a 1642x2654 world and opens at 0.543 there, 0.5 at 1280x800;
- * `test/measure_geometry.mjs` re-measures any document against the same plan
- * (it reports 0.528 / 0.500 for the same two canvases, running `fitPlan` over
- * the layout alone). VW-01 moved that world from 1576x2630: a card that draws
- * an attribute chip row is now RESERVED one, and the demo's ghost card is
- * reserved the `file : line` row it always drew, so 2 of its 46 cards grew.
+ * The largest zoom a whole-document fit opens at: a two-card document is not blown up to fill a
+ * wide panel.
  */
-export const TALL_SCREENS = 1.75;
-
-/**
- * The zoom a first paint never goes below (VIEW-01).
- *
- * Not a legibility threshold — `data-lod` already concedes at 0.62 that cards
- * below it are read as shapes rather than text. It is the point where a card
- * stops being a recognisable object at all: at the 0.15 floor the 300-node
- * project used to land on, a 216x72 card is 32x11 px, which is smaller than the
- * severity glyph drawn on it. Opening a document smaller than this buys no
- * information, so a document too deep for TALL_SCREENS opens here and is read
- * by panning instead.
- */
-export const MIN_FIT_ZOOM = 0.5;
+export const MAX_FIT_ZOOM = 1.2;
 
 export interface FitPlan {
   zoom: number;
-  /** True when the document was opened top-anchored rather than whole. */
-  tall: boolean;
 }
 
 /**
- * The zoom `fit()` will choose, as a pure function of the two rectangles — so a
- * gate can state the first-paint geometry of a document without a DOM, and the
- * viewer and the gate can never drift (VIEW-01).
+ * The zoom that fits the WHOLE document, as a pure function of the two rectangles, so a gate can
+ * state it without a DOM and the viewer and the gate can never drift (VIEW-01).
+ *
+ * Viewer M2: this used to be the first paint too, with a "tall" branch that opened a deep
+ * document top-anchored at between 0.5 and 1.75 screens of height (VIEW-01). The first paint is
+ * now `readablePlan`, which reads this as its whole-document case, so the tall branch, its
+ * TALL_SCREENS bound and its MIN_FIT_ZOOM floor (0.5) are gone.
  */
-export function fitPlan(
-  contentW: number,
-  contentH: number,
-  w: number,
-  h: number,
-  padding = 24,
-  projected = false,
-): FitPlan {
+export function fitPlan(contentW: number, contentH: number, w: number, h: number, padding = 24): FitPlan {
   const zw = (w - padding * 2) / Math.max(1, contentW);
   const zh = (h - padding * 2) / Math.max(1, contentH);
-  const tall = !projected && zh < zw * 0.6 && zh < 0.6;
-  const bounded = Math.min(zw, Math.max(zh * TALL_SCREENS, MIN_FIT_ZOOM));
-  return { zoom: clamp(tall ? Math.min(bounded, 1) : Math.min(zw, zh), MIN_ZOOM, 1.2), tall };
+  return { zoom: clamp(Math.min(zw, zh), MIN_ZOOM, MAX_FIT_ZOOM) };
 }
 
 export interface Rect {
@@ -80,11 +50,98 @@ export interface Rect {
 export const LOD_FULL_ZOOM = 0.62;
 
 /**
+ * Viewer M2: the zoom steps `--mlv-z` is written at. The stylesheet divides by it to keep a few
+ * marks the same size on screen at every zoom — the inferred / unresolved tags, the exception
+ * dashes and a 1 px floor on connection strokes — so an exception stays visible zoomed out.
+ * Quantised so a wheel zoom restyles those marks only when it crosses a step (about 25% apart),
+ * never on every frame.
+ */
+export const ZOOM_BUCKETS = [0.15, 0.2, 0.25, 0.32, 0.4, 0.5, 0.62, 0.8, 1, 1.25, 1.6, 2, 2.5];
+
+/**
+ * The bucket nearest `zoom` on a log scale, as `--mlv-z` holds it: a constant-size mark is then
+ * within about 12% of its intended screen size at any zoom (the buckets are about 25% apart).
+ */
+export function zoomBucket(zoom: number): number {
+  if (!(zoom > 0)) return 1;
+  let best = ZOOM_BUCKETS[0];
+  let gap = Infinity;
+  for (const bucket of ZOOM_BUCKETS) {
+    const d = Math.abs(Math.log(zoom / bucket));
+    if (d < gap - 1e-9) {
+      gap = d;
+      best = bucket;
+    }
+  }
+  return best;
+}
+
+/**
  * The zoom a selection from the rail lands at when the diagram is below the
  * detail threshold (Campaign 3, issue 6): card titles at about 12 px, edge
  * labels and `file:line` drawn.
  */
 export const READABLE_ZOOM = 0.9;
+
+/**
+ * Viewer M2: phase 1 is fitted whole, rather than opened at READABLE_ZOOM, when it fits at this
+ * zoom or more: titles are still about 10 px on screen (13 px x 0.75) and the reader sees where
+ * the first phase ends.
+ */
+export const PHASE_FIT_MIN_ZOOM = 0.75;
+
+/** The part of a laid-out frame the readable plan reads: its size and its phase lanes. */
+export interface ReadableFrame {
+  width: number;
+  height: number;
+  /** The phase lanes in document order; the first is phase 1. */
+  lanes: ReadonlyArray<{ x: number; y: number; w: number; h: number }>;
+  /** The left routing channel's width, before the first lane (0 or absent when there is none). */
+  channelW?: number;
+}
+
+/** How the readable plan opened the document. */
+export type ReadableMode = 'whole' | 'phase-fit' | 'phase-anchor';
+
+export interface ReadablePlan {
+  zoom: number;
+  /** The viewport translation, in canvas pixels, as `Viewport.x` / `Viewport.y` hold it. */
+  x: number;
+  y: number;
+  mode: ReadableMode;
+}
+
+/**
+ * Viewer M2: the first view, as a pure function of the frame and the canvas size, so a test can
+ * state it without a DOM. Readable, or the whole document; never the in-between thumbnail.
+ *
+ * - The whole document, centred, when it fits at LOD_FULL_ZOOM (0.62) or more.
+ * - Otherwise phase 1, anchored at its top-left with the left routing channel (the trunks that
+ *   leave phase 1 for later phases start there): fitted whole when that zoom is
+ *   PHASE_FIT_MIN_ZOOM (0.75) or more, never above READABLE_ZOOM; else at READABLE_ZOOM (0.9),
+ *   where a 13 px title is 11.7 px on screen.
+ *
+ * A document narrower (or shorter) than the canvas at that zoom is centred on that axis instead,
+ * as a fit always placed it. With no lane to anchor on, the whole document is fitted.
+ */
+export function readablePlan(frame: ReadableFrame, w: number, h: number, padding = 24): ReadablePlan {
+  const contentW = Math.max(1, frame.width);
+  const contentH = Math.max(1, frame.height);
+  const whole = fitPlan(contentW, contentH, w, h, padding).zoom;
+  const lane = frame.lanes.length ? frame.lanes[0] : null;
+  if (whole >= LOD_FULL_ZOOM || !lane) {
+    return { zoom: whole, x: (w - contentW * whole) / 2, y: Math.max(padding, (h - contentH * whole) / 2), mode: 'whole' };
+  }
+  const left = lane.x - Math.max(0, frame.channelW || 0);
+  const rectW = Math.max(1, lane.x + lane.w - left);
+  const rectH = Math.max(1, lane.h);
+  const fits = Math.min((w - padding * 2) / rectW, (h - padding * 2) / rectH);
+  const phaseFit = fits >= PHASE_FIT_MIN_ZOOM;
+  const zoom = clamp(phaseFit ? Math.min(fits, READABLE_ZOOM) : READABLE_ZOOM, MIN_ZOOM, MAX_ZOOM);
+  const x = contentW * zoom <= w ? (w - contentW * zoom) / 2 : padding - left * zoom;
+  const y = contentH * zoom <= h ? (h - contentH * zoom) / 2 : padding - lane.y * zoom;
+  return { zoom, x, y, mode: phaseFit ? 'phase-fit' : 'phase-anchor' };
+}
 
 /**
  * A resize this large, in either dimension, refits a viewport the reader has
@@ -97,11 +154,11 @@ export const REFIT_MIN_PX = 80;
 export const REFIT_MIN_RATIO = 0.1;
 
 /**
- * The narrowest strip beside an overlay that a reveal centres in (Campaign 3 review, VL-1): at
- * 541 px the rail drawer leaves 181 px, enough for a card at a readable zoom; in a 393 px panel it
- * leaves 55 px, so the reveal uses the whole canvas and the target shows when the drawer closes.
+ * Viewer M2: the zoom bounds a finding's frame stays within (`frameRect`): never so far out that
+ * the cited cards are unreadable shapes, never blown up past their natural size.
  */
-export const REVEAL_MIN_STRIP = 160;
+export const FRAME_MIN_ZOOM = 0.45;
+export const FRAME_MAX_ZOOM = 1;
 
 export class ViewportController {
   readonly canvas: HTMLElement;
@@ -111,44 +168,29 @@ export class ViewportController {
   contentH = 1;
   private onChange: (vp: Viewport) => void;
   private lod = 'full';
-  /** True while the document is a PROJECTION (`graph.view` present). */
-  private projected = false;
+  /** The `--mlv-z` bucket last written onto the canvas (viewer M2). */
+  private zBucket = 0;
   /**
    * True while the transform is exactly what the last fit produced — nothing
    * the reader did (pan, zoom, a jump, a restored viewport) has moved it since.
-   * Only such a viewport is refitted on resize, and only it lets Fit re-run the
-   * first-paint plan instead of the whole-document fit (issue 6, HOSTS-UX-FITZOOM).
+   * Only such a viewport is refitted on resize, with the same kind of fit
+   * (issue 6).
    */
   private fitted = false;
-  /** The canvas size the last fit was computed for, and how (whole or first-paint). */
+  /** The canvas size the last fit was computed for, and which fit it was (readable or whole). */
   private fitSize: { w: number; h: number; whole: boolean; padding: number } | null = null;
-  /**
-   * How many pixels at the canvas's right edge an overlay covers: the rail, which below the
-   * 900 px breakpoint is a drawer over the canvas rather than a column beside it. Set by the view;
-   * 0 when nothing covers the canvas (and in jsdom, which measures nothing).
-   */
-  coveredRight: () => number = () => 0;
-
+  /** The frame the readable plan anchors on (viewer M2); null before the first layout. */
+  private frame: ReadableFrame | null = null;
   constructor(canvas: HTMLElement, world: HTMLElement, onChange: (vp: Viewport) => void) {
     this.canvas = canvas;
     this.world = world;
     this.onChange = onChange;
   }
 
-  setContent(w: number, h: number): void {
+  setContent(w: number, h: number, frame: ReadableFrame | null = null): void {
     this.contentW = Math.max(1, w);
     this.contentH = Math.max(1, h);
-  }
-
-  /**
-   * A scoped document fits WHOLE (MLV-R3-001). The tall-scene branch in `fit`
-   * was written for the whole-workspace pipeline, which really is far taller
-   * than it is wide; a scope is small by construction, so the same branch merely
-   * opened a report scoped to `concern:evaluation` with the evaluation lane 351
-   * px below the last visible pixel — a scope that does not show its subject.
-   */
-  setProjected(projected: boolean): void {
-    this.projected = projected;
+    this.frame = frame;
   }
 
   apply(): void {
@@ -158,6 +200,11 @@ export class ViewportController {
     if (lod !== this.lod) {
       this.lod = lod;
       this.canvas.setAttribute('data-lod', lod);
+    }
+    const bucket = zoomBucket(zoom);
+    if (bucket !== this.zBucket) {
+      this.zBucket = bucket;
+      this.canvas.style.setProperty('--mlv-z', String(bucket));
     }
     this.onChange(this.vp);
   }
@@ -196,59 +243,29 @@ export class ViewportController {
   }
 
   /**
-   * Fit the document. A pipeline is naturally much taller than it is wide, and
-   * scaling its full height into a wide panel lands at the zoom floor with the
-   * card text at 3 px and 80 % of the canvas empty (MLV-R1-002). So when the
-   * height-bound fit would be both far tighter than the width-bound one and
-   * illegible on its own, anchor at the top and let the user pan down — which is
-   * how a swimlane diagram is read anyway.
+   * Viewer M2: the readable first view (`readablePlan`), for the first paint and
+   * key 0. The whole document when it fits at full detail; otherwise phase 1 at
+   * a zoom where card titles can be read (11.7 px at READABLE_ZOOM), anchored
+   * top-left. It replaces the top-anchored "tall" fit, which opened the vit and
+   * yolov5 shakedown documents at 39-48 % (4.7-5.8 px titles) at 900 and 1440 px
+   * and at 17-23 % (2.1-2.7 px) beside the code at 541 px. The whole document is
+   * `fitWhole()`, the toolbar's "Fit the whole diagram"; Overview (Shift+0)
+   * folds the groups first.
    *
-   * That branch used to fit the WIDTH outright, which on the demo as it stood
-   * before the re-baseline (45 nodes) meant zoom 0.756, 22 of the 45 cards and 3
-   * of the 7 lanes below the fold, and a Fit button that changed nothing
-   * (VIEW-01). It is now bounded: never more than
-   * TALL_SCREENS canvas-heights of document, never under MIN_FIT_ZOOM, and never
-   * wider than the document itself — so a deeper document opens smaller until a
-   * card would stop being a recognisable object, and then stops.
-   *
-   * A PROJECTION never takes that branch: the user asked for one part of the
-   * pipeline, and the answer must open showing it (MLV-R3-001).
+   * Key 0 always means this view, from any zoom. Before M2 a reader below the
+   * old floor (50 %) who pressed Fit got the whole document instead
+   * (HOSTS-UX-FITZOOM), because a control named "Fit to view" that zooms IN
+   * shows less; that control is now named for what it does, and fits the whole.
    */
   fit(padding = 24): void {
-    // HOSTS-UX-FITZOOM. The tall branch is floored at MIN_FIT_ZOOM, which is
-    // right for a FIRST PAINT — below it a card stops being a recognisable
-    // object, so a deeper document opens there and is read by panning. It is
-    // wrong for a reader who has ALREADY gone below that floor: they asked to
-    // see more, and a control labelled "Fit to view" that zooms back IN shows
-    // less. Measured on the demo at 1280x800: first paint 50 % with 10 of 53
-    // cards fully inside the canvas; five presses of Zoom out -> 20 % and 29 of
-    // 53 inside; one press of Fit -> back to 50 % and 10 of 53, with no toast
-    // and nothing announced. So below the floor Fit means what Overview already
-    // means — the WHOLE document — and above it nothing changes.
-    //
-    // Campaign 3, issue 6: that reasoning is about a reader who ZOOMED OUT. A
-    // viewport nobody has moved since the last fit came from the first-paint
-    // plan, and after the panel is widened Fit has to re-run that plan for the
-    // new size — the whole-document branch made it zoom OUT (codex yolov5:
-    // 0.388 -> 0.283 in a 1022x431 canvas where a first paint gives 0.5). A
-    // fitted viewport therefore re-runs the kind of fit that produced it: the
-    // first-paint plan, or the whole document after Overview.
-    const whole = this.fitted && this.fitSize ? this.fitSize.whole : this.vp.zoom < MIN_FIT_ZOOM;
-    this.applyFit(padding, whole);
+    this.applyFit(padding, false);
   }
 
   /**
-   * Fit the WHOLE document, never top-anchored (VIEW-10 Overview).
-   *
-   * Overview mode folds every group to its card and then asks for the picture a
-   * reviewer can paste — which is by definition the whole document. Routing it
-   * through `fit()` handed it the `tall` branch: the folded demo is still much
-   * taller than it is wide, so `Shift+0` opened top-anchored at 0.837 with
-   * `CrossEntropyLoss`, `train()` and `validate()` entirely below the fold at
-   * 1440x900 — it zoomed IN, and clipped the one picture the feature exists to
-   * produce. The `tall` branch is deliberate for a first paint (MLV-R3-001) and
-   * is untouched here; it is simply not what "fit everything" means, exactly as
-   * a projection already opts out of it through `setProjected`.
+   * Fit the WHOLE document, centred (VIEW-10 Overview, and the toolbar's "Fit
+   * the whole diagram" since viewer M2). Overview folds every group to its card
+   * first and then asks for the picture a reviewer can paste, which is by
+   * definition the whole document.
    */
   fitWhole(padding = 24): void {
     this.applyFit(padding, true);
@@ -256,10 +273,17 @@ export class ViewportController {
 
   private applyFit(padding: number, whole: boolean): void {
     const { w, h } = this.size();
-    const { zoom, tall } = fitPlan(this.contentW, this.contentH, w, h, padding, this.projected || whole);
-    this.vp.zoom = zoom;
-    this.vp.x = (w - this.contentW * zoom) / 2;
-    this.vp.y = tall ? padding : Math.max(padding, (h - this.contentH * zoom) / 2);
+    if (whole || !this.frame) {
+      const { zoom } = fitPlan(this.contentW, this.contentH, w, h, padding);
+      this.vp.zoom = zoom;
+      this.vp.x = (w - this.contentW * zoom) / 2;
+      this.vp.y = Math.max(padding, (h - this.contentH * zoom) / 2);
+    } else {
+      const plan = readablePlan(this.frame, w, h, padding);
+      this.vp.zoom = plan.zoom;
+      this.vp.x = plan.x;
+      this.vp.y = plan.y;
+    }
     this.fitted = true;
     this.fitSize = { w, h, whole, padding };
     this.apply();
@@ -306,16 +330,50 @@ export class ViewportController {
   }
 
   /**
-   * The part of the canvas a reveal can use (VL-1): the strip left of an overlay while it is at
-   * least REVEAL_MIN_STRIP wide, otherwise the whole canvas. Fit is unaffected: it lays the whole
-   * document out for the canvas, drawer or not.
+   * The part of the canvas a reveal can use. Viewer M2: the whole canvas. The drawer that lay over
+   * its right side below 900 px (Campaign 3 review, VL-1) is gone; the bottom sheet that replaced
+   * it sits under the canvas and shrinks it, so the canvas IS the area above the sheet.
    */
   visibleArea(): { w: number; h: number } {
-    const size = this.size();
-    const covered = this.coveredRight();
-    if (!(covered > 0)) return size;
-    const w = size.w - covered;
-    return w >= REVEAL_MIN_STRIP ? { w, h: size.h } : size;
+    return this.size();
+  }
+
+  /**
+   * Viewer M2: the canvas changed size for a reason that is not a new picture (the bottom sheet
+   * opened or collapsed under it). A fitted viewport stays fitted but takes this size as the one it
+   * was fitted for, so the resize that follows does not refit (and move) the diagram the reader is
+   * reading.
+   */
+  acceptResize(): void {
+    if (!this.fitted || !this.fitSize) return;
+    const { w, h } = this.size();
+    this.fitSize = { ...this.fitSize, w, h };
+  }
+
+  /**
+   * Viewer M2: bring a rectangle (a finding's cited cards) into view. At full detail the zoom is
+   * kept when the rectangle fits and it is only centred; otherwise the zoom is the largest that
+   * fits it, at most `readable` (READABLE_ZOOM) below full detail and FRAME_MAX_ZOOM above, and at
+   * least FRAME_MIN_ZOOM. A rectangle too large even at that floor is centred on `anchor` (the first
+   * cited card), so the reader starts where the finding starts.
+   */
+  /** Whether `rect` fits the visible area at `zoom` or more, with the frame's margin (`frameRect`). */
+  fitsAt(rect: Rect, zoom: number, margin = 48): boolean {
+    const { w, h } = this.visibleArea();
+    return Math.min((w - margin) / Math.max(1, rect.w), (h - margin) / Math.max(1, rect.h)) >= zoom;
+  }
+
+  frameRect(rect: Rect, anchor: Rect, readable: number, margin = 48): void {
+    const { w, h } = this.visibleArea();
+    const fits = Math.min((w - margin) / Math.max(1, rect.w), (h - margin) / Math.max(1, rect.h));
+    const zoom = this.vp.zoom;
+    if (zoom >= LOD_FULL_ZOOM && fits >= zoom) {
+      this.centerOn(rect);
+      return;
+    }
+    const ceiling = zoom >= LOD_FULL_ZOOM ? Math.max(FRAME_MAX_ZOOM, zoom) : readable;
+    const next = Math.max(FRAME_MIN_ZOOM, Math.min(ceiling, fits));
+    this.centerOn(fits >= FRAME_MIN_ZOOM ? rect : anchor, next);
   }
 
   centerOn(rect: Rect, zoom?: number): void {
@@ -326,6 +384,27 @@ export class ViewportController {
     this.vp.x = w / 2 - (rect.x + rect.w / 2) * z;
     this.vp.y = h / 2 - (rect.y + rect.h / 2) * z;
     this.apply();
+  }
+
+  /**
+   * Viewer M2 live fix: pan the least distance that puts `rect` wholly inside the visible area,
+   * keeping the zoom, with `margin` px to spare on the side it comes in from (less when the area is
+   * barely larger than the rect). A rect larger than the area is aligned on its top or left edge,
+   * where a card's title is. Nothing moves when it is already wholly inside.
+   */
+  revealRect(rect: Rect, margin = 16): void {
+    const { w, h } = this.visibleArea();
+    const z = this.vp.zoom;
+    const shift = (start: number, size: number, extent: number): number => {
+      const pad = Math.max(0, Math.min(margin, (extent - size) / 2));
+      if (size > extent) return -start;
+      if (start < 0) return pad - start;
+      if (start + size > extent) return extent - pad - (start + size);
+      return 0;
+    };
+    const dx = shift(rect.x * z + this.vp.x, rect.w * z, w);
+    const dy = shift(rect.y * z + this.vp.y, rect.h * z, h);
+    if (dx || dy) this.panBy(dx, dy);
   }
 
   zoomToBox(rect: Rect, padding = 80): void {
@@ -353,6 +432,8 @@ export interface MinimapDot {
   w: number;
   h: number;
   stage: string;
+  /** Viewer M2: the phase's document position, the key of its colour. */
+  phase?: number;
   severity: string | null;
 }
 
@@ -473,6 +554,7 @@ export class Minimap {
         rx: 1,
       });
       r.setAttribute('data-stage', d.stage);
+      if (d.phase !== undefined) stampPhase(r, d.phase);
       if (d.severity) r.setAttribute('data-sev', d.severity);
       this.nodesG.appendChild(r);
     }

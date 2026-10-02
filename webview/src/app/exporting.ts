@@ -3,23 +3,14 @@
  * reader asked for it, then hand it to `export/actions.ts`.
  *
  * Nothing here draws. The plan is the one the DOM was built from, so the export
- * cannot diverge from the diagram by construction, and every decision that could
- * go stale — the theme, the region, the scope label — is read LIVE rather than
- * remembered.
+ * cannot diverge from the diagram by construction, and the theme, which could
+ * go stale, is read LIVE rather than remembered. The ... menu exports the whole
+ * diagram (viewer M2).
  */
 
 import { resolvePalette } from '../export/palette.js';
-import {
-  ExportRequest,
-  copyPngImage,
-  copySvgText,
-  exportFileName,
-  printDiagram,
-  renderExport,
-  savePng,
-  saveSvg,
-} from '../export/actions.js';
-import type { ExportActionId } from '../ui/exportmenu.js';
+import { ExportRequest, copySvgText, exportFileName, renderExport, savePng, saveSvg } from '../export/actions.js';
+import type { ExportActionId } from '../ui/moremenu.js';
 import type { App } from '../app.js';
 
 /**
@@ -27,12 +18,11 @@ import type { App } from '../app.js';
  *
  * The plan is the one the DOM was built from, the palette is read off the
  * MOUNTED root — so a VS Code user exports their own theme's colours, not our
- * defaults — and the region is whatever the menu currently has checked.
+ * defaults.
  */
 function exportRequest(app: App): ExportRequest | null {
   const plan = app.view.scenePlan();
   if (!plan || !app.graph) return null;
-  const summary = app.scopes.summary();
   return {
     plan,
     // VW-05: the LIVE theme (the host's `theme` frame may have changed it),
@@ -40,9 +30,6 @@ function exportRequest(app: App): ExportRequest | null {
     palette: resolvePalette(app.root, app.themes.kind),
     theme: app.themes.kind,
     graph: app.graph,
-    regionKind: app.exportMenu.currentRegion,
-    viewRect: app.view.viewportRect(),
-    scopeLabel: summary.spec ? summary.label : null,
     generatedAt: new Date().toISOString().slice(0, 10),
   };
 }
@@ -55,18 +42,7 @@ export function runExport(app: App, action: ExportActionId): void {
     },
     toast: (text: string) => app.view.toast(text),
     announce: (text: string) => app.announce(text),
-    print: () => {
-      try {
-        if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
-      } catch (_e) {
-        app.view.toast('This host does not offer a print dialog.');
-      }
-    },
   };
-  if (action === 'print') {
-    printDiagram(host);
-    return;
-  }
   const request = exportRequest(app);
   if (!request) {
     app.view.toast('Nothing is drawn yet — there is nothing to export.');
@@ -76,5 +52,4 @@ export function runExport(app: App, action: ExportActionId): void {
   if (action === 'svg') saveSvg(host, result, exportFileName(request, 'svg'));
   else if (action === 'png') void savePng(host, result, exportFileName(request, 'png'));
   else if (action === 'copy-svg') void copySvgText(host, result);
-  else if (action === 'copy-png') void copyPngImage(host, result);
 }

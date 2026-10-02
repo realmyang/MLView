@@ -47,14 +47,34 @@
   pointer-events: auto;
 }
 
-/* lanes */
+/* lanes — viewer M2: a neutral wash and a 3 px accent rule in the phase colour, never a
+ * phase-coloured fill. The rule is a pseudo-element, so the lane box (which the geometry golden
+ * hashes) does not change; export/svg.ts draws the same rule. */
 .mlv-lane {
   position: absolute;
   border: 1px solid var(--mlv-border);
   border-radius: var(--mlv-r-lane);
-  background: color-mix(in srgb, var(--mlv-stage) calc(var(--mlv-lane-tint) * 100%), transparent);
+  background: color-mix(in srgb, var(--mlv-text) calc(var(--mlv-lane-tint) * 100%), transparent);
 }
 
+.mlv-lane::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+  pointer-events: none;
+}
+
+/*
+ * Viewer M2 review (A11Y-11): the lane heading sits on a plate and reads like a heading: the phase
+ * number (as the Selection pane's eyebrow numbers it) and the label, in the text colour at the card
+ * title's size. It used to be 11 px muted capitals, smaller and fainter than the cards under it
+ * (9.9 px at 90% zoom). Same 28 px header (`LANE_HEADER_H`), so nothing is laid out again.
+ */
 .mlv-lane__header {
   position: absolute;
   top: 0;
@@ -65,47 +85,91 @@
   gap: var(--mlv-s4);
   height: var(--mlv-lane-header-h, 28px);
   padding: 0 var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  border-radius: calc(var(--mlv-r-lane) - 1px) calc(var(--mlv-r-lane) - 1px) 0 0;
+  background: color-mix(in srgb, var(--mlv-text) 5%, var(--mlv-surface));
+}
+
+/* The phase's colour swatch, first on the plate. */
+.mlv-lane__header::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-lane__num {
+  flex: none;
+  margin-right: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
 }
 
 .mlv-lane__label {
-  color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-11);
+  flex: 0 1 auto;
+  min-width: 48px;
+  overflow: hidden;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-13);
   font-weight: var(--mlv-fw-semi);
-  text-transform: uppercase;
-  letter-spacing: var(--mlv-track-caps);
-}
-
-.mlv-lane__label::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: var(--mlv-s3);
-  border-radius: 2px;
-  background: var(--mlv-stage, var(--mlv-stage-unknown));
-  vertical-align: baseline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mlv-lane__count {
+  flex: none;
   color: var(--mlv-text-3);
   font-size: var(--mlv-fs-10);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .mlv-lane__spacer {
   flex: 1 1 auto;
 }
 
-/* group boxes */
-.mlv-group {
-  position: absolute;
-  border: 1px dashed color-mix(in srgb, var(--mlv-stage) 45%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--mlv-stage) calc(var(--mlv-group-tint) * 100%), transparent);
+.mlv-lane__header .mlv-cluster {
+  flex: none;
 }
 
-.mlv-group[data-depth="1"] { border-style: dashed; }
-.mlv-group[data-depth="2"] { border-style: dotted; }
+/* Viewer M2: what the lane's severity numbers count, after them with their total ("· 5 findings
+ * touch this phase", viewer M2 review M2R-4). It gives way first in a narrow lane; its tooltip and
+ * the cluster's accessible name keep the whole sentence. */
+.mlv-lane__unit::before {
+  content: "· ";
+}
+
+.mlv-lane__unit {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* group boxes — viewer M2: a neutral solid frame. Dashed and dotted now mean inferred and
+ * unresolved, so a group's frame uses them only for the group's own basis, never for depth. */
+.mlv-group {
+  position: absolute;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mlv-text) calc(var(--mlv-group-tint) * 100%), transparent);
+}
+
+.mlv-group[data-basis="inferred"] {
+  border: calc(1.5px / var(--mlv-z, 1)) dashed var(--mlv-text-2);
+}
+
+.mlv-group[data-basis="unresolved"] {
+  border: calc(1.5px / var(--mlv-z, 1)) dotted var(--mlv-text-2);
+}
 
 .mlv-group__header {
   display: flex;
@@ -123,7 +187,7 @@
 }
 
 .mlv-group__header:hover {
-  background: color-mix(in srgb, var(--mlv-stage) 10%, transparent);
+  background: var(--mlv-surface-2);
 }
 
 .mlv-group__chevron {
@@ -163,30 +227,25 @@
   opacity: 0.5;
 }
 
-/* focus / trace dimming — class toggles only, never a re-render */
-.mlv-canvas.is-tracing .mlv-node:not(.is-lit),
+/*
+ * Focus mode dims what is not in the lineage — class toggles only, never a re-render. Viewer M2
+ * review (A11Y-9): a hover dims nothing. It lights its direct connections (edge.css `.is-lit`) and
+ * rings the cards at their other ends; the rest keep their contrast. The hover used to fade every
+ * other card to 22%, which put 9 of 12 visible titles under 2:1 while the pointer crossed a card,
+ * High Contrast included. Only latched focus mode (F) dims, and makes the dimmed cards inert.
+ */
 .mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
   opacity: 0.22;
   filter: saturate(0.3);
-}
-
-/* Only latched focus mode makes dimmed cards inert. A hover lights one hop, so
- * most cards are dim while it is up; they must still take the pointer, to start
- * their own hover, to be clicked, and to keep the cable picker off the
- * connections under them (`render/edgehover.ts`). */
-.mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
   pointer-events: none;
 }
 
-.mlv-canvas.is-tracing .mlv-edge:not(.is-lit),
 .mlv-canvas.is-focusing .mlv-edge:not(.is-lit) {
   opacity: 0.16;
 }
 
-.mlv-node.is-filtered {
-  opacity: 0.18;
-  box-shadow: none;
-  pointer-events: none;
+.mlv-canvas.is-tracing .mlv-node.is-lit {
+  box-shadow: 0 0 0 max(1.5px, calc(1px / var(--mlv-z, 1))) var(--mlv-text-2);
 }
 
 /* tooltip / hover card */
@@ -223,27 +282,36 @@
   color: var(--mlv-text-3);
 }
 
+/* Viewer M2: the zoom lives at the right end of the status bar: − 90% + (ui/chrome.ts). */
 .mlv-zoom {
-  position: absolute;
-  left: var(--mlv-s5);
-  bottom: var(--mlv-s5);
-  z-index: 20;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--mlv-s2);
-  padding: var(--mlv-s2);
-  border: 1px solid var(--mlv-border);
-  border-radius: var(--mlv-r-btn);
-  background: var(--mlv-surface);
-  box-shadow: var(--mlv-sh-1);
+  flex: none;
+  gap: 1px;
 }
 
 .mlv-zoom__level {
-  min-width: 42px;
+  min-width: 38px;
   text-align: center;
   color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-10);
+  font-size: var(--mlv-fs-11);
   font-variant-numeric: tabular-nums;
+}
+
+.mlv-zoom .mlv-zoom__btn {
+  width: 20px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-zoom .mlv-zoom__btn:hover {
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
 }
 
 /* Pointer routing: the bands and group boxes are backdrop, only their headers
@@ -288,5 +356,5 @@
 }
 
 .mlv-group__chevron-btn:hover {
-  background: color-mix(in srgb, var(--mlv-stage) 18%, transparent);
+  background: var(--mlv-surface-2);
 }

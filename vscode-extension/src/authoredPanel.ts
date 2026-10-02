@@ -653,6 +653,10 @@ class AuthoredPanel implements vscode.Disposable {
     private highlight: vscode.TextEditorDecorationType | undefined;
     /** The number of the latest source jump (see `Jump`). */
     private jumpSeq = 0;
+    /** The editor group the last jump showed its source in (`navigationColumn`). */
+    private jumpColumn: vscode.ViewColumn | undefined;
+    /** Editor groups the reader used outside the panel, most recent first (`navigationColumn`). */
+    private recentColumns: vscode.ViewColumn[] = [];
     constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly hooks: PanelHooks, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
         this.artifactRel = toPosixRelative(folder.uri.fsPath, artifact.fsPath);
         this.dependencies.addPath(artifact.fsPath);
@@ -663,6 +667,11 @@ class AuthoredPanel implements vscode.Disposable {
         panel.onDidChangeViewState(() => this.hooks.changed(), null, this.disposables);
         panel.webview.onDidReceiveMessage((m: unknown) => { void this.message(m).catch(error => this.log.warn(`authored message failed: ${error instanceof Error ? error.message : String(error)}`)); }, null, this.disposables);
         this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) })));
+        // The reader's last editor outside the panel names the group a jump reuses. A text or
+        // notebook editor that takes focus is never the panel's own (that is this webview).
+        this.noteActiveEditor(vscode.window.activeNotebookEditor);
+        this.noteActiveEditor(vscode.window.activeTextEditor);
+        this.disposables.push(vscode.window.onDidChangeActiveTextEditor(editor => this.noteActiveEditor(editor)), vscode.window.onDidChangeActiveNotebookEditor(editor => this.noteActiveEditor(editor)));
     }
     reveal(): void { this.panel.reveal(vscode.ViewColumn.Beside, true); }
     /** This panel in the registry: the artifact, the tab title and the group's column (see `OPEN_PANELS_KEY`). */
@@ -1356,17 +1365,64 @@ class AuthoredPanel implements vscode.Disposable {
     private navigationCurrent(jump: Jump): boolean {
         return !this.disposed && this.lastValid?.document.revision.id === jump.revision && this.freshnessVersion === jump.freshness && this.jumpSeq === jump.seq;
     }
+    /**
+     * The panel's own editor group. VS Code revives a restored panel with column 0 and reports its
+     * group a moment later; until then it is the group whose front tab is this diagram.
+     */
+    private ownColumn(): vscode.ViewColumn | undefined {
+        const column = this.panel.viewColumn;
+        if (typeof column === 'number' && column > 0)
+            return column;
+        return vscode.window.tabGroups.all.find(group => isAuthoredTab(group.activeTab) && group.activeTab?.label === this.panel.title)?.viewColumn;
+    }
+    /**
+     * Where a jump shows its source (viewer M2 live fix). Always an editor group other than the
+     * panel's own, and an existing one when there is any: the group that already shows the cited
+     * file; else the group of the previous jump, while it exists; else the group the reader used
+     * last outside the panel; else the open group nearest the panel. Only a panel alone in the
+     * window opens a group beside it. Text files and notebooks go to the same group.
+     *
+     * MEASURED live before the fix (VS Code 1.139): a 541 px diagram beside a notebook group, Enter
+     * on a .py citation opened a third group, because a notebook's cell editors report no column
+     * and the rule fell through to ViewColumn.Beside; the diagram dropped to 271 px.
+     */
     private navigationColumn(document: vscode.TextDocument, notebook?: vscode.NotebookDocument): vscode.ViewColumn {
+        const own = this.ownColumn();
+        const groups = vscode.window.tabGroups.all;
+        const exists = (column: vscode.ViewColumn | undefined): column is vscode.ViewColumn =>
+            typeof column === 'number' && column > 0 && column !== own
+            && (groups.length === 0 || groups.some(group => group.viewColumn === column));
         const sameUri = (left: vscode.Uri, right: vscode.Uri): boolean => left.toString() === right.toString();
-        const visibleDocument = vscode.window.visibleTextEditors.find(editor => sameUri(editor.document.uri, document.uri) && editor.viewColumn !== undefined);
-        if (visibleDocument?.viewColumn !== undefined)
-            return visibleDocument.viewColumn;
-        const visibleNotebook = notebook && vscode.window.visibleNotebookEditors.find(editor => sameUri(editor.notebook.uri, notebook.uri) && editor.viewColumn !== undefined);
-        if (visibleNotebook?.viewColumn !== undefined)
-            return visibleNotebook.viewColumn;
-        const sourceEditor = [vscode.window.activeTextEditor, ...vscode.window.visibleTextEditors]
-            .find(editor => editor?.viewColumn !== undefined && editor.viewColumn !== this.panel.viewColumn);
-        return sourceEditor?.viewColumn ?? vscode.ViewColumn.Beside;
+        const showing = vscode.window.visibleTextEditors.find(editor => sameUri(editor.document.uri, document.uri) && exists(editor.viewColumn))?.viewColumn
+            ?? (notebook ? vscode.window.visibleNotebookEditors.find(editor => sameUri(editor.notebook.uri, notebook.uri) && exists(editor.viewColumn))?.viewColumn : undefined);
+        if (showing !== undefined)
+            return showing;
+        if (exists(this.jumpColumn))
+            return this.jumpColumn;
+        const recent = this.recentColumns.find(exists);
+        if (recent !== undefined)
+            return recent;
+        // Any other open group, nearest the panel first (the mock and an older host may report no
+        // tab groups; then the visible editors' groups stand in for them).
+        const others = (groups.length ? groups.map(group => group.viewColumn) : [vscode.window.activeTextEditor, ...vscode.window.visibleTextEditors, ...vscode.window.visibleNotebookEditors].map(editor => editor?.viewColumn))
+            .filter(exists);
+        if (others.length) {
+            const distance = (column: number): number => own === undefined ? column : Math.abs(column - own);
+            return others.slice().sort((a, b) => distance(a) - distance(b) || a - b)[0]!;
+        }
+        return vscode.ViewColumn.Beside;
+    }
+    /** Remember the group a jump showed its source in, for the next jump. */
+    private noteJumpColumn(column: vscode.ViewColumn | undefined): void {
+        if (typeof column === 'number' && column > 0)
+            this.jumpColumn = column;
+    }
+    /** The reader moved to an editor outside the panel: its group is the most recently used one. */
+    private noteActiveEditor(editor: { viewColumn?: vscode.ViewColumn } | undefined): void {
+        const column = editor?.viewColumn;
+        if (typeof column !== 'number' || column <= 0)
+            return;
+        this.recentColumns = [column, ...this.recentColumns.filter(other => other !== column)].slice(0, 8);
     }
     /**
      * Open the cited source beside the panel, select the whole cited range and highlight it.
@@ -1383,6 +1439,7 @@ class AuthoredPanel implements vscode.Disposable {
         if (!this.navigationCurrent(jump))
             return;
         const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(doc) });
+        this.noteJumpColumn(editor.viewColumn);
         if (!this.navigationCurrent(jump))
             return;
         this.showRange(editor, citedRange(doc, start, end));
@@ -1405,6 +1462,7 @@ class AuthoredPanel implements vscode.Disposable {
         const cell = notebook.cellAt(index);
         const cells = new vscode.NotebookRange(index, index + 1);
         const notebookEditor = await vscode.window.showNotebookDocument(notebook, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(cell.document, notebook), selections: [cells] });
+        this.noteJumpColumn(notebookEditor.viewColumn);
         if (!this.navigationCurrent(jump))
             return;
         notebookEditor.revealRange(cells, vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);

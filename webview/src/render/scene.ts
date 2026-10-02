@@ -61,7 +61,7 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
   layers.edgesSvg.setAttribute('viewBox', '0 0 ' + frame.width + ' ' + frame.height);
 
   for (const lane of plan.lanes) {
-    layers.lanes.appendChild(buildLane(lane.lane, lane.counts, false));
+    layers.lanes.appendChild(buildLane(lane.lane, lane.counts, false, lane.phase));
   }
 
   const nodeEls = new Map<string, HTMLElement>();
@@ -85,7 +85,6 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
   const edgeEls = new Map<string, SVGElement>();
   for (const visual of plan.edges) {
     const element = buildEdge(visual);
-    if (visual.filtered) element.classList.add('is-filtered');
     opts.wireEdge(element, visual.route);
     layers.edgeGroup.appendChild(element);
     edgeEls.set(visual.route.id, element);
@@ -106,6 +105,7 @@ export function minimapDots(index: GraphIndex, frame: LayoutFrame, keep: IssuePr
       w: box.w,
       h: box.h,
       stage: node.stage,
+      phase: index.phaseIndexOf(node.stage),
       severity: highestSeverity(index.subtreeCounts(box.id, keep)),
     });
   }

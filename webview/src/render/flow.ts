@@ -45,6 +45,15 @@
  *
  * A PULSE is the documented exception, and the exception is the CLAMP, not the
  * conversion — see `pulseDurationMs`.
+ *
+ * Viewer M2: NOTHING LOOPS WHILE THE READER READS. A flow runs `FLOW.SETTLE_PASSES` passes and
+ * then SETTLES into the static marks the reduced-motion path already draws (ports, a chevron,
+ * the arrowhead back): the pulse's SMIL dot and its CSS fade run a finite count, the stream's
+ * dash train runs a per-edge iteration count that ends every cable at about the same moment
+ * (`streamSettleMs`, `streamIterations`), and the `animationend` of the moving part calls
+ * `settle()`. A focus-mode lineage used to stream for as long as the latch held. `replay()`
+ * (Shift+A) runs the flow on screen again from its first pass, and a fresh hover or focus
+ * gesture always starts a fresh one.
  */
 
 import { svg, XLINK_NS } from '../dom.js';
@@ -93,6 +102,11 @@ export const FLOW = {
    * "a charge is crossing" and starts reading "nothing is happening".
    */
   CHARGE_TWIN_PX: 360,
+  /** Viewer M2: a flow runs this many passes, then settles into the static marks. */
+  SETTLE_PASSES: 2,
+  /** A stream settles after two passes over its longest cable plus its wave, clamped to this. */
+  SETTLE_MIN_MS: 1600,
+  SETTLE_MAX_MS: 6000,
 };
 
 /** The effective mode, mirrored onto `.mlv-canvas` as `data-flow`. */
@@ -121,9 +135,10 @@ const FLOW_PROPS = [
   '--mlv-flow-gap',
   '--mlv-flow-end',
   '--mlv-flow-delay',
+  '--mlv-flow-iter',
 ];
 
-const FLOW_CLASSES = ['is-flowing', 'is-flowing--pulse'];
+const FLOW_CLASSES = ['is-flowing', 'is-flowing--pulse', 'is-flow-settled'];
 
 /** Sum of the segment lengths of the route's own polyline. Never the DOM. */
 export function polylineLength(points: Point[]): number {
@@ -162,6 +177,39 @@ export function streamGapPx(kind: string, subkind?: string, back?: boolean): num
   if (kind === 'control') return back || subkind === 'back' ? FLOW.GAP_BACK : FLOW.GAP_CALL;
   if (kind === 'call') return FLOW.GAP_CALL;
   return FLOW.GAP_DATA;
+}
+
+/**
+ * One period of a stream's dash train, in ms. Mirrors the CSS exactly (flow.css binds
+ * `--mlv-flow-dur-call` to `.mlv-edge--call` and `.mlv-edge--control`, and `--mlv-flow-dur-back`
+ * to `.mlv-edge--control.mlv-edge--back`), because the iteration count is computed from it.
+ */
+export function streamPeriodMs(kind: string, back?: boolean): number {
+  if (kind === 'control' && back) return FLOW.PERIOD_BACK;
+  if (kind === 'control' || kind === 'call') return FLOW.PERIOD_CALL;
+  return FLOW.PERIOD_DATA;
+}
+
+/**
+ * Viewer M2: when a stream settles, in ms after it starts. Two passes of a charge over the
+ * longest cable it decorates at `STREAM_SPEED`, plus the last hop's wave delay, so even the
+ * farthest cable shows the direction twice; clamped so a short hop still reads and a lineage
+ * of long detours never streams for more than six seconds.
+ */
+export function streamSettleMs(longestPx: number, lastDelayMs: number): number {
+  const passes = Math.round(((FLOW.SETTLE_PASSES * Math.max(0, longestPx)) / FLOW.STREAM_SPEED) * 1000);
+  return Math.max(FLOW.SETTLE_MIN_MS, Math.min(FLOW.SETTLE_MAX_MS, passes + Math.max(0, lastDelayMs)));
+}
+
+/** Whole dash periods that end a cable's stream nearest to `settleMs`; never fewer than one. */
+export function streamIterations(settleMs: number, delayMs: number, periodMs: number): number {
+  if (!(periodMs > 0)) return 1;
+  return Math.max(1, Math.round((settleMs - delayMs) / periodMs));
+}
+
+/** The wave delay a stream gives the cable at `hop`, in ms (CONTRACTS 11.13). */
+export function hopDelayMs(hop: number): number {
+  return Math.min(hop, FLOW.HOP_MAX) * FLOW.HOP_MS;
 }
 
 /** `config` fans out from a literal to everything; it never joins a stream. */
@@ -228,13 +276,6 @@ export interface FlowHost {
   edges(): Map<string, SVGElement>;
   nodes(): Map<string, HTMLElement>;
   routes(): RoutedEdge[];
-  /**
-   * Composition rule C2 (CONTRACTS 11.14): a charge may stream along an edge
-   * only when the document is unprojected, or when BOTH endpoints are `core`.
-   * A boundary node's other connections are cut, so a charge animating into it
-   * would lie about where the value goes.
-   */
-  streamEligible(route: RoutedEdge): boolean;
 }
 
 /**
@@ -250,6 +291,10 @@ export class FlowController {
   private decorated: string[] = [];
   private sourceId: string | null = null;
   private targetId: string | null = null;
+  /** The routes behind `decorated`, so a settled cable can draw its chevron. */
+  private decoratedRoutes = new Map<string, RoutedEdge>();
+  /** Viewer M2: the last flow started, which `replay()` runs again. */
+  private lastRun: (() => void) | null = null;
 
   constructor(host: FlowHost) {
     this.host = host;
@@ -298,10 +343,12 @@ export class FlowController {
       if (g) stripEdge(g);
     }
     this.decorated = [];
+    this.decoratedRoutes.clear();
     // A re-render replaces the map, so also sweep whatever is still standing.
     for (const g of edges.values()) {
       if (g.classList.contains('is-flowing') || g.classList.contains('is-flowing--pulse')) stripEdge(g);
     }
+    this.host.canvas.removeAttribute('data-flow-settled');
     const nodes = this.host.nodes();
     if (this.sourceId) {
       const el = nodes.get(this.sourceId);
@@ -329,14 +376,16 @@ export class FlowController {
    */
   pulse(route: RoutedEdge): void {
     this.clear();
+    this.lastRun = () => this.pulse(route);
     const mode = this.modeFor(1);
     this.host.canvas.setAttribute('data-flow', mode);
     if (mode === 'off') return;
     const g = this.host.edges().get(route.id);
     if (!g) return;
-    this.decorate(g, route, mode, null);
+    this.decorate(g, route, mode, null, 0);
     g.classList.add('is-flowing--pulse');
     this.decorated.push(route.id);
+    this.decoratedRoutes.set(route.id, route);
     const nodes = this.host.nodes();
     const src = nodes.get(route.source);
     const dst = nodes.get(route.target);
@@ -372,6 +421,9 @@ export class FlowController {
    */
   stream(nodeId: string, reach: TraceReach): StreamResult {
     this.clear();
+    this.lastRun = () => {
+      this.stream(nodeId, reach);
+    };
     const routes = this.host.routes();
     const hops = streamHops(routes, nodeId, reach);
     const count = hops.edges.size;
@@ -388,18 +440,77 @@ export class FlowController {
     const capped = dense && mode !== 'off';
     if (mode === 'off' || dense) return { mode, capped, edges: count };
     const edges = this.host.edges();
+    const chosen: { route: RoutedEdge; g: SVGElement; hop: number }[] = [];
+    let longest = 0;
+    let lastDelay = 0;
     for (const route of routes) {
       const hop = hops.edges.get(route.id);
       if (hop === undefined) continue;
       if (!streamsInLineage(route)) continue;
-      if (!this.host.streamEligible(route)) continue;
       const g = edges.get(route.id);
       if (!g) continue;
-      this.decorate(g, route, mode, hop);
+      chosen.push({ route, g, hop });
+      longest = Math.max(longest, polylineLength(route.points || []));
+      lastDelay = Math.max(lastDelay, hopDelayMs(hop));
+    }
+    // One settle moment for the whole stream, so the lineage goes still together.
+    const settleMs = streamSettleMs(longest, lastDelay);
+    for (const { route, g, hop } of chosen) {
+      this.decorate(g, route, mode, hop, settleMs);
       g.classList.add('is-flowing');
       this.decorated.push(route.id);
+      this.decoratedRoutes.set(route.id, route);
     }
     return { mode, capped, edges: count };
+  }
+
+  /**
+   * Viewer M2: the moving part on `id` has run its passes. Leave the static marks the
+   * reduced-motion path draws: the ports stay, the charge goes, a chevron points at the inlet
+   * and the arrowhead returns (flow.css `.is-flow-settled`). The edge keeps `.is-flowing`, so
+   * what is lit and what reads as flowing do not change when the motion stops. When every
+   * decorated cable has settled the canvas carries `data-flow-settled`.
+   */
+  settle(id: string): boolean {
+    const route = this.decoratedRoutes.get(id);
+    const g = this.host.edges().get(id);
+    if (!route || !g || g.classList.contains('is-flow-settled')) return false;
+    const parts = g.querySelectorAll('.mlv-edge__flow, .mlv-edge__charge');
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (part.parentNode) part.parentNode.removeChild(part);
+    }
+    if ((route.points || []).length >= 2 && !g.querySelector('.mlv-edge__dir')) g.appendChild(directionMark(route));
+    g.classList.add('is-flow-settled');
+    if (this.settled) this.host.canvas.setAttribute('data-flow-settled', 'true');
+    return true;
+  }
+
+  /** Every cable carrying a flow has settled (false when nothing flows). */
+  get settled(): boolean {
+    if (!this.decorated.length) return false;
+    const edges = this.host.edges();
+    return this.decorated.every((id) => {
+      const g = edges.get(id);
+      return !g || g.classList.contains('is-flow-settled');
+    });
+  }
+
+  /** Whether any cable is decorated right now — moving, settled or static. */
+  get flowing(): boolean {
+    return this.decorated.length > 0;
+  }
+
+  /**
+   * Viewer M2 (Shift+A): run the flow on screen again from its first pass. False when nothing
+   * is decorated, when the layer is off, or under reduced motion, where there is no motion to
+   * replay and the static marks already show the direction.
+   */
+  replay(): boolean {
+    if (!this.lastRun || !this.decorated.length) return false;
+    if (this.modeFor(1) !== 'motion') return false;
+    this.lastRun();
+    return this.decorated.length > 0;
   }
 
   private modeFor(litEdges: number): FlowMode {
@@ -422,7 +533,7 @@ export class FlowController {
    * not "fix" it by scaling the delay into one period without amending 11.13,
    * which F1-A4 pins to 90 ms / 180 ms for hops 1 and 2.
    */
-  private decorate(g: SVGElement, route: RoutedEdge, mode: FlowMode, hop: number | null): void {
+  private decorate(g: SVGElement, route: RoutedEdge, mode: FlowMode, hop: number | null, settleMs: number): void {
     const points = route.points || [];
     if (points.length < 2) return;
     const length = polylineLength(points);
@@ -460,6 +571,8 @@ export class FlowController {
     if (hop === null) {
       const dur = pulseDurationMs(length);
       style.setProperty('--mlv-flow-dur', dur + 'ms');
+      // Viewer M2: the dot's fade (CSS) and its travel (SMIL) both run SETTLE_PASSES times.
+      style.setProperty('--mlv-flow-iter', String(FLOW.SETTLE_PASSES));
       // A degenerate route has no geometry to ride; `<mpath>` on a zero-length
       // path is undefined behaviour, so nothing is built (11.13.1 rule 5).
       const pathId = length > 0 ? visiblePathId(g) : '';
@@ -467,7 +580,11 @@ export class FlowController {
         // ONE reading of the document timeline for both dots, so the twin is
         // exactly half a period behind the lead one (R3-CHG-01).
         const t0 = timelineNow(g);
-        g.appendChild(chargeDot(pathId, dur, 0, t0));
+        const lead = chargeDot(pathId, dur, 0, t0);
+        g.appendChild(lead);
+        // The LEAD dot's fade ends last (the twin started half a period earlier), so its end
+        // is the pulse's end.
+        this.settleOnEnd(lead, route.id);
         // A long cable would otherwise be empty for most of every cycle.
         if (length > FLOW.CHARGE_TWIN_PX) g.appendChild(chargeDot(pathId, dur, -Math.round(dur / 2), t0));
       }
@@ -483,8 +600,20 @@ export class FlowController {
       // — i.e. two identical frames, a stream that never moves (R2-FLOW-01).
       // The pulse keyframe already does it this way; so does this one now.
       style.setProperty('--mlv-flow-end', String(round2(-(headU + gapU))));
-      style.setProperty('--mlv-flow-delay', Math.min(hop, FLOW.HOP_MAX) * FLOW.HOP_MS + 'ms');
+      const delay = hopDelayMs(hop);
+      style.setProperty('--mlv-flow-delay', delay + 'ms');
+      // Viewer M2: a finite train, ending near the stream's one settle moment.
+      style.setProperty('--mlv-flow-iter', String(streamIterations(settleMs, delay, streamPeriodMs(route.kind, route.back))));
+      this.settleOnEnd(flow, route.id);
     }
+  }
+
+  /** Settle `id` when `element`'s own CSS animation ends (not a bubbling child's). */
+  private settleOnEnd(element: Element, id: string): void {
+    element.addEventListener('animationend', (ev) => {
+      if (ev.target !== element) return;
+      this.settle(id);
+    });
   }
 }
 
@@ -532,7 +661,7 @@ function timelineNow(g: SVGElement): number | null {
  *     <circle class="mlv-edge__charge-halo" r="9"/>     <- the hue, ~18% alpha
  *     <circle class="mlv-edge__charge-glow" r="5.5"/>   <- the hue, ~42% alpha
  *     <circle class="mlv-edge__charge-core" r="2.6"/>   <- surface, hue ring
- *     <animateMotion dur="<pulse>ms" repeatCount="indefinite" …>
+ *     <animateMotion dur="<pulse>ms" repeatCount="2" fill="freeze" …>   <- viewer M2: finite
  *       <mpath href="#mlv-p-<serial>-<edge hex>"/>
  *     </animateMotion>
  *   </g>
@@ -560,12 +689,14 @@ function chargeDot(pathId: string, durMs: number, beginMs: number, t0: number | 
   g.appendChild(svg('circle', { class: 'mlv-edge__charge-halo', cx: 0, cy: 0, r: FLOW.CHARGE_HALO_R }));
   g.appendChild(svg('circle', { class: 'mlv-edge__charge-glow', cx: 0, cy: 0, r: FLOW.CHARGE_GLOW_R }));
   g.appendChild(svg('circle', { class: 'mlv-edge__charge-core', cx: 0, cy: 0, r: FLOW.CHARGE_CORE_R }));
+  // Viewer M2: a finite run, frozen at the inlet (where the CSS fade has already hidden it)
+  // until `settle()` removes it. It used to repeat for as long as the pointer rested.
   const motion = svg('animateMotion', {
     dur: durMs + 'ms',
-    repeatCount: 'indefinite',
+    repeatCount: String(FLOW.SETTLE_PASSES),
     calcMode: 'linear',
     rotate: 'auto',
-    fill: 'remove',
+    fill: 'freeze',
   });
   if (t0 !== null) motion.setAttribute('begin', round3(t0 + beginMs / 1000) + 's');
   else if (beginMs !== 0) motion.setAttribute('begin', beginMs + 'ms');

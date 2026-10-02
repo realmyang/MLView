@@ -13,7 +13,8 @@ or analyzer GitHub action in the current tree.
 
 The native path includes installed skill ZIPs, a Claude skill plugin, a
 WorkflowDocument contract, source/notebook navigation, evidence and
-counter-evidence, scope filters, refinement prompts and revision watching.
+counter-evidence, severity filters and focus mode, refinement prompts and
+revision watching.
 Malformed revisions retain the last valid diagram. No model runs on open,
 refresh, filtering or source navigation.
 
@@ -53,7 +54,7 @@ has not run, and once quotes come from `excerpt` the pilot's exact-anchor
 target shows only that cited ranges exist and are fresh.
 
 Unreleased viewer fixes from the Stage 1 review: phase and group badges and
-the Outline's rows count each finding once, so they agree with the toolbar,
+the Outline's rows count each finding once, so they agree with the header,
 and a collapsed group counts the findings of the connections it hides.
 Hovering a connection or its severity marker lists its findings, as hovering a
 step does, and the connection's Inspector lists them too. Hovering a step
@@ -141,6 +142,130 @@ mutation check) and in an isolated VS Code 1.139 Extension Development Host for
 the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, live-check fixes: a live check of the branch found
+seven problems, now fixed. When the panel resizes or the rail changes shape
+and a selection that was in view no longer is, the diagram pans the least
+distance that shows it again, at the same zoom; a selection the reader moved
+away stays put. A jump opens the source in an existing editor group other than
+the panel's own (the group showing the file, the previous jump's, the last one
+used, then the nearest), so beside a notebook it no longer opens a third group;
+only a diagram alone in the window opens one beside it. Phase tones 2 and 3
+moved off the warning amber and the error red (no tone within 30 degrees of
+hue of either). The ⋯ menu's **Overview map** is disabled and unchecked, with
+the reason, whenever the map is not drawn. The viewer no longer answers
+Ctrl/Cmd+B, Ctrl/Cmd+K or Ctrl+1 to Ctrl+4, which VS Code also acted on: `b`
+shows or hides the panel, `t` goes to the panel's tabs, Ctrl+F (Cmd+F on
+macOS) and `/` focus search, and keys are labelled for the platform. A
+finding's id on a step's pane is a line under its title. A hidden panel shown
+again keeps its selection and an open bottom sheet (`sheetOpen` in the saved
+view). No contract change, no new setting and no geometry change. Checked by
+local jsdom and mock `vscode` tests, each written to fail before its fix, and
+in an isolated VS Code 1.139 Extension Development Host on macOS driven over
+the DevTools protocol; not on Windows or Linux, with a screen reader or as a
+usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, review fixes: Tab reaches the header at every width
+(its tab stop skips controls the stylesheet hides) and the header row always
+fits with **Refine…** in view, folding the revision chip, then "not observed"
+(into the ⋯ menu), then the title as it measures an overflow. Header counts
+name their unit on screen ("findings", "7 claims not observed"); an off
+severity toggle is struck through rather than faded; **Refine…** draws the
+button foreground and keeps its High Contrast border; beside the code a
+stale-files warning in the status bar stays whole. A canvas click, a search hit
+for a step, a Selection-pane link or a host reveal shows the claim in Selection
+again (as in M1); only a selection from the Findings list or the Outline on
+screen keeps that list. A group's pane lists its findings, steps and the
+connections across its edge; observed findings carry no basis mark; a lane
+says "· 5 findings touch this phase" after its numbers; cards with a detail
+show two lines of it instead of the file:line row; a hover dims nothing; lane
+headings are numbered, at the title size, on a plate. Announcements say steps
+and connections and lead with the F label. A first view between 62% and about
+85% zoom still opens whole at small text (deferred). Dead scope, phase-chip
+and export-region code is removed and the benchmark tools run again. No
+contract change, no new setting and no geometry change. Checked by local jsdom
+tests and headless-Chrome probes of a simulated host only, not in live VS
+Code, with a screen reader or as a usability check
+([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, steps 5 and 9 (About, the Selection pane and the bottom
+sheet): the rail's tabs are About · Findings (n) · Selection · Outline. A new
+revision opens on About, which holds only authored text: the question, the
+model's coverage summary (split at its own run-in heads when it has three),
+coverage with the limitations listed once, scope, run configuration, the
+cited files with their freshness, and provenance with "Model-authored; MLView
+checks citations, not the interpretation." Afterwards the reader's tab is
+kept per revision. Selection (the old Inspector) reads claim first: phase,
+kind and parent group, title, a basis note only for an exception, the full
+detail, the findings on the step with What to change, numbered quotes with
+line numbers, a freshness word and Open, "Comes from" and "Feeds" sentences,
+Challenge and Refine…, and one link to the limitations. Selecting a finding
+frames every step it cites. Where a docked rail would leave the canvas under
+900 px (below 1260 px with the default rail), the rail is a bottom sheet under
+the canvas: a 32 px tab strip, about half the height when a selection opens
+it, with the selected card kept in view above it; a drag handle, a chevron and
+Escape collapse it, and it has two columns from 620 px. The shortcut sheet and
+the Refine… popover keep Tab inside and give the focus back; with VS Code's
+screen-reader class a selection is announced by its claim and nothing moves.
+No contract change, no new setting and no geometry change. Checked by local
+jsdom tests and headless-Chrome screenshots of a simulated host at 1440, 900
+and 541 px only, not in live VS Code, with a screen reader or as a usability
+check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, step 10 (one header row): the brand row, the toolbar,
+the phase chip row and the authored header are now one row of about 36 px:
+the title (cut with an ellipsis, whole on hover), a host · revision chip whose
+dot turns amber only when a cited file is stale, search, the severity toggles
+(each counted once; a severity with no findings has none), **N not observed**,
+a ⋯ menu (legend, flow, overview map, side rail, Fit the whole diagram, zoom
+to the selection, Export SVG/PNG, Copy SVG, shortcuts) and **Refine…**, which
+names its target by label. Below 620 px wide only the title, the severity
+toggles, **N not observed**, ⋯ and **Refine…** stay in the row. The chip and
+the status bar's coverage item open the request and coverage (the About tab
+since steps 5 and 9).
+The scope picker and the phase chip row are gone, with their keys (`s`,
+Shift+S, `[`, `]`); a view saved by an older viewer still loads, its scope and
+phase filter ignored. Copy PNG, Print and the export region choice went with
+the old export menu. The status bar (about 22 px) reads "N steps · M
+connections", "Coverage: scoped · K limitations", the source freshness (muted
+unless a cited file changed or went missing) and the zoom. Ctrl/Cmd+F focuses
+search. In the screenshot harness the chrome around the canvas went from 203,
+201-244 and 299-348 px to 58 px at 1440, 900 and 541 px wide. No contract
+change, no new setting and no geometry change. Checked by local jsdom tests
+and headless-Chrome screenshots of a simulated host only, not in live VS Code
+([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, steps 7 and 8 (a calm canvas): cards lost the
+`basis=observed` chip row and connection labels the " · observed" suffix (the
+one deliberate geometry change of M2; cards are 26 px shorter). Only inferred
+and unresolved claims are marked, with a dashed or dotted border or line and
+a small tag that keeps its size as you zoom; line style now means certainty,
+not connection kind, and the kind is written in the hover card and the
+Inspector. Each phase is coloured by its place in the document. Connections
+and card borders reach at least 3:1 against the canvas in Dark Modern, Light
+Modern and Dark High Contrast (computed from theme colours, not measured on
+screen). A header toggle fades the observed claims. Finding badges read
+`F1`, `F2`… in document order, with the real id kept in the hover card, the
+Inspector and Refine prompts. Every count names its unit, and phase counts say
+"findings touch this phase" (a finding in two phases counts in both). Flow
+animations stop after two passes (Shift+A replays them) and follow VS Code's
+Reduce Motion setting. No contract change and no new setting. Checked by local
+jsdom tests and headless-Chrome screenshots of a simulated host only, not in
+live VS Code, with a screen reader or as a usability check
+([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, step 6 (a readable first view): the diagram opens whole
+when it fits at 62% or more, otherwise on its first phase at 90% (or the whole
+first phase when that fits at 75% or more); a view saved for the same revision
+still wins. On the public shakedown artifacts the first paint went from
+17-59% (2.1-7.1 px titles) to 84-90% (11.0-11.7 px titles) at 541, 900 and
+1440 px, measured with the screenshot harness. Key `0` returns to that view;
+the Fit button is now **Fit the whole diagram** (in the header's ⋯ menu since
+step 10). Zoomed out below
+62%, cards show only their title at about 11 px, capped to fit the card,
+which keeps titles at 10 px or more down to about 35% without laying the
+diagram out again. No contract change, no new setting and no geometry change.
+Local jsdom tests and headless-Chrome screenshots only, not live VS Code.
 
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,

@@ -1,7 +1,8 @@
 /**
- * What the export menu actually does (VIEW-07).
+ * What the export items of the ... menu actually do (VIEW-07).
  *
- * Three regions × four outputs, plus print. The region is pure geometry over
+ * Save SVG, save PNG and copy SVG, of the whole diagram (viewer M2 dropped the
+ * region choice, Copy PNG and Print from the menu). The region is pure geometry over
  * the `LayoutFrame`, the outputs all descend from ONE `buildExportSvg` call, and
  * the bytes leave the viewer through exactly two doors:
  *
@@ -16,15 +17,12 @@
  * a button that appears to work.
  */
 
-import { buildExportSvg, ExportRegionKind, ExportSvgResult } from './svg.js';
-import { MIME, base64ToBytes, rasterize, utf8ToBase64 } from './raster.js';
+import { buildExportSvg, ExportSvgResult } from './svg.js';
+import { rasterize, utf8ToBase64 } from './raster.js';
 import type { Palette } from './palette.js';
 import type { ScenePlan } from '../render/plan.js';
 import type { Rect } from '../render/canvas.js';
 import type { ActionResult, MLGraph, ThemeKind, UiToHost } from '../types.js';
-
-/** How much world margin a cropped region keeps around its content. */
-const REGION_PAD = 24;
 
 /** The PNG is drawn at twice the SVG's user units (VIEW-07). */
 export const PNG_SCALE = 2;
@@ -38,8 +36,6 @@ export interface ExportHost {
   request(msg: UiToHost, onResult: (result: ActionResult) => void): void;
   toast(text: string): void;
   announce(text: string): void;
-  /** `window.print()`, injected so a gate can observe the call. */
-  print(): void;
 }
 
 export interface ExportRequest {
@@ -47,81 +43,22 @@ export interface ExportRequest {
   palette: Palette;
   theme: ThemeKind;
   graph: MLGraph;
-  regionKind: ExportRegionKind;
-  /** The visible canvas rectangle in world coordinates. */
-  viewRect: Rect;
-  /** A human name for the active scope, or null when nothing is scoped. */
-  scopeLabel: string | null;
   generatedAt?: string;
 }
 
 /**
- * The world rectangle a region names.
- *
- * `scope` is the bounding box of the CORE nodes — the scope's actual subject —
- * rather than the whole projection, because a projection also carries boundary
- * stubs and context frames that the reader did not ask to share. With no
- * projection there is no core, and it degrades to the whole diagram rather than
- * exporting an empty rectangle.
+ * The world rectangle the export draws: the whole frame, every lane and card at natural size.
+ * Viewer M2 left the ... menu one region; the host calls it `all`, this renderer `diagram`.
  */
 export function regionRect(request: ExportRequest): Rect {
   const frame = request.plan.frame;
-  const whole: Rect = { x: 0, y: 0, w: frame.width, h: frame.height };
-  if (request.regionKind === 'diagram') return whole;
-  if (request.regionKind === 'view') return clampTo(request.viewRect, whole);
-  const boxes: Rect[] = [];
-  for (const planned of request.plan.nodes) {
-    if (planned.visual.node.viewRole !== 'core') continue;
-    const box = planned.visual.box;
-    boxes.push({ x: box.x, y: box.y, w: box.w, h: box.h });
-  }
-  if (!boxes.length) return whole;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const box of boxes) {
-    minX = Math.min(minX, box.x);
-    minY = Math.min(minY, box.y);
-    maxX = Math.max(maxX, box.x + box.w);
-    maxY = Math.max(maxY, box.y + box.h);
-  }
-  return clampTo(
-    { x: minX - REGION_PAD, y: minY - REGION_PAD, w: maxX - minX + REGION_PAD * 2, h: maxY - minY + REGION_PAD * 2 },
-    whole,
-  );
-}
-
-function clampTo(rect: Rect, whole: Rect): Rect {
-  const x = Math.max(whole.x, Math.min(rect.x, whole.x + whole.w));
-  const y = Math.max(whole.y, Math.min(rect.y, whole.y + whole.h));
-  const w = Math.max(1, Math.min(rect.w, whole.x + whole.w - x));
-  const h = Math.max(1, Math.min(rect.h, whole.y + whole.h - y));
-  return { x, y, w, h };
-}
-
-
-export function regionLabel(kind: ExportRegionKind): string {
-  if (kind === 'view') return 'current view';
-  if (kind === 'scope') return 'current scope';
-  return 'whole diagram';
-}
-
-/**
- * The same three regions in the HOST's vocabulary: the host-side amendment
- * calls the whole diagram `all`, this renderer calls it `diagram`. One mapping,
- * stated once, rather than two words drifting apart in five call sites.
- */
-export function hostRegionWord(kind: ExportRegionKind): 'view' | 'all' | 'scope' {
-  return kind === 'diagram' ? 'all' : kind;
+  return { x: 0, y: 0, w: frame.width, h: frame.height };
 }
 
 /** Build the picture. Everything downstream is a delivery of this one result. */
 export function renderExport(request: ExportRequest): ExportSvgResult {
   const graph = request.graph;
-  const scope = request.scopeLabel;
-  const title =
-    'MLView — ' + subjectOf(graph) + (scope ? ' — ' + scope : '') + ' — ' + regionLabel(request.regionKind);
+  const title = 'MLView — ' + subjectOf(graph) + ' — whole diagram';
   const desc =
     graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
     ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha +
@@ -131,7 +68,6 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
     palette: request.palette,
     theme: request.theme,
     region: regionRect(request),
-    regionKind: request.regionKind,
     title,
     desc,
   });
@@ -140,8 +76,7 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
 /** `mlview-vision_pipeline-evaluation-diagram.svg`, and nothing a shell hates. */
 export function exportFileName(request: ExportRequest, ext: string): string {
   const bits = ['mlview', subjectOf(request.graph)];
-  if (request.scopeLabel) bits.push(request.scopeLabel);
-  bits.push(request.regionKind);
+  bits.push('diagram');
   return bits.map(slug).filter((s) => !!s).join('-') + '.' + ext;
 }
 
@@ -170,7 +105,7 @@ function slug(value: string): string {
  * `base64 === data`, always, so either validator accepts the frame and either
  * reader decodes the same bytes.
  */
-function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string, region: ExportRegionKind): UiToHost {
+function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string): UiToHost {
   return {
     v: 1,
     type: 'exportFile',
@@ -179,7 +114,7 @@ function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string, re
     base64,
     data: base64,
     suggestedName: name,
-    scope: hostRegionWord(region),
+    scope: 'all',
   };
 }
 
@@ -214,7 +149,7 @@ export function saveSvg(host: ExportHost, result: ExportSvgResult, name: string)
   const connections = result.edgeIds.length;
   host.announce('Saving SVG…');
   host.request(
-    exportFileMessage('svg', name, base64, result.regionKind),
+    exportFileMessage('svg', name, base64),
     exportAnswer(host, (saved) => 'Exported ' + cards + ' cards and ' + connections + ' connections as ' + saved + '.', name),
   );
 }
@@ -230,7 +165,7 @@ export async function savePng(host: ExportHost, result: ExportSvgResult, name: s
   const size = raster.width + '×' + raster.height;
   host.announce('Saving PNG…');
   host.request(
-    exportFileMessage('png', name, raster.base64, result.regionKind),
+    exportFileMessage('png', name, raster.base64),
     exportAnswer(host, (saved) => 'Exported ' + size + ' PNG as ' + saved + '.', name),
   );
   return true;
@@ -260,24 +195,6 @@ export async function copySvgText(host: ExportHost, result: ExportSvgResult): Pr
   return false;
 }
 
-export async function copyPngImage(host: ExportHost, result: ExportSvgResult): Promise<boolean> {
-  const raster = await safeRasterize(result);
-  if (raster && (await writeImage(raster.base64))) {
-    const said = 'PNG copied at ' + raster.width + '×' + raster.height + '.';
-    host.toast(said);
-    host.announce(said);
-    return true;
-  }
-  host.toast('The clipboard would not take an image — copying the SVG instead.');
-  await copySvgText(host, result);
-  return false;
-}
-
-export function printDiagram(host: ExportHost): void {
-  host.announce('Opening the print dialog. The toolbar, rail and minimap are not printed.');
-  host.print();
-}
-
 async function safeRasterize(result: ExportSvgResult) {
   try {
     return await rasterize(result.svg, result.width, result.height, PNG_SCALE);
@@ -291,20 +208,6 @@ async function writeText(value: string): Promise<boolean> {
   if (!nav || !nav.clipboard || typeof nav.clipboard.writeText !== 'function') return false;
   try {
     await nav.clipboard.writeText(value);
-    return true;
-  } catch (_e) {
-    return false;
-  }
-}
-
-async function writeImage(base64: string): Promise<boolean> {
-  const g: any = typeof globalThis === 'undefined' ? {} : globalThis;
-  const nav: any = typeof navigator !== 'undefined' ? navigator : null;
-  if (!nav || !nav.clipboard || typeof nav.clipboard.write !== 'function') return false;
-  if (typeof g.ClipboardItem !== 'function' || typeof g.Blob !== 'function') return false;
-  try {
-    const blob = new g.Blob([base64ToBytes(base64)], { type: MIME.png });
-    await nav.clipboard.write([new g.ClipboardItem({ [MIME.png]: blob })]);
     return true;
   } catch (_e) {
     return false;

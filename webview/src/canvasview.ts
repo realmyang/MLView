@@ -27,15 +27,15 @@ import { minimapDots, renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { markerPoint, nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
-import { LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
+import { FRAME_MIN_ZOOM, LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
 import { FlowBinding } from './render/flowbinding.js';
 import { EdgeHover } from './render/edgehover.js';
 import { Tooltip } from './render/tooltip.js';
-import { Toasts, buildEmptyState, buildFilterEmptyState, buildScopeEmptyState } from './ui/states.js';
+import { Toasts, buildEmptyState, buildFilterEmptyState } from './ui/states.js';
 import { wireCanvasGestures } from './ui/shell.js';
 import { Emphasis } from './canvas/emphasis.js';
 import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
-import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES } from './canvas/host.js';
+import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES, MINIMAP_NARROW_W } from './canvas/host.js';
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
 import type { Sel, StaleFile, StaleReason } from './types.js';
@@ -134,7 +134,6 @@ export class CanvasView {
       this.lastArea = this.viewport.visibleArea();
       this.host.onViewportChange(vp);
     });
-    this.viewport.coveredRight = () => this.host.coveredRight();
 
     for (const dispose of wireCanvasGestures(this.canvasEl, this.viewport, {
       onKeyDown: (ev) => this.host.onKeyDown(ev),
@@ -235,6 +234,29 @@ export class CanvasView {
     this.minimap.setCollapsed(collapsed);
   }
 
+  /**
+   * Viewer M2 live fix: the panel's width decides whether the minimap has room (`.is-narrow`,
+   * styles/workflow.css; MINIMAP_NARROW_W). An unmeasurable panel (jsdom, a detached mount)
+   * leaves it as it was.
+   */
+  setPanelWidth(width: number): void {
+    if (!(width > 0)) return;
+    this.minimap.root.classList.toggle('is-narrow', width <= MINIMAP_NARROW_W);
+  }
+
+  /**
+   * Viewer M2 live fix: why the minimap is not drawn now, in words for the ... menu, or null when
+   * it is drawn (collapsed to its tab or not). Before, the menu showed "Overview map" checked
+   * while the stylesheet hid the map beside the code.
+   */
+  minimapUnavailable(): string | null {
+    const root = this.minimap.root;
+    if (root.hidden) return 'Shown when ' + MINIMAP_MIN_NODES + ' or more cards are drawn';
+    if (root.classList.contains('is-narrow')) return 'No room in a panel ' + MINIMAP_NARROW_W + ' px wide or narrower';
+    if (root.classList.contains('is-short')) return 'No room in a canvas under ' + MINIMAP_MIN_CANVAS_H + ' px tall';
+    return null;
+  }
+
   setStale(files: StaleFile[]): void {
     this.staleFiles = new Map(files.map((file) => [file.path, file.reason] as [string, StaleReason]));
   }
@@ -251,12 +273,8 @@ export class CanvasView {
     // VIEW-03. Pure geometry over the frame and the routes, so it costs one
     // O(labels) pass with grid bucketing and moves no box.
     this.labelPlan = planLabels(this.frameData, this.routes);
-    this.viewport.setContent(this.frameData.width, this.frameData.height);
-    // A SCOPE is small by construction, so the "fit the width and let them pan
-    // down" rule written for a whole workspace does not apply to it: it opened a
-    // report scoped to evaluation with the evaluation lane below the fold
-    // (MLV-R3-001).
-    this.viewport.setProjected(!!this.index.graph.view);
+    // Viewer M2: the frame too, so the readable first view can anchor on phase 1.
+    this.viewport.setContent(this.frameData.width, this.frameData.height, this.frameData);
     this.render();
   }
 
@@ -275,7 +293,6 @@ export class CanvasView {
       mountSerial: this.mountSerial,
       keep: (issue) => this.host.keep(issue),
       staleFiles: this.staleFiles,
-      isFilteredOut: (node) => this.host.isFilteredOut(node),
     };
   }
 
@@ -283,14 +300,6 @@ export class CanvasView {
   scenePlan(): ScenePlan | null {
     const inputs = this.planInputs();
     return inputs ? planScene(inputs) : null;
-  }
-
-  /** The visible canvas, in WORLD coordinates — the "current view" region. */
-  viewportRect(): { x: number; y: number; w: number; h: number } {
-    const size = this.viewport.size();
-    const vp = this.viewport.vp;
-    const zoom = vp.zoom || 1;
-    return { x: -vp.x / zoom, y: -vp.y / zoom, w: size.w / zoom, h: size.h / zoom };
   }
 
   /** Rebuild the scene DOM from the current frame. Never moves boxes. */
@@ -358,19 +367,45 @@ export class CanvasView {
   }
 
   /**
-   * The window or the canvas resized (issue 6). Campaign 3 review (VL-1): a selected target that
-   * was in view stays in view. Following evidence from a docked rail opens a split, the panel
-   * narrows under the 900 px breakpoint, and the rail the reader is using becomes a drawer over
-   * the target; the target is re-centred, at the same zoom, in the strip the drawer leaves.
+   * The window or the canvas resized (issue 6), or the rail changed shape: docked to the bottom
+   * sheet, the sheet opening, collapsing or being dragged. Campaign 3 review (VL-1): a selected
+   * target that was wholly in view stays wholly in view.
+   *
+   * Viewer M2 live fix: such a target is kept by the least pan that brings it back, at the same
+   * zoom, and a fitted viewport is NOT refitted while it holds one. Before, the refit won: a card
+   * selected beside a docked rail at 1430 px, with the first view untouched, was left under the
+   * open sheet or off the canvas when Enter opened the source beside the panel and halved it,
+   * because the readable fit for 715 px anchors on phase 1. A target the reader had already moved
+   * out of view is left where it is, and nothing here runs except on a change of size or layout,
+   * so a reader panning away is never pulled back.
    */
   handleResize(): void {
     const kept = this.host.keptTarget();
     const target = kept ? this.targetRect(kept) : null;
     const before = this.lastArea;
     const wasVisible = !!(target && before && this.viewport.isVisible(target, before));
-    const refitted = this.viewport.onResize();
-    if (!refitted && target && wasVisible && !this.viewport.isVisible(target)) this.viewport.centerOn(target);
+    if (target && wasVisible) {
+      // Keep the picture (no refit) and take the new size as the one a fit would compare against.
+      this.viewport.acceptResize();
+      this.viewport.apply();
+      if (!this.viewport.isVisible(target)) this.viewport.revealRect(target);
+    } else {
+      this.viewport.onResize();
+    }
     this.syncShortCanvas();
+  }
+
+  /**
+   * Viewer M2: the bottom sheet opened, collapsed or was dragged to a new height. The canvas above
+   * it changed height, which is not a reason to refit (the reader is reading a card): a fitted
+   * viewport keeps its picture, and a selected target that was in view stays in view above the
+   * sheet, at the same zoom. Called synchronously by the App, so jsdom (no ResizeObserver) and a
+   * real host agree; the observer's own call that follows finds nothing to do.
+   */
+  afterSheetToggle(): void {
+    this.viewport.acceptResize();
+    this.handleResize();
+    this.lastArea = this.viewport.visibleArea();
   }
 
   /**
@@ -389,20 +424,10 @@ export class CanvasView {
     if (!this.index) return;
     const graph = this.index.graph;
     if (graph.nodes.length === 0) {
-      // "Nothing analyzed" and "nothing in this scope" are different findings.
-      const scoped = this.scopeEmptyState();
-      this.stateHost.appendChild(scoped || buildEmptyState(graph));
+      this.stateHost.appendChild(buildEmptyState(graph));
     } else if (this.frameData && this.frameData.boxes.size === 0) {
       this.stateHost.appendChild(buildFilterEmptyState(() => this.host.clearFilters()));
     }
-  }
-
-  /** The scope resolved to nothing: its OWN state, not the filter-empty one. */
-  private scopeEmptyState(): HTMLElement | null {
-    const spec = this.host.scopeSpec();
-    if (!spec || !this.index) return null;
-    if ((this.index.graph.nodes || []).length > 0) return null;
-    return buildScopeEmptyState(spec, () => this.host.widenScope(), () => this.host.clearScope());
   }
 
   /* ── event wiring (canvas/wiring.ts) ───────────────────────────────── */
@@ -509,7 +534,7 @@ export class CanvasView {
     this.host.announce(
       'Group ' +
         (node ? node.label : id) +
-        (this.collapsedSet.has(id) ? ' collapsed, ' + hidden + ' nodes hidden.' : ' expanded.'),
+        (this.collapsedSet.has(id) ? ' collapsed, ' + hidden + (hidden === 1 ? ' step' : ' steps') + ' hidden.' : ' expanded.'),
     );
   }
 
@@ -582,7 +607,7 @@ export class CanvasView {
 
   /**
    * Pan, never zoom, so the target lies in the visible area (viewer M1): a click that opens the
-   * rail drawer over the card it selected keeps that card in the strip the drawer leaves.
+   * bottom sheet under the card it selected (viewer M2) keeps that card in the canvas above it.
    */
   keepInView(target: { kind: 'node' | 'edge'; id: string }): void {
     const rect = this.targetRect(target);
@@ -617,6 +642,42 @@ export class CanvasView {
     }
   }
 
+  /**
+   * Viewer M2: frame every step a finding cites (issue 6 revealed only the first) and both ends of
+   * every connection it cites (viewer M2 review, M2R-8: the ends were framed only when the finding
+   * cited no step, so a cited connection in another phase could stay off screen). When all of it
+   * does not fit at the frame's floor (FRAME_MIN_ZOOM), the cited steps alone are framed, the
+   * claim's subject; when they do not fit either, `ViewportController.frameRect` centres on the
+   * first cited card. The first cited card pulses.
+   */
+  frameIssue(id: string): void {
+    if (!this.index || !this.frameData) return;
+    const issue = this.index.issueById.get(id);
+    if (!issue) return;
+    type Box = { x: number; y: number; w: number; h: number };
+    const steps: Box[] = [];
+    const ends: Box[] = [];
+    for (const nodeId of issue.nodeIds) {
+      const rect = this.targetRect({ kind: 'node', id: nodeId });
+      if (rect) steps.push(rect);
+    }
+    for (const edgeId of issue.edgeIds) {
+      const rect = this.targetRect({ kind: 'edge', id: edgeId });
+      if (rect) ends.push(rect);
+    }
+    const rects = steps.concat(ends);
+    if (!rects.length) return;
+    const unionOf = (list: Box[]): Box => {
+      const x = Math.min(...list.map((r) => r.x));
+      const y = Math.min(...list.map((r) => r.y));
+      return { x, y, w: Math.max(...list.map((r) => r.x + r.w)) - x, h: Math.max(...list.map((r) => r.y + r.h)) - y };
+    };
+    const all = unionOf(rects);
+    const target = !steps.length || !ends.length || this.viewport.fitsAt(all, FRAME_MIN_ZOOM) ? all : unionOf(steps);
+    this.viewport.frameRect(target, rects[0], READABLE_ZOOM);
+    if (issue.nodeIds[0]) this.pulseNode(this.index.visibleRepresentative(issue.nodeIds[0], this.collapsedSet));
+  }
+
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */
   revealEdge(id: string): void {
     const union = this.targetRect({ kind: 'edge', id });
@@ -641,7 +702,7 @@ export class CanvasView {
 
   /**
    * READABLE_ZOOM, or less when the box would not fit the visible area at it. The margin shrinks
-   * with a narrow strip beside the rail drawer (VL-1), so a card still lands at full detail there.
+   * with a short canvas above an open sheet, so a card still lands at full detail there.
    */
   private readableZoomFor(box: { w: number; h: number }): number {
     const area = this.viewport.visibleArea();
@@ -662,8 +723,14 @@ export class CanvasView {
     this.viewport.zoomAt(dir > 0 ? 1.2 : 1 / 1.2, size.w / 2, size.h / 2);
   }
 
+  /** The readable view (viewer M2, key 0 and the first paint): see `ViewportController.fit`. */
   fit(): void {
     this.viewport.fit();
+  }
+
+  /** The whole document, groups as they are (the toolbar's "Fit the whole diagram"). */
+  fitWhole(): void {
+    this.viewport.fitWhole();
   }
 
   zoomToNode(id: string): void {

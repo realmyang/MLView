@@ -8,33 +8,35 @@
  * therefore treat a missing field as the default, never as "off".
  */
 
-import { sanitizeScope } from '../protocol.js';
 import { syncCollapsed } from './documents.js';
 import { composerViewState } from '../workflow.js';
 import { renderChrome, renderRail } from './surfaces.js';
+import { sanitizeRailTab, sanitizeSelection } from '../ui/commands.js';
 import type { App } from '../app.js';
 import type { HostBridge, ViewState } from '../types.js';
 
 export function applyState(app: App, state: ViewState, rerender: boolean): void {
   if (!state || typeof state !== 'object') return;
   if (state.filters) app.filters.restore(state.filters);
-  if (state.railTab) app.railTab = state.railTab;
+  // Viewer M2: a tab this viewer does not have (a hand-edited or future state) is ignored.
+  const tab = sanitizeRailTab(state.railTab);
+  if (tab) app.railTab = tab;
   if (Array.isArray(state.collapsed)) {
     app.collapsedState = state.collapsed.slice();
     const index = app.index;
     if (index) app.view.setCollapsed(state.collapsed.filter((id) => index.isGroup(id)));
   }
-  if (state.selection) app.selection = state.selection;
+  // Viewer M2 live fix: a state the page restores itself (`rerender` false, the App's constructor)
+  // keeps its selection for the first `setWorkflow`, which applies it only for the revision it was
+  // saved with; a state the host posts (`restoreState`) applies at once.
+  const selection = sanitizeSelection(state.selection);
+  if (rerender && selection) app.selection = selection;
   if (typeof state.minimapCollapsed === 'boolean') app.view.setMinimapCollapsed(state.minimapCollapsed);
   if (typeof state.flow === 'boolean') app.setFlow(state.flow);
   if (typeof state.legendOpen === 'boolean') app.setLegend(state.legendOpen);
   // Keys this viewer no longer writes (`railGroupBy`, `answersOpen`, `diffOnly`,
-  // `pipelineChosen` from the analyzer-era viewer) are ignored, never an error.
-  const scope = sanitizeScope(state.scope);
-  // No graph yet? The host mounts the viewer empty and restores state before
-  // it posts one, so applying here would drop the scope on the floor (R2H-03).
-  if (scope && app.scopes.full) app.setScope(scope.spec, { depth: scope.depth });
-  else if (scope) app.pendingScope = { spec: scope.spec, depth: scope.depth };
+  // `pipelineChosen` from the analyzer-era viewer; since viewer M2 the scope picker's `scope` and
+  // the phase chips' `filters.stages`) are ignored, never an error: the whole document is drawn.
   if (rerender && app.index) {
     app.view.relayout();
     renderChrome(app);
@@ -54,10 +56,8 @@ export function snapshotState(app: App): ViewState {
     railTab: app.railTab,
     minimapCollapsed: app.view.minimapCollapsed,
   };
-  const spec = app.scopes.spec;
-  if (spec) state.scope = { spec, depth: app.scopes.depth };
   if (!app.flowOn) state.flow = false;
-  // Absent at its default, like `scope` and `flow`: an older host round-trips
+  // Absent at its default, like `flow`: an older host round-trips
   // a state it has never seen, and a newer one restores to the documented
   // default rather than to whatever `undefined` renders as.
   if (app.legendOpen) state.legendOpen = true;
@@ -68,6 +68,8 @@ export function snapshotState(app: App): ViewState {
     // VIEWUI-4: the Refine composer of that revision, absent at its default.
     const composer = composerViewState(app.root);
     if (composer) state.composer = composer;
+    // Viewer M2 live fix: an open bottom sheet, absent when it is collapsed or the rail is docked.
+    if (app.railMode === 'sheet' && app.railOpen) state.sheetOpen = true;
   }
   return state;
 }

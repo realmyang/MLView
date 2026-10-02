@@ -7,14 +7,16 @@ import { el, add, locSpan } from '../dom.js';
 import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind, nodeGlyphKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
+import { basisSpoken } from './edges.js';
+import { stampPhase } from './phase.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
-import { chipCandidates, titleLines } from '../layout/cardmetrics.js';
+import { drawsLocRow, titleLines } from '../layout/cardmetrics.js';
 
 /**
  * An authored sublabel is the model's `detail`, up to 8000 characters. The card
- * shows one ellipsised line of it (CSS), so the DOM keeps only a prefix far
- * longer than any card can draw; the Inspector shows the whole text (viewer M1,
+ * shows one or two clamped lines of it (CSS), so the DOM keeps only a prefix far
+ * longer than any card can draw; the Selection pane shows the whole text (viewer M1,
  * `MLNode.detail`), and the card's accessible name its first sentence.
  */
 const SUB_DOM_CHARS = 240;
@@ -30,7 +32,42 @@ export interface NodeVisual {
   staleQuotes?: { stale: number; total: number };
   /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
   staleElsewhere?: boolean;
-  filteredOut: boolean;
+  /** Viewer M2: the short labels (F1…Fn) of the findings the badge counts, in document order. */
+  findings?: string[];
+  /** Viewer M2: the phase's document position, the key of its colour. */
+  phase?: number;
+}
+
+/**
+ * Viewer M2: the word a basis tag prints, for the exceptions only. An observed claim is the common
+ * case and carries no mark.
+ */
+export function basisTagText(basis: string | undefined): string {
+  if (basis === 'inferred') return 'inferred';
+  if (basis === 'unresolved') return '? unresolved';
+  return '';
+}
+
+/** What a basis tag's tooltip says: the legend's sentence for that basis. */
+function basisTagTitle(basis: string, noun: string): string {
+  return basis === 'inferred'
+    ? 'Inferred, not observed: reasoned from the cited code and stated assumptions; the quotes do not show all of it.'
+    : 'Unresolved: the evidence does not settle this claim. It does not mean the ' + noun + ' is missing.';
+}
+
+/**
+ * Viewer M2: the small tag an inferred or unresolved card or group carries. It is the same size on
+ * screen at every zoom (node.css scales it by 1 / --mlv-z), so an exception stays visible when the
+ * diagram is zoomed out. Null for an observed claim.
+ */
+export function basisTag(basis: string | undefined, noun = 'step'): HTMLElement | null {
+  const text = basisTagText(basis);
+  if (!text || !basis) return null;
+  const tag = el('span', 'mlv-basis-tag', text);
+  tag.setAttribute('data-basis', basis);
+  tag.setAttribute('aria-hidden', 'true');
+  tag.title = basisTagTitle(basis, noun);
+  return tag;
 }
 
 /**
@@ -61,112 +98,13 @@ function stageOf(node: MLNode): string {
 }
 
 /**
- * Attribute chips (UX_DESIGN section 4.1), with two rules that keep them honest.
- *
- * 1. An attribute the SUBLABEL already spells out is dropped. The card used to
- *    print "CIFAR10 . download=False . train=False" and then repeat
- *    `download=False` `train=False` as chips one line below — the only
- *    redundant element on the card was also the only clipped one (MLV-R2-W11).
- * 2. What is left is budgeted by MEASURED WIDTH wherever a text metric is
- *    available, because `.mlv-node__chips` is clipped by rendered width on a
- *    fixed-width card while a character count cannot see the font. With no
- *    metric (jsdom, or before first paint) it falls back to the character
- *    budget, which is why `.mlv-node__chips .mlv-chip` also ellipsises in CSS.
+ * The card's second line: the authored detail, else the authored kind word when the renderer
+ * knows it, else nothing. Viewer M2: never the basis (it used to fall back to `observed`), and
+ * never the adapter's `unknown`. The SVG export draws the same line.
  */
-export interface ChipMetrics {
-  /** Rendered width of `text` in px, or null when it cannot be measured. */
-  measure(text: string): number | null;
-  /** Width available to the chip row, in px. */
-  width: number;
-}
-
-/** Per-chip horizontal chrome: padding (2x --mlv-s3), border and the flex gap. */
-const CHIP_CHROME_PX = 18;
-
-/**
- * Everything the chip row does NOT get on a card of width w: the two card
- * borders, the stage rail, the main padding, the icon box and its gap
- * (node.css `.mlv-node__main` / `.mlv-node__iconbox`).
- */
-const CHIP_ROW_INSET = 60;
-
-/**
- * Average glyph width of the chip font, measured ONCE against the live
- * stylesheet, so the budget follows the host's actual font size instead of
- * guessing (a VS Code user with a 16 px UI font clipped chips a character
- * count could never see). Returns null where nothing can be measured — jsdom,
- * or before the stylesheet lands — and the caller falls back to the character
- * budget, which is why `.mlv-node__chips .mlv-chip` also ellipsises in CSS.
- */
-const CALIBRATION = 'download=False, train=True, batch_size=64, num_workers=4';
-let perCharPx: number | null | undefined;
-
-function charWidthPx(): number | null {
-  if (perCharPx !== undefined) return perCharPx;
-  perCharPx = null;
-  try {
-    const probe = el('span', 'mlv-chip');
-    probe.style.position = 'absolute';
-    probe.style.left = '-9999px';
-    probe.style.top = '0';
-    probe.style.visibility = 'hidden';
-    probe.style.whiteSpace = 'pre';
-    probe.style.padding = '0';
-    probe.style.border = '0';
-    probe.textContent = CALIBRATION;
-    document.body.appendChild(probe);
-    const width = probe.getBoundingClientRect().width || 0;
-    document.body.removeChild(probe);
-    // 5% of headroom: an average cannot know which glyphs a given chip uses.
-    if (width > 0) perCharPx = (width / CALIBRATION.length) * 1.05;
-  } catch (_e) {
-    perCharPx = null;
-  }
-  return perCharPx;
-}
-
-function chipMetrics(width: number): ChipMetrics | null {
-  const perChar = charWidthPx();
-  if (perChar === null || width <= 0) return null;
-  return {
-    width,
-    measure(text: string): number | null {
-      return text.length * perChar;
-    },
-  };
-}
-
-/**
- * Exported for VIEW-07: the SVG export draws the SAME chips as the card, with
- * its own advance metric. Two budgeting rules would put a different chip row on
- * the picture you export from the one on the picture you were looking at.
- */
-export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26, maxChips = 3): string[] {
-  // NB. The candidate list is `layout/cardmetrics.ts`'s, not a second copy of
-  // the same rule: the layout reserves a chip row exactly when this is
-  // non-empty, and only the WIDTH budget below is a rendering decision (VW-01).
-  const candidates = chipCandidates(node);
-  const out: string[] = [];
-  let usedChars = 0;
-  let usedPx = 0;
-  let taken = 0;
-  for (const text of candidates) {
-    if (taken >= maxChips) break;
-    const px = metrics ? metrics.measure(text) : null;
-    if (metrics && px !== null) {
-      const next = usedPx + px + CHIP_CHROME_PX;
-      if (taken > 0 && next > metrics.width) break;
-      usedPx = next;
-    } else {
-      if (taken > 0 && usedChars + text.length > budget) break;
-      usedChars += text.length + 1;
-    }
-    out.push(text.length > budget ? text.slice(0, Math.max(3, budget - 1)) + '…' : text);
-    taken++;
-  }
-  const rest = candidates.length - taken;
-  if (rest > 0) out.push('+' + rest);
-  return out;
+export function cardSubline(node: MLNode): string {
+  if (node.sublabel) return node.sublabel;
+  return node.kind && node.kind !== 'unknown' && isKnownKind(node.kind) ? node.kind.replace(/_/g, ' ') : '';
 }
 
 /**
@@ -186,15 +124,16 @@ export function ariaLabelFor(v: NodeVisual): string {
   // Viewer M1: a step names its phase by label, as the lane does; the id is internal.
   bits.push(n.phaseLabel ? n.phaseLabel + ' phase' : stageOf(n) + ' stage');
   if (n.loc.file) bits.push(locSpoken(n.loc));
-  if (n.basis) bits.push('basis ' + n.basis);
+  // Viewer M2: the basis is named only when it is not `observed`, as on the card.
+  const basis = basisSpoken(n.basis);
+  if (basis) bits.push(basis.slice(2));
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
   // VIEWUI-14: the same "finding" wording as the card's own severity badge.
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
-  if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
+  if (v.descendants > 0) bits.push(v.descendants + (v.descendants === 1 ? ' nested step' : ' nested steps'));
   if (v.stale) bits.push(staleWords(v));
-  if (n.viewRole === 'boundary') bits.push('outside the current scope');
-  // Viewer M1: the claim's first sentence, so the name says what the step does. The Inspector
+  // Viewer M1: the claim's first sentence, so the name says what the step does. The Selection pane
   // has the whole text.
   const claim = n.detail ? detailSpoken(n.detail) : '';
   return bits.join(', ') + '.' + (claim ? ' ' + claim : '');
@@ -227,7 +166,7 @@ function abbreviationBefore(text: string, at: number): boolean {
  * ended with an ellipsis. A period after an abbreviation ("e.g.", "i.e.", "etc.") does not end
  * the sentence. Whitespace runs read as one space.
  */
-function detailSpoken(detail: string): string {
+export function detailSpoken(detail: string): string {
   const text = detail.replace(/\s+/g, ' ').trim();
   if (!text) return '';
   const ends = /[.!?](?=\s|$)/g;
@@ -238,6 +177,19 @@ function detailSpoken(detail: string): string {
   const cut = text.slice(0, DETAIL_SPOKEN_CHARS);
   const space = cut.lastIndexOf(' ');
   return (space > DETAIL_SPOKEN_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, '') + '…';
+}
+
+/**
+ * Viewer M2 review (A11Y-6, the roadmap's step 7): a card with an authored detail draws two
+ * lines of it where the layout reserved the file:line row, instead of one detail line and a
+ * file:line row whose path was cut to a few characters at reading zoom ("exampl… › cell 1").
+ * The location stays in the card's accessible name, the hover card and the Selection pane. The
+ * height is the one `cardmetrics.cardHeight` reserved (two 11 px lines fit the detail and
+ * file:line rows), so nothing is laid out again. A card without a detail keeps its kind word and
+ * its file:line row. The SVG export draws the same face.
+ */
+export function cardDetailLines(node: MLNode): 1 | 2 {
+  return node.detail && node.detail.trim() && drawsLocRow(node) ? 2 : 1;
 }
 
 /** A full node card, positioned absolutely inside the world layer. */
@@ -253,14 +205,11 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.setAttribute('data-kind', n.kind);
   card.setAttribute('data-level', n.level);
   // Issue 14: the uncertainty treatment belongs to the authored basis, not to
-  // an unfamiliar kind word (node.css `[data-basis="unresolved"]`).
+  // an unfamiliar kind word. Viewer M2: node.css marks only inferred and unresolved cards.
   if (n.basis) card.setAttribute('data-basis', n.basis);
+  if (v.phase !== undefined) stampPhase(card, v.phase);
   const top = highestSeverity(v.counts);
-  // A BOUNDARY stub carries no severity badge: its findings are out of scope,
-  // and a badge you cannot open is a lie (FEATURES 3.7).
-  const boundary = n.viewRole === 'boundary';
-  if (top && !boundary) card.setAttribute('data-sev', top);
-  if (n.viewRole) card.setAttribute('data-view-role', n.viewRole);
+  if (top) card.setAttribute('data-sev', top);
   card.setAttribute('aria-label', ariaLabelFor(v));
   card.style.left = v.box.x + 'px';
   card.style.top = v.box.y + 'px';
@@ -274,9 +223,8 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // and `.mlv-node__text` clips, exactly as the SVG export already did.
   card.style.height = v.box.h + 'px';
 
-  if (top && !boundary) card.classList.add('has-issues');
+  if (top) card.classList.add('has-issues');
   if (v.stale) card.classList.add('is-stale');
-  if (v.filteredOut) card.classList.add('is-filtered');
   if (groupLike) card.classList.add('is-collapsed-group');
 
   add(card, el('div', 'mlv-node__rail'));
@@ -297,25 +245,26 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // on a 2000-node document.
   const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
   title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
-  const sub = n.sublabel || n.kind;
-  // Issue 14: the sublabel is prose, cut once by the CSS end ellipsis.
-  add(text, el('div', 'mlv-node__sub', sub.slice(0, SUB_DOM_CHARS)));
-  // `notebooks/leak.ipynb › cell 3, line 4` on the card. `locSpan` splits the
+  // Issue 14: the sublabel is prose, cut once by the CSS ellipsis; two lines in place of the
+  // file:line row when the author wrote a detail (viewer M2 review, A11Y-6).
+  const detailLines = groupLike ? 1 : cardDetailLines(n);
+  const sub = add(text, el('div', 'mlv-node__sub', cardSubline(n).slice(0, SUB_DOM_CHARS)));
+  if (detailLines === 2) sub.setAttribute('data-lines', '2');
+  // `notebooks/leak.ipynb › cell 3, line 4` on a card without a detail. `locSpan` splits the
   // path from the cell so a card too narrow for both loses the path, never the cell.
-  if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
+  else if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
-  // The collapsed-group count chip is PREPENDED after budgeting, so it can never
-  // push the "+n" overflow chip off the end (MLV-R1-011).
-  const chips = groupLike
-    ? [v.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
-    : chipsFor(n, chipMetrics(v.box.w - CHIP_ROW_INSET));
-  if (chips.length) {
+  // Viewer M2: the only chip row left is a collapsed group's count (layout/cardmetrics.ts).
+  if (groupLike) {
     const row = add(text, el('div', 'mlv-node__chips'));
-    for (const chip of chips) add(row, el('span', 'mlv-chip', chip));
+    add(row, el('span', 'mlv-chip', stepsText(v.descendants)));
   }
 
   // Viewer M1: a corner mark with its meaning in words (title and accessible name), never colour alone.
   if (v.stale) card.appendChild(staleMark(v));
+  // Viewer M2: inferred and unresolved cards carry a tag; observed cards carry nothing.
+  const tag = basisTag(n.basis, groupLike ? 'group' : 'step');
+  if (tag) card.appendChild(tag);
 
   if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
@@ -330,11 +279,35 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
       cluster.style.boxShadow = 'var(--mlv-sh-1)';
       card.appendChild(cluster);
     }
-  } else if (!boundary) {
-    const badge = severityBadge(v.counts, 18);
+  } else {
+    const badge = severityBadge(v.counts, 18, v.findings || []);
     if (badge) card.appendChild(badge);
   }
   return card;
+}
+
+/** "1 step" / "5 steps": a count that names its unit (viewer M2). */
+export function stepsText(n: number): string {
+  return n + (n === 1 ? ' step' : ' steps');
+}
+
+/**
+ * The visible label of a lane's finding counts (viewer M2): how many findings touch this phase,
+ * with the unit. A finding that touches two phases counts in each (PR #14), so the lanes are not a
+ * partition of the document's findings. Viewer M2 review (M2R-4): the total leads the phrase; the
+ * phrase used to follow the last per-severity number, so "2 3 findings touch this phase" read as
+ * three findings where there were five.
+ */
+export function phaseFindingsText(total: number): string {
+  return total + (total === 1 ? ' finding touches this phase' : ' findings touch this phase');
+}
+
+/** The same, as a full sentence for the accessible name and the tooltip. */
+export function phaseFindingsSpoken(counts: IssueCounts): string {
+  const total = countsTotal(counts);
+  const top = highestSeverity(counts);
+  return total + (total === 1 ? ' finding touches' : ' findings touch') + ' this phase, highest severity ' + (top || 'none') +
+    '. A finding that cites steps or connections in several phases counts in each of them.';
 }
 
 /** An expanded group: the dashed container plus its header strip. */
@@ -345,12 +318,10 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   box.setAttribute('data-node-id', n.id);
   box.setAttribute('data-group', '1');
   box.setAttribute('data-stage', stageOf(n));
+  if (v.phase !== undefined) stampPhase(box, v.phase);
+  if (n.basis) box.setAttribute('data-basis', n.basis);
   box.setAttribute('data-depth', String(Math.min(2, v.box.depth)));
-  if (n.viewRole) box.setAttribute('data-view-role', n.viewRole);
-  // A boundary FRAME is as badge-free as a boundary card: what it contains is
-  // outside the scope, so an aggregated count would point at nothing openable.
-  const boundary = n.viewRole === 'boundary';
-  const top = boundary ? null : highestSeverity(v.counts);
+  const top = highestSeverity(v.counts);
   if (top) box.setAttribute('data-sev', top);
   box.style.left = v.box.x + 'px';
   box.style.top = v.box.y + 'px';
@@ -376,9 +347,11 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   header.appendChild(kindIcon(nodeGlyphKind(n, false), 14));
   // Issue 14: a group name is cut once, by the CSS end ellipsis.
   add(header, el('span', 'mlv-group__name', n.label || n.qualname));
-  if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
-  add(header, el('span', 'mlv-group__count', String(v.descendants)));
-  const cluster = boundary ? null : severityCluster(v.counts, 13);
+  // Viewer M2: the basis only when it is not `observed`, as the same tag a card carries.
+  const tag = basisTag(n.basis, 'group');
+  if (tag) header.appendChild(tag);
+  add(header, el('span', 'mlv-group__count', stepsText(v.descendants)));
+  const cluster = severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);
   if (v.stale) {
     box.classList.add('is-stale');
@@ -400,10 +373,11 @@ function staleMark(v: NodeVisual): HTMLElement {
   return mark;
 }
 
-export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean): HTMLElement {
+export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean, phase?: number): HTMLElement {
   const band = el('div', 'mlv-lane');
   band.setAttribute('data-lane-id', lane.id);
   band.setAttribute('data-stage', lane.id);
+  if (phase !== undefined) stampPhase(band, phase);
   band.style.left = lane.x + 'px';
   band.style.top = lane.y + 'px';
   band.style.width = lane.w + 'px';
@@ -411,11 +385,26 @@ export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean
   band.style.setProperty('--mlv-lane-header-h', lane.headerH + 'px');
   if (absent) band.classList.add('is-absent');
 
+  // Viewer M2 review (A11Y-11): a heading on a plate, numbered as the Selection pane's eyebrow
+  // numbers phases ("1 · Data"), in the text colour at the card title's size.
   const header = add(band, el('div', 'mlv-lane__header'));
-  add(header, el('span', 'mlv-lane__label', lane.label));
-  add(header, el('span', 'mlv-lane__count', lane.nodeCount + (lane.nodeCount === 1 ? ' node' : ' nodes')));
+  if (phase !== undefined) {
+    const num = add(header, el('span', 'mlv-lane__num', String(phase + 1)));
+    num.title = 'Phase ' + (phase + 1);
+  }
+  const label = add(header, el('span', 'mlv-lane__label', lane.label));
+  label.title = phase !== undefined ? 'Phase ' + (phase + 1) + ': ' + lane.label : lane.label;
+  add(header, el('span', 'mlv-lane__count', stepsText(lane.nodeCount)));
   add(header, el('span', 'mlv-lane__spacer'));
-  const cluster = severityCluster(counts, 13);
-  if (cluster) header.appendChild(cluster);
+  // Viewer M2: the counts say what they count. A finding touching two phases counts in each.
+  const spoken = phaseFindingsSpoken(counts);
+  const cluster = severityCluster(counts, 13, spoken);
+  if (cluster) {
+    header.appendChild(cluster);
+    // After the per-severity numbers, their total with its unit (M2R-4).
+    const unit = add(header, el('span', 'mlv-lane__unit', phaseFindingsText(countsTotal(counts))));
+    unit.setAttribute('aria-hidden', 'true');
+    unit.title = spoken;
+  }
   return band;
 }

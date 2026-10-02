@@ -1,476 +1,572 @@
 /**
- * Top bar, chip row and status bar — plus the search box.
- * Everything the user needs to know about the run before touching the canvas.
+ * The header row and the status bar (viewer M2), plus the search box inside the header.
+ *
+ * One header row of about 36 px replaces the brand row, the 21-control toolbar, the phase chip row
+ * and the authored header. In order:
+ *
+ *   title · provenance chip (host · revision) · search · severity toggles · "N not observed" ·
+ *   ... menu · Refine…
+ *
+ * The row never wraps. How much of it shows depends on the panel's width (`headerLayout`):
+ *
+ *   full   >= 1200 px  everything; "7 not observed (3 steps, 4 connections)"
+ *   wide   >= 1000 px  the breakdown folds into the tooltip; "7 claims not observed"
+ *   mid    >=  620 px  search becomes an icon that opens the field; the chip shows the revision only
+ *   narrow  <  620 px  the title, the severity toggles, "not observed", ... and Refine… stay;
+ *                      search and the revision move into the ... menu
+ *
+ * Every count on the row names its unit on screen (the owner's rule): the severity toggles are
+ * followed by the word "findings", and "not observed" says "claims" or its breakdown.
+ *
+ * Viewer M2 review (M2R-2, A11Y-8): how wide the controls are depends on the document (two-digit
+ * counts, three severities) and on whether the search field is open, so the layout alone could
+ * not keep Refine… inside the panel. After every change `fitRow` measures the row and, while it
+ * overflows, folds in this order: the revision chip (About stays in the ... menu), the "not
+ * observed" toggle (into the ... menu, with its count and units), then the title (kept for screen
+ * readers) and, only while the search field is open at mid or narrow widths, the severity toggles
+ * (back when it closes). The roving tab stop is re-derived after each fold. A layout engine is
+ * needed to measure; jsdom folds nothing.
+ *
+ * The status bar (about 22 px) carries the step and connection counts, the coverage status with the
+ * limitation count, the source freshness (muted when every cited file is unchanged, a warning only
+ * for changed or missing files) and the zoom with its two buttons. Nothing is counted twice.
  */
 
-import { add, button, clear, el, iconButton, on } from '../dom.js';
+import { add, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
-import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
-import type { ChipSpec } from './chromechips.js';
-import { UNSPECIFIED_MODEL } from '../workflow.js';
-import type { Filters, MLGraph, Severity, Stage } from '../types.js';
+import { MoreMenu } from './moremenu.js';
+import { keyLabel } from './platform.js';
+import type { MoreItemId } from './moremenu.js';
+import type { FreshnessStatus } from '../freshness.js';
+import type { Filters, MLGraph, Severity, WorkflowDocument } from '../types.js';
+
+export type HeaderLayout = 'narrow' | 'mid' | 'wide' | 'full';
+
+/** The panel widths (CSS px) at which the header changes shape. 541 px is the measured beside-the-code panel. */
+export const HEADER_BREAKPOINTS = { mid: 620, wide: 1000, full: 1200 } as const;
+
+/** The header's shape at this panel width. An unmeasurable width (jsdom, a detached mount) gets the full row. */
+export function headerLayout(width: number): HeaderLayout {
+  if (!(width > 0)) return 'full';
+  if (width < HEADER_BREAKPOINTS.mid) return 'narrow';
+  if (width < HEADER_BREAKPOINTS.wide) return 'mid';
+  if (width < HEADER_BREAKPOINTS.full) return 'wide';
+  return 'full';
+}
 
 export interface ChromeCallbacks {
   onQuery(q: string): void;
-  onStage(stageId: string): void;
-  onClearFilters(): void;
-  onZoomToSelection(): void;
   onSearchKey(ev: KeyboardEvent): void;
-  onToggleRail(): void;
+  /** The search icon or the menu's Search: open the field and focus it. */
+  onSearchOpen(): void;
   onSeverity(sev: Severity): void;
-  onFit(): void;
-  onZoom(dir: number): void;
-  /** Open the scope picker (FEATURES 3.7). */
-  onScope(): void;
-  /** Toggle the flow animation entirely off/on; persisted as ViewState.flow. */
-  onToggleFlow(next: boolean): void;
-  /** Open or close the legend (VIEW-10); persisted as ViewState.legendOpen. */
-  onToggleLegend(next: boolean): void;
+  /** Viewer M2: fade the observed claims so the inferred and unresolved ones stand out. */
+  onToggleExceptions(next: boolean): void;
   /**
-   * VIEW-12: the keyboard's minimap toggle. The panel itself is `aria-hidden`
-   * and its chevron is pointer-only, so this button is the only accessible way
-   * to collapse the overview — and it is before the canvas in DOM order,
-   * instead of the tab stop after it that the chevron used to be.
+   * Viewer M2: the provenance chip, the status bar's coverage item and the ... menu's About item
+   * open the About tab. `byKeyboard`: the control was activated from the keyboard (a click event
+   * with no pointer detail), so the focus moves into About; a pointer click leaves it.
    */
-  onToggleMinimap(next: boolean): void;
-  /** CI-ADOPT: "only changed" — drops findings attributed `existing`. */
+  onAbout(byKeyboard: boolean): void;
+  onZoom(dir: number): void;
+  onToggleLegend(next: boolean): void;
+  onToggleFlow(next: boolean): void;
+  /** `collapsed`: the minimap's new state (VIEW-12: the keyboard's way to it). */
+  onToggleMinimap(collapsed: boolean): void;
+  onToggleRail(): void;
+  onFitWhole(): void;
+  onZoomToSelection(): void;
+  onExport(action: 'svg' | 'png' | 'copy-svg'): void;
+  onShortcuts(): void;
+  /** The ... menu is opening: repaint, so its checkboxes and disabled items are current. */
+  onMenuOpen(): void;
 }
 
 export interface ChromeState {
   graph: MLGraph | null;
+  document: WorkflowDocument | null;
   hasSelection: boolean;
   filters: Filters;
+  /** Every finding in view by severity, whatever the toggles hide, so a toggle never hides its own count. */
   visibleCounts: { low: number; medium: number; high: number };
-  /** The active scope's human label, or "Everything". */
-  scopeLabel: string;
-  scopeActive: boolean;
   flowOn: boolean;
-  /** Whether the legend panel is open (VIEW-10). */
   legendOpen: boolean;
-  /** Lanes actually drawn — under a scope the filter chips follow them. */
-  laneIds: string[];
-  /** Present in the FULL analysis, absent from THIS projection (11.4 F3). */
-  outOfScopeStages: Stage[];
-  /** Whether the minimap is collapsed, for the toolbar's toggle (VIEW-12). */
   minimapCollapsed: boolean;
-  /** Viewer M1: the stale-file count, or null when every file is unchanged (nothing is shown). */
-  freshness?: { text: string; title: string } | null;
-  /** Viewer M1: the host is checking a change on disk. */
-  checking?: boolean;
+  /** Viewer M2 live fix: why the minimap is not drawn now, or null when it is (the ... menu says it). */
+  minimapUnavailable: string | null;
+  railOpen: boolean;
+  /** The status bar's freshness item, or null before a document arrives. */
+  freshness: FreshnessStatus | null;
+  /** The host is checking a change on disk. */
+  checking: boolean;
+  /** Viewer M2: the claims in view that are not observed, by unit. */
+  notObserved: NotObservedCounts;
+  exceptionsOn: boolean;
+  /** Viewer M2: the rail is docked beside the canvas or a bottom sheet under it (the menu names it). */
+  railMode: 'docked' | 'sheet';
+}
+
+/** Viewer M2: inferred or unresolved claims, counted by what they are. */
+export interface NotObservedCounts {
+  steps: number;
+  connections: number;
+  findings: number;
+}
+
+const plural = (n: number, one: string, many: string): string => n + ' ' + (n === 1 ? one : many);
+
+/**
+ * "7 not observed (3 connections, 4 findings)" — the count with its unit and its breakdown,
+ * omitting a part that is zero. Every claim the author marked inferred or unresolved counts once.
+ */
+export function notObservedText(c: NotObservedCounts): string {
+  const total = c.steps + c.connections + c.findings;
+  const parts: string[] = [];
+  if (c.steps) parts.push(plural(c.steps, 'step', 'steps'));
+  if (c.connections) parts.push(plural(c.connections, 'connection', 'connections'));
+  if (c.findings) parts.push(plural(c.findings, 'finding', 'findings'));
+  return total + ' not observed (' + parts.join(', ') + ')';
+}
+
+/** "Coverage: scoped · 6 limitations" — the authored status, and the limitations counted with their unit. */
+export function coverageText(document: WorkflowDocument): string {
+  const n = document.coverage.limitations.length;
+  return 'Coverage: ' + document.coverage.status + (n ? ' · ' + plural(n, 'limitation', 'limitations') : '');
+}
+
+/**
+ * How far `fitRow` may fold the row: the revision chip, then "not observed", then the title; and,
+ * only while the search field is open, the severity toggles (they come back when it closes).
+ */
+export const HEADER_FIT_MAX = 4;
+
+/** "7 claims not observed": the lead the chip shows where its breakdown is not on screen. */
+export function notObservedLead(c: NotObservedCounts): string {
+  const total = c.steps + c.connections + c.findings;
+  return total + (total === 1 ? ' claim' : ' claims') + ' not observed';
 }
 
 let chromeSeq = 0;
 
 export class Chrome {
-  /**
-   * The whole control strip as ONE `role="toolbar"` (VIEW-12).
-   *
-   * The toolbar row and the stage-filter row are two visual rows of the same
-   * widget: leaving them as separate tab stops kept seven stage chips, four
-   * theme chips and eleven buttons in the Tab order ahead of the canvas. Under
-   * one roving group the strip costs one press, and the search input inside it
-   * keeps the second.
-   */
-  readonly bar: HTMLElement;
+  /** The header row: the title, the provenance chip and the toolbar. */
+  readonly header: HTMLElement;
+  /** The header's controls: ONE `role="toolbar"` tab stop (VIEW-12); the search input keeps its own. */
   readonly toolbar: HTMLElement;
-  readonly filterRow: HTMLElement;
-  readonly chipRow: HTMLElement;
-  /** The scrolling half of the chip row; the opener sits beside it. */
-  private chipScroll!: HTMLElement;
   readonly status: HTMLElement;
   readonly searchInput: HTMLInputElement;
   readonly results: HTMLElement;
-  private statsEl: HTMLElement;
+  /** Where `workflow.ts` puts the Refine… button, which it rebuilds with the composer. */
+  readonly refineSlot: HTMLElement;
+  /** The ... menu; its panel goes on the app root (see `MoreMenu`). */
+  readonly more: MoreMenu;
+  private title: HTMLElement;
+  private provenance: HTMLButtonElement;
+  private provHost: HTMLElement;
+  private provRev: HTMLElement;
+  private search: HTMLElement;
+  private searchBtn: HTMLButtonElement;
   private sevButtons = new Map<Severity, HTMLButtonElement>();
-  private zoomSelBtn: HTMLButtonElement;
-  private rootLabel: HTMLElement;
-  private scopeBtn: HTMLButtonElement;
-  private flowBtn: HTMLButtonElement;
-  private legendBtn: HTMLButtonElement;
-  private minimapBtn: HTMLButtonElement;
+  /** The word after the severity toggles, "findings": the unit their numbers count. */
+  private sevUnit: HTMLElement;
+  private exceptionsBtn: HTMLButtonElement;
+  private counts: HTMLElement;
+  private coverage: HTMLButtonElement;
+  private fresh: HTMLElement;
   private roving: RovingGroup | null = null;
-  /** Where the App mounts the scope breadcrumb: first element after the brand. */
-  readonly scopeSlot: HTMLElement;
-  /**
-   * VIEW-07: where the App mounts the export menu's TRIGGER — beside Fit, which
-   * is where the roadmap put it and where a reader looks for "give me this
-   * picture". Only the trigger: the popup is mounted on the app root, so the
-   * roving toolbar never takes its eight controls into the arrow-key order.
-   */
-  readonly exportSlot: HTMLElement;
   private cb: ChromeCallbacks;
-  /** The folded chip descriptors of the current document (HOSTS-UX-CHIPWALL). */
-  private chipSpecs: ChipSpec[] = [];
-  /** Whether the reader has opened the folded tail of the chip row. */
-  private chipsExpanded = false;
+  private layout: HeaderLayout = 'full';
+  /** The last width `setWidth` saw: a resize inside one layout still changes what fits. */
+  private width = 0;
+  /** How much `fitRow` folded the row (0 to HEADER_FIT_MAX). */
+  private fitLevel = 0;
+  /** A document is shown (the revision chip has something to say). */
+  private hasDocument = false;
+  /** There are claims that are not observed, so the "not observed" toggle exists. */
+  private hasExceptions = false;
+  /** The severities that have findings in view, so a toggle (a severity with none has none). */
+  private sevShown = new Set<Severity>();
+  private searchOpen = false;
+  private lastAboutLabel = 'About this revision';
+  /** The state of the last update, which the ... menu's toggles flip. */
+  private state: ChromeState | null = null;
 
-  constructor(cb: ChromeCallbacks) {
+  /** `zoomBar` is the canvas view's zoom readout (`.mlv-zoom`); the status bar adopts it. */
+  constructor(cb: ChromeCallbacks, zoomBar: HTMLElement) {
     this.cb = cb;
     const uid = 'mlv' + ++chromeSeq;
-    this.bar = el('div', 'mlv-chromebar');
-    this.bar.setAttribute('role', 'toolbar');
-    this.bar.setAttribute('aria-label', 'Diagram controls');
-    this.bar.setAttribute('aria-orientation', 'horizontal');
-    this.toolbar = add(this.bar, el('div', 'mlv-toolbar'));
 
-    // VIEW-12: the document's ONE `h1`, and it carries the workspace name —
-    // which existed only in `<title>` and in the brand text, so heading
-    // navigation started mid-document at a rail `h3`.
-    const brand = add(this.toolbar, el('h1', 'mlv-brand'));
-    add(brand, el('span', 'mlv-brand__name', 'MLView'));
-    this.rootLabel = add(brand, el('span', 'mlv-brand__root', ''));
+    this.header = el('header', 'mlv-header');
+    this.header.setAttribute('data-layout', this.layout);
+    // VIEW-12: the document's ONE h1 is the authored title, ellipsised; the whole title is on hover.
+    this.title = add(this.header, el('h1', 'mlv-header__title', ''));
 
-    this.scopeSlot = add(this.toolbar, el('div', 'mlv-toolbar__scope'));
+    this.toolbar = add(this.header, el('div', 'mlv-header__bar'));
+    this.toolbar.setAttribute('role', 'toolbar');
+    this.toolbar.setAttribute('aria-label', 'Diagram controls');
+    this.toolbar.setAttribute('aria-orientation', 'horizontal');
 
-    this.scopeBtn = el('button', 'mlv-btn mlv-btn--scope') as HTMLButtonElement;
-    this.scopeBtn.type = 'button';
-    this.scopeBtn.appendChild(uiIcon('scope', 13));
-    add(this.scopeBtn, el('span', 'mlv-btn__label', 'Everything'));
-    this.scopeBtn.title = 'Scope the diagram to one part of this codebase';
-    this.scopeBtn.setAttribute('aria-haspopup', 'dialog');
-    on(this.scopeBtn, 'click', () => cb.onScope());
-    this.toolbar.appendChild(this.scopeBtn);
+    // Provenance: host · revision. Its dot turns amber only when a cited file is stale.
+    this.provenance = el('button', 'mlv-chip mlv-header__prov') as HTMLButtonElement;
+    this.provenance.type = 'button';
+    add(this.provenance, el('span', 'mlv-header__dot')).setAttribute('aria-hidden', 'true');
+    this.provHost = add(this.provenance, el('span', 'mlv-header__host', ''));
+    this.provRev = add(this.provenance, el('span', 'mlv-header__rev', ''));
+    on(this.provenance, 'click', (ev: MouseEvent) => cb.onAbout(ev.detail === 0));
+    this.toolbar.appendChild(this.provenance);
 
-    const search = add(this.toolbar, el('div', 'mlv-search'));
-    const label = add(search, el('label', 'mlv-sr', 'Search nodes and issues'));
+    add(this.toolbar, el('span', 'mlv-header__spacer'));
+
+    this.search = add(this.toolbar, el('div', 'mlv-search'));
+    const glyph = add(this.search, uiIcon('search', 14));
+    glyph.setAttribute('class', 'mlv-uicon mlv-search__glyph');
+    const label = add(this.search, el('label', 'mlv-sr', 'Search steps, findings, IDs, or cited text'));
     label.htmlFor = uid + '-search-input';
-    this.searchInput = add(search, el('input', 'mlv-input')) as HTMLInputElement;
+    this.searchInput = add(this.search, el('input', 'mlv-input')) as HTMLInputElement;
     this.searchInput.id = uid + '-search-input';
     this.searchInput.type = 'search';
-    this.searchInput.placeholder = 'Search label, qualname, issue, MLV code…';
+    this.searchInput.placeholder = 'Search steps and findings';
     this.searchInput.setAttribute('role', 'combobox');
     this.searchInput.setAttribute('aria-expanded', 'false');
     this.searchInput.setAttribute('aria-controls', uid + '-search-results');
     this.searchInput.autocomplete = 'off';
-    this.results = add(search, el('ul', 'mlv-search__results'));
+    this.results = add(this.search, el('ul', 'mlv-search__results'));
     this.results.id = uid + '-search-results';
     this.results.setAttribute('role', 'listbox');
     this.results.setAttribute('aria-label', 'Search results');
     this.results.hidden = true;
     on(this.searchInput, 'input', () => cb.onQuery(this.searchInput.value));
     on(this.searchInput, 'keydown', (ev: KeyboardEvent) => cb.onSearchKey(ev));
+    // A collapsed field that opened for a query closes again when it is left empty.
+    on(this.searchInput, 'blur', () => {
+      if (!this.searchInput.value) this.setSearchOpen(false);
+    });
 
-    this.statsEl = add(this.toolbar, el('div', 'mlv-stats'));
+    // Viewer M2 live fix: the find key for the platform (⌘F on macOS); it said Ctrl+K.
+    this.searchBtn = iconButton('mlv-btn mlv-btn--icon mlv-header__searchbtn', 'Search (' + keyLabel('Mod+F') + ')');
+    this.searchBtn.appendChild(uiIcon('search', 16));
+    this.searchBtn.setAttribute('aria-controls', this.searchInput.id);
+    on(this.searchBtn, 'click', () => cb.onSearchOpen());
+    this.toolbar.appendChild(this.searchBtn);
 
-    add(this.toolbar, el('div', 'mlv-toolbar__spacer'));
-
+    // The severity toggles, each counted once (the status bar no longer repeats them).
     for (const sev of SEVERITY_ORDER) {
-      const b = el('button', 'mlv-chip mlv-chip--btn') as HTMLButtonElement;
+      const b = el('button', 'mlv-chip mlv-chip--btn mlv-chip--sev') as HTMLButtonElement;
       b.type = 'button';
       b.setAttribute('aria-pressed', 'true');
-      b.title = 'Toggle ' + sev + ' severity findings';
       b.setAttribute('data-severity', sev);
-      b.appendChild(severityGlyph(sev, 13, ''));
+      b.appendChild(severityGlyph(sev, 14, ''));
       add(b, el('span', 'mlv-chip__count', '0'));
       on(b, 'click', () => cb.onSeverity(sev));
       this.sevButtons.set(sev, b);
       this.toolbar.appendChild(b);
     }
+    // Viewer M2 review (M2-INT-2): the unit of the toggles' numbers, on screen at every width. Each
+    // toggle's own name already says it ("2 medium findings"), so this word is not read again.
+    this.sevUnit = add(this.toolbar, el('span', 'mlv-header__unit', 'findings'));
+    this.sevUnit.setAttribute('aria-hidden', 'true');
+    this.sevUnit.hidden = true;
 
-    // A real aria-pressed toggle whose title names the CURRENT state, so the
-    // one thing that moves on the canvas is one keystroke from being stopped.
-    //
-    // VIEW-10: it carries a VISIBLE text label, not only an aria-label. The
-    // marquee feature of the product sat behind an unlabelled icon at tab stop
-    // 5 with no binding and no hint that hovering anything did anything. The
-    // label is hidden by CSS below 1280 px, where the toolbar has no room.
-    this.flowBtn = el('button', 'mlv-btn mlv-btn--flow') as HTMLButtonElement;
-    this.flowBtn.type = 'button';
-    this.flowBtn.appendChild(uiIcon('flow'));
-    add(this.flowBtn, el('span', 'mlv-btn__label', 'Flow'));
-    this.flowBtn.setAttribute('aria-pressed', 'true');
-    on(this.flowBtn, 'click', () => cb.onToggleFlow(this.flowBtn.getAttribute('aria-pressed') !== 'true'));
-    this.toolbar.appendChild(this.flowBtn);
+    // Viewer M2: how many claims are not observed, by unit, as a toggle that fades the observed
+    // ones (through fill and stroke only, so their text stays readable). Hidden when every claim
+    // is observed: an "all observed" mark would read as a check result.
+    this.exceptionsBtn = el('button', 'mlv-chip mlv-chip--btn mlv-chip--exceptions') as HTMLButtonElement;
+    this.exceptionsBtn.type = 'button';
+    this.exceptionsBtn.setAttribute('aria-pressed', 'false');
+    this.exceptionsBtn.hidden = true;
+    on(this.exceptionsBtn, 'click', () => cb.onToggleExceptions(this.exceptionsBtn.getAttribute('aria-pressed') !== 'true'));
+    this.toolbar.appendChild(this.exceptionsBtn);
 
-    // The legend, likewise labelled: a key nobody can find is not a key.
-    this.legendBtn = el('button', 'mlv-btn mlv-btn--legend') as HTMLButtonElement;
-    this.legendBtn.type = 'button';
-    this.legendBtn.appendChild(uiIcon('legend'));
-    add(this.legendBtn, el('span', 'mlv-btn__label', 'Legend'));
-    this.legendBtn.setAttribute('aria-pressed', 'false');
-    this.legendBtn.title = 'Show what every glyph, stroke and card state means';
-    this.legendBtn.setAttribute('aria-label', this.legendBtn.title);
-    on(this.legendBtn, 'click', () => cb.onToggleLegend(this.legendBtn.getAttribute('aria-pressed') !== 'true'));
-    this.toolbar.appendChild(this.legendBtn);
+    this.more = new MoreMenu((id, byKeyboard) => this.pick(id, byKeyboard), () => cb.onMenuOpen());
+    this.toolbar.appendChild(this.more.button);
 
-    // The minimap's keyboard toggle (VIEW-12). `aria-pressed` reads "the
-    // overview is shown", so it is pressed while the panel is EXPANDED.
-    this.minimapBtn = el('button', 'mlv-btn mlv-btn--icon mlv-btn--minimap') as HTMLButtonElement;
-    this.minimapBtn.type = 'button';
-    this.minimapBtn.appendChild(uiIcon('minimap'));
-    this.minimapBtn.setAttribute('aria-pressed', 'true');
-    on(this.minimapBtn, 'click', () => cb.onToggleMinimap(this.minimapBtn.getAttribute('aria-pressed') === 'true'));
-    this.toolbar.appendChild(this.minimapBtn);
+    this.refineSlot = add(this.toolbar, el('span', 'mlv-header__refine'));
 
-    const zoomOut = iconButton('mlv-btn mlv-btn--icon', 'Zoom out');
-    zoomOut.appendChild(uiIcon('minus'));
+    // The status bar.
+    this.status = el('footer', 'mlv-status');
+    this.status.setAttribute('data-layout', this.layout);
+    this.counts = add(this.status, el('span', 'mlv-status__counts', ''));
+    this.coverage = el('button', 'mlv-status__coverage') as HTMLButtonElement;
+    this.coverage.type = 'button';
+    this.coverage.hidden = true;
+    on(this.coverage, 'click', (ev: MouseEvent) => cb.onAbout(ev.detail === 0));
+    this.status.appendChild(this.coverage);
+    add(this.status, el('span', 'mlv-status__spacer'));
+    this.fresh = add(this.status, el('span', 'mlv-status__freshness'));
+    // The zoom: − 90% + (the readout is the canvas view's; the buttons are the status bar's).
+    const zoomOut = iconButton('mlv-btn mlv-btn--icon mlv-zoom__btn', 'Zoom out');
+    zoomOut.appendChild(uiIcon('minus', 12));
     on(zoomOut, 'click', () => cb.onZoom(-1));
-    this.toolbar.appendChild(zoomOut);
-
-    const zoomIn = iconButton('mlv-btn mlv-btn--icon', 'Zoom in');
-    zoomIn.appendChild(uiIcon('plus'));
+    const zoomIn = iconButton('mlv-btn mlv-btn--icon mlv-zoom__btn', 'Zoom in');
+    zoomIn.appendChild(uiIcon('plus', 12));
     on(zoomIn, 'click', () => cb.onZoom(1));
-    this.toolbar.appendChild(zoomIn);
+    zoomBar.insertBefore(zoomOut, zoomBar.firstChild);
+    zoomBar.appendChild(zoomIn);
+    this.status.appendChild(zoomBar);
 
-    const fit = iconButton('mlv-btn mlv-btn--icon', 'Fit to view');
-    fit.appendChild(uiIcon('fit'));
-    on(fit, 'click', () => cb.onFit());
-    this.toolbar.appendChild(fit);
-
-    this.exportSlot = add(this.toolbar, el('span', 'mlv-toolbar__exportslot'));
-
-    this.zoomSelBtn = iconButton('mlv-btn mlv-btn--icon', 'Zoom to selection');
-    this.zoomSelBtn.appendChild(uiIcon('target'));
-    on(this.zoomSelBtn, 'click', () => cb.onZoomToSelection());
-    this.toolbar.appendChild(this.zoomSelBtn);
-
-    const rail = iconButton('mlv-btn mlv-btn--icon', 'Toggle side rail');
-    rail.appendChild(uiIcon('rail'));
-    on(rail, 'click', () => cb.onToggleRail());
-    this.toolbar.appendChild(rail);
-
-    this.filterRow = add(this.bar, el('div', 'mlv-filterrow'));
-    // HOSTS-UX-CHIPWALL. The chip row is the strip's THIRD row, inside the same
-    // `role="toolbar"` as the toolbar and the filter chips — not because it is
-    // a row of controls (it is mostly static notes, as the filter row is mostly
-    // labels) but because the cap it now carries needs ONE control to open the
-    // folded tail, and a control between the search box and the canvas is a
-    // fifth Tab press to the diagram. VIEW-12 allows four. Inside the roving
-    // group that control costs nothing: the whole strip stays one tab stop, and
-    // the arrow keys reach the opener exactly as they reach every stage chip.
-    // The visual stack is unchanged — `.mlv-chromebar` is a flex column and the
-    // row is appended last, which is where the app used to put it.
-    this.chipRow = add(this.bar, el('div', 'mlv-chiprow'));
-    // The chips SCROLL inside the row's bound; the opener does not. Measured on
-    // yolov5 at 1600x1000: a 12vh row holds four of those sentence chips, so a
-    // trailing opener was the one control the fold cannot do without and the
-    // one thing below the fold. It is a sibling of the scroller, not a chip in
-    // it, which is the only arrangement that cannot scroll away.
-    this.chipScroll = add(this.chipRow, el('div', 'mlv-chiprow__chips'));
-    this.status = el('div', 'mlv-status');
-
-    // One roving group over both rows. Built last, so every control the strip
-    // ships with is already in it; `update()` re-syncs it after the stage chips
-    // are rebuilt.
-    this.roving = new RovingGroup(this.bar);
+    this.roving = new RovingGroup(this.toolbar);
   }
 
   destroy(): void {
     if (this.roving) this.roving.destroy();
     this.roving = null;
+    this.more.destroy();
+  }
+
+  /** The Refine… button was rebuilt (`workflow.ts`): measure the row again and re-derive the tab stop. */
+  syncRoving(): void {
+    this.fitRow();
+  }
+
+  /**
+   * Viewer M2: the panel's width decides which controls the header keeps. Viewer M2 review: any
+   * change of width, even inside one layout, measures the row again (`fitRow`).
+   */
+  setWidth(width: number): HeaderLayout {
+    const next = headerLayout(width);
+    const changed = next !== this.layout;
+    if (changed) {
+      this.layout = next;
+      this.header.setAttribute('data-layout', next);
+      this.status.setAttribute('data-layout', next);
+      this.syncSearch();
+    }
+    if (changed || width !== this.width) {
+      this.width = width;
+      this.fitRow();
+    }
+    return next;
+  }
+
+  /** How much the row is folded to fit (0: nothing beyond what the layout hides). */
+  get headerFit(): number {
+    return this.fitLevel;
+  }
+
+  get headerLayout(): HeaderLayout {
+    return this.layout;
+  }
+
+  /**
+   * Open (or close) the search field; at the full and wide widths it is always shown. The row is
+   * measured again (an open field needs room) and the tab stop re-derived (the icon goes).
+   */
+  setSearchOpen(open: boolean): void {
+    this.searchOpen = open;
+    this.syncSearch();
+    this.fitRow();
+  }
+
+  private syncSearch(): void {
+    const collapsed = this.layout === 'mid' || this.layout === 'narrow';
+    const open = !collapsed || this.searchOpen || !!this.searchInput.value;
+    this.header.setAttribute('data-search', open ? 'open' : 'closed');
+    this.searchBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    this.syncControls();
+  }
+
+  /**
+   * Viewer M2 review (M2R-1): the `hidden` attribute on every control the current shape leaves
+   * out, so the roving tab stop, the ... menu and a test agree with what the stylesheet draws. The
+   * revision chip: no document, below 620 px, or folded. The search icon: only at `mid` with the
+   * field closed. "Not observed": nothing to count, or folded.
+   */
+  private syncControls(): void {
+    this.provenance.hidden = !this.hasDocument || this.layout === 'narrow' || this.fitLevel >= 1;
+    const searchFolded = (this.layout === 'mid' || this.layout === 'narrow') && this.header.getAttribute('data-search') !== 'open';
+    this.searchBtn.hidden = !(this.layout === 'mid' && searchFolded);
+    this.exceptionsBtn.hidden = !this.hasExceptions || this.fitLevel >= 2;
+    for (const [sev, b] of this.sevButtons) b.hidden = !this.sevShown.has(sev) || this.fitLevel >= 4;
+    this.sevUnit.hidden = this.sevShown.size === 0 || this.fitLevel >= 4;
+    this.header.setAttribute('data-fit', String(this.fitLevel));
+  }
+
+  /**
+   * Viewer M2 review (M2R-2, A11Y-8): fold the row until it fits the panel. Each step is measured
+   * in place (the header's scroll width against its own width); nothing is painted in between, so
+   * the folding never shows. Without a layout engine (jsdom, a detached root) nothing is folded.
+   * Then the ... menu and the roving tab stop follow what is on the row.
+   */
+  private fitRow(): void {
+    this.fitLevel = 0;
+    this.syncControls();
+    const width = this.header.clientWidth;
+    // The severity toggles are never folded away while the field is closed: the menu has no copy.
+    const max = this.header.getAttribute('data-search') === 'open' && (this.layout === 'mid' || this.layout === 'narrow') ? HEADER_FIT_MAX : HEADER_FIT_MAX - 1;
+    if (width > 0) {
+      while (this.fitLevel < max && this.header.scrollWidth > this.header.clientWidth) {
+        this.fitLevel++;
+        this.syncControls();
+      }
+    }
+    this.updateMenu();
+    if (this.roving) this.roving.sync();
+  }
+
+  /** The ... menu's items for the current state and what the row folded into it. */
+  private updateMenu(): void {
+    const s = this.state;
+    if (!s) return;
+    const exceptions = s.notObserved;
+    const folded = this.hasExceptions && this.fitLevel >= 2;
+    this.more.update({
+      folded: {
+        search: this.layout === 'narrow',
+        about: this.layout === 'narrow' || this.fitLevel >= 1,
+        exceptions: folded,
+      },
+      aboutLabel: this.lastAboutLabel,
+      exceptionsLabel: this.hasExceptions ? notObservedText(exceptions) : '',
+      exceptionsOn: s.exceptionsOn,
+      legendOpen: s.legendOpen,
+      flowOn: s.flowOn,
+      minimapShown: !s.minimapCollapsed,
+      minimapUnavailable: s.minimapUnavailable,
+      railOpen: s.railOpen,
+      railMode: s.railMode,
+      hasSelection: s.hasSelection,
+      canExport: !!s.graph,
+    });
+  }
+
+  private pick(id: MoreItemId, byKeyboard: boolean): void {
+    const cb = this.cb;
+    if (id === 'search') cb.onSearchOpen();
+    else if (id === 'about') cb.onAbout(byKeyboard);
+    else if (id === 'exceptions') cb.onToggleExceptions(!(this.state && this.state.exceptionsOn));
+    else if (id === 'legend') cb.onToggleLegend(!(this.state && this.state.legendOpen));
+    else if (id === 'flow') cb.onToggleFlow(!(this.state && this.state.flowOn));
+    else if (id === 'minimap') cb.onToggleMinimap(!(this.state && this.state.minimapCollapsed));
+    else if (id === 'rail') cb.onToggleRail();
+    else if (id === 'fit') cb.onFitWhole();
+    else if (id === 'zoomsel') cb.onZoomToSelection();
+    else if (id === 'shortcuts') cb.onShortcuts();
+    else cb.onExport(id);
   }
 
   update(s: ChromeState): void {
+    this.state = s;
+    const doc = s.document;
     const g = s.graph;
-    this.rootLabel.textContent = g ? g.workspace.root : '';
-    if (g) this.rootLabel.title = g.workspace.root;
+    this.renderHeader(s, doc);
 
-    clear(this.statsEl);
-    if (g) {
-      this.statsEl.appendChild(stat(String(g.nodes.length), g.nodes.length === 1 ? 'node' : 'nodes'));
-      this.statsEl.appendChild(stat(String(g.edges.length), g.edges.length === 1 ? 'edge' : 'edges'));
+    const exceptions = s.notObserved;
+    const exceptionTotal = exceptions.steps + exceptions.connections + exceptions.findings;
+    this.hasExceptions = !!g && exceptionTotal > 0;
+    if (exceptionTotal > 0) {
+      const text = notObservedText(exceptions);
+      const open = text.indexOf(' (');
+      clear(this.exceptionsBtn);
+      this.exceptionsBtn.appendChild(uiIcon('notobserved', 14));
+      // Viewer M2 review (M2-INT-2, A11Y-5): the count names its unit on screen at every width,
+      // the owner's rule. The full row has room for the breakdown; a narrower one says "claims".
+      if (this.layout === 'full' && open > 0) {
+        add(this.exceptionsBtn, el('span', 'mlv-chip__lead', text.slice(0, open)));
+        add(this.exceptionsBtn, el('span', 'mlv-chip__detail', text.slice(open)));
+      } else {
+        add(this.exceptionsBtn, el('span', 'mlv-chip__lead', notObservedLead(exceptions)));
+      }
+      this.exceptionsBtn.setAttribute('aria-label', text);
+      this.exceptionsBtn.setAttribute('aria-pressed', s.exceptionsOn ? 'true' : 'false');
+      this.exceptionsBtn.title = text + (s.exceptionsOn
+        ? '. The observed claims are faded; press to show them again.'
+        : '. Press to fade the observed claims so these stand out.');
     }
 
     for (const sev of SEVERITY_ORDER) {
       const b = this.sevButtons.get(sev)!;
       const active = s.filters.severities.indexOf(sev) >= 0;
+      const n = s.visibleCounts[sev];
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
       const count = b.querySelector('.mlv-chip__count');
-      if (count) count.textContent = String(s.visibleCounts[sev]);
+      if (count) count.textContent = String(n);
+      // A toggle for a severity with no findings would filter nothing; it is not drawn.
+      if (g && n > 0) this.sevShown.add(sev);
+      else this.sevShown.delete(sev);
+      // Viewer M2: the number names its unit in the tooltip and the accessible name.
+      b.title = plural(n, sev + ' finding', sev + ' findings') + (active ? '. Press to hide them.' : ', hidden. Press to show them.');
+      b.setAttribute('aria-label', b.title);
     }
-    const scopeLabelEl = this.scopeBtn.querySelector('.mlv-btn__label');
-    if (scopeLabelEl) scopeLabelEl.textContent = s.scopeLabel;
-    this.scopeBtn.setAttribute('aria-pressed', s.scopeActive ? 'true' : 'false');
-    this.scopeBtn.setAttribute('aria-label', 'Scope diagram — currently ' + s.scopeLabel);
-    this.flowBtn.setAttribute('aria-pressed', s.flowOn ? 'true' : 'false');
-    this.flowBtn.title = 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off') + ' — press A to toggle';
-    this.flowBtn.setAttribute('aria-label', 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off'));
-    this.legendBtn.setAttribute('aria-pressed', s.legendOpen ? 'true' : 'false');
-    const shown = !s.minimapCollapsed;
-    this.minimapBtn.setAttribute('aria-pressed', shown ? 'true' : 'false');
-    this.minimapBtn.title = 'Overview minimap is ' + (shown ? 'shown' : 'hidden');
-    this.minimapBtn.setAttribute('aria-label', this.minimapBtn.title);
+    // The unit after the toggles: "finding" only when the one number shown is 1.
+    const shown = SEVERITY_ORDER.filter((sev) => this.sevShown.has(sev));
+    this.sevUnit.textContent = shown.length === 1 && s.visibleCounts[shown[0]] === 1 ? 'finding' : 'findings';
 
-    this.zoomSelBtn.disabled = !s.hasSelection;
-
-    this.renderStageFilters(s);
-    this.renderChips(s);
+    this.syncSearch();
     this.renderStatus(s);
-    // The stage chip row was just rebuilt: put the strip's single tab stop back
-    // (VIEW-12).
-    if (this.roving) this.roving.sync();
+    this.fitRow();
   }
 
-  /** Stage chips: every present band, toggleable. Empty selection means "all". */
-  private renderStageFilters(s: ChromeState): void {
-    clear(this.filterRow);
-    const g = s.graph;
-    if (!g) {
-      this.filterRow.hidden = true;
+  private renderHeader(s: ChromeState, doc: WorkflowDocument | null): void {
+    if (!doc) {
+      this.title.textContent = '';
+      this.title.removeAttribute('title');
+      this.hasDocument = false;
       return;
     }
-    const drawn = s.laneIds;
-    const stages = (g.stages || []).filter(
-      (st) => st.present && (!s.scopeActive || drawn.indexOf(st.id) >= 0),
-    );
-    if (!stages.length) {
-      this.filterRow.hidden = true;
-      return;
-    }
-    add(this.filterRow, el('span', 'mlv-chiprow__label', 'stages'));
-    const active = s.filters.stages;
-    for (const stage of stages) {
-      const on_ = active.length === 0 || active.indexOf(stage.id) >= 0;
-      const chip = el('button', 'mlv-chip mlv-chip--btn mlv-chip--stage') as HTMLButtonElement;
-      chip.type = 'button';
-      chip.setAttribute('data-stage', stage.id);
-      chip.setAttribute('data-stage-filter', stage.id);
-      chip.setAttribute('aria-pressed', on_ ? 'true' : 'false');
-      // Viewer M1: say what a click does. A click hides a shown phase and shows a hidden one;
-      // the old "Show only the X stage" described the opposite.
-      chip.title = (on_ ? 'Hide the ' : 'Show the ') + (stage.label || stage.id) + ' phase';
-      add(chip, el('span', '', stage.label || stage.id));
-      on(chip, 'click', () => this.cb.onStage(stage.id));
-      this.filterRow.appendChild(chip);
-    }
-    const dirty = active.length > 0 || s.filters.severities.length < 3 || s.filters.query.length > 0;
-    if (dirty) {
-      const clearBtn = button('mlv-btn', 'Clear filters');
-      on(clearBtn, 'click', () => this.cb.onClearFilters());
-      this.filterRow.appendChild(clearBtn);
-    }
-    this.filterRow.hidden = false;
-  }
-
-  /**
-   * The chip row, in three steps: COLLECT, FOLD, CAP (HOSTS-UX-CHIPWALL), so
-   * the row can never outgrow the canvas under it (`.mlv-body` absorbs
-   * whatever the rows above it take).
-   *
-   * Nothing is deleted here. A fold carries its count, the cap carries a chip
-   * that lists the rest, and every message stays on a `title`.
-   */
-  private renderChips(s: ChromeState): void {
-    this.chipSpecs = s.graph ? collectChips(s) : [];
-    this.paintChips();
-  }
-
-  /** Draw `chipSpecs`, honouring the cap and the reader's expansion. */
-  private paintChips(): void {
-    clear(this.chipScroll);
-    const opener = this.chipRow.querySelector('[data-chip-more]');
-    if (opener && opener.parentNode) opener.parentNode.removeChild(opener);
-    const specs = this.chipSpecs;
-    if (!specs.length) {
-      this.chipRow.hidden = true;
-      return;
-    }
-    const hidden = Math.max(0, specs.length - MAX_CHIPS);
-    const capped = hidden > 0 && !this.chipsExpanded;
-    const shown = capped ? specs.slice(0, MAX_CHIPS) : specs;
-    let label = '';
-    for (const spec of shown) {
-      if (spec.label && spec.label !== label) add(this.chipScroll, el('span', 'mlv-chiprow__label', spec.label));
-      if (spec.label) label = spec.label;
-      // TAB2-10. A chip is a label, and a scope note carries a SENTENCE. The
-      // text goes in its own element so the stylesheet can bound it to one
-      // ellipsised line (`.mlv-chiprow .mlv-chip__text`)
-      // while the `×N` count beside it stays whole. Nothing is removed: the
-      // element holds every character, so `textContent`, the exported HTML and
-      // every screen reader still get the sentence, and the `title` below
-      // carries it for a hover.
-      const node = add(this.chipScroll, el('span', 'mlv-chip' + (spec.cls ? ' ' + spec.cls : '')));
-      add(node, el('span', 'mlv-chip__text', spec.text));
-      for (const attr of spec.attrs) node.setAttribute(attr[0], attr[1]);
-      if (spec.count > 1) {
-        const count = add(node, el('span', 'mlv-chip__count', '×' + spec.count));
-        count.setAttribute('data-chip-fold', String(spec.count));
-      }
-      const title = chipTitle(spec);
-      if (title) node.title = title;
-    }
-    if (hidden > 0) this.chipRow.appendChild(this.moreChip(hidden, capped));
-    this.chipRow.hidden = false;
-    // The row is inside the roving toolbar: a rebuilt row must hand the strip's
-    // single tab stop back (VIEW-12), exactly as the stage chips do.
-    if (this.roving) this.roving.sync();
-  }
-
-  /**
-   * The one chip that stands for the rest — a real button, never a label.
-   *
-   * `aria-pressed` is deliberately NOT used: `.mlv-chip--btn[aria-pressed="false"]`
-   * is struck through, which is right for a filter that is off and wrong for a
-   * disclosure that is closed.
-   */
-  private moreChip(hidden: number, capped: boolean): HTMLButtonElement {
-    const more = el('button', 'mlv-chip mlv-chip--btn mlv-chip--more') as HTMLButtonElement;
-    more.type = 'button';
-    more.textContent = capped ? '+' + hidden + ' more' : 'show fewer';
-    more.setAttribute('data-chip-more', String(hidden));
-    more.setAttribute('aria-expanded', capped ? 'false' : 'true');
-    more.title = capped
-      ? hidden + ' more note(s) about this run are folded away — press to list them all'
-      : 'Fold the last ' + hidden + ' note(s) back behind one chip';
-    more.setAttribute('aria-label', more.title);
-    on(more, 'click', () => {
-      this.chipsExpanded = !this.chipsExpanded;
-      this.paintChips();
-      // Keep the reader on the control they just pressed: `paintChips` rebuilt
-      // the row, so the button they were on no longer exists.
-      const next = this.chipRow.querySelector('[data-chip-more]') as HTMLElement | null;
-      if (!next) return;
-      try {
-        next.focus();
-      } catch (_e) {
-        /* a host may have detached the row already */
-      }
-    });
-    return more;
+    this.title.textContent = doc.title;
+    this.title.title = doc.title;
+    this.hasDocument = true;
+    const host = doc.producer.host;
+    const model = doc.producer.model ? ' (' + doc.producer.model + ')' : '';
+    this.provHost.textContent = host + ' · ';
+    this.provRev.textContent = doc.revision.id;
+    const stale = !!s.freshness && s.freshness.state === 'stale';
+    this.provenance.setAttribute('data-stale', stale ? 'true' : 'false');
+    const published = doc.verification
+      ? 'Published ' + doc.verification.publishedAt + ' with hashes of ' + plural(Object.keys(doc.verification.files || {}).length, 'file', 'files') + '.'
+      : 'Published without source hashes.';
+    const freshness = stale && s.freshness ? ' ' + s.freshness.text + '.' : '';
+    this.provenance.title = 'Revision ' + doc.revision.id + ' by ' + host + model + '. ' + published + freshness + ' Show About: the request, coverage and provenance.';
+    this.provenance.setAttribute('aria-label', 'Revision ' + doc.revision.id + ', ' + host + '.' + freshness + ' Show About this revision');
+    this.lastAboutLabel = 'About revision ' + doc.revision.id + ' · ' + host;
   }
 
   private renderStatus(s: ChromeState): void {
-    clear(this.status);
     const g = s.graph;
+    const doc = s.document;
     if (!g) {
-      add(this.status, el('span', '', 'Waiting for a workflow…'));
+      this.counts.textContent = 'Waiting for a workflow…';
+      this.coverage.hidden = true;
+      clear(this.fresh);
       return;
     }
-    add(this.status, el('span', '', g.nodes.length + ' nodes · ' + g.edges.length + ' edges'));
-    const sev = add(this.status, el('span', 'mlv-stats'));
-    for (const s2 of SEVERITY_ORDER) {
-      const wrap = add(sev, el('span', 'mlv-stat'));
-      wrap.appendChild(severityGlyph(s2, 11, s2 + ' severity'));
-      add(wrap, el('span', 'mlv-stat__value', String(s.visibleCounts[s2])));
-    }
-    // VIEWUI-13: the provenance is the revision, host and model; `generator.version`
-    // holds the MODEL, never an MLView version.
-    const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
-    add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
-    const notes = (g.diagnostics || []).length;
-    if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
-    // Viewer M1: freshness in place. Nothing when every cited file is unchanged; a warning icon
-    // and words (never colour alone) when some are not; muted text while a change is checked.
-    if (s.freshness) {
-      const item = add(this.status, el('span', 'mlv-status__fresh is-warn'));
+    // Viewer M2: every count names its unit, and each is shown once.
+    this.counts.textContent = plural(g.nodes.length, 'step', 'steps') + ' · ' + plural(g.edges.length, 'connection', 'connections');
+    if (doc) {
+      this.coverage.hidden = false;
+      // Viewer M2 review (M2R-11): beside the code the item drops its "Coverage:" lead, so the
+      // limitations keep their count and unit next to a stale-file warning; its name keeps it all.
+      const full = coverageText(doc);
+      this.coverage.textContent = this.layout === 'narrow' ? full.replace(/^Coverage: /, '') : full;
+      this.coverage.setAttribute('aria-label', full);
+      const status = doc.coverage.status;
+      const meaning = status === 'scoped'
+        ? '"scoped": the assistant lists no remaining work within the stated scope.'
+        : '"partial": the assistant lists work that remains.';
+      this.coverage.title = 'Coverage as the assistant recorded it. ' + meaning + ' Show About, where the limitations are listed.';
+    } else this.coverage.hidden = true;
+
+    // Freshness: a warning icon and words only for changed or missing files; muted text otherwise.
+    clear(this.fresh);
+    const f = s.freshness;
+    // Viewer M2 review (M2R-11): a warning keeps its width; the coverage item gives way instead.
+    this.fresh.setAttribute('data-stale', f && f.state === 'stale' ? 'true' : 'false');
+    if (f && f.state === 'stale') {
+      const item = add(this.fresh, el('span', 'mlv-status__fresh is-warn'));
       item.appendChild(uiIcon('warning', 12));
-      add(item, el('span', '', s.freshness.text));
-      item.title = s.freshness.title;
+      add(item, el('span', '', f.text));
+      item.title = f.title;
       item.setAttribute('data-freshness', 'stale');
     }
     if (s.checking) {
-      const item = add(this.status, el('span', 'mlv-status__fresh is-checking', 'Checking source freshness…'));
+      const item = add(this.fresh, el('span', 'mlv-status__fresh is-checking', 'Checking source freshness…'));
       item.setAttribute('data-freshness', 'checking');
+    } else if (f && f.state !== 'stale') {
+      const item = add(this.fresh, el('span', 'mlv-status__fresh is-muted', f.text));
+      item.title = f.title;
+      item.setAttribute('data-freshness', f.state);
     }
   }
-}
-
-/** One `12 nodes` pill for the toolbar's stat row. */
-function stat(value: string, label: string): HTMLElement {
-  const wrap = el('span', 'mlv-stat');
-  add(wrap, el('span', 'mlv-stat__value', value));
-  add(wrap, el('span', '', label));
-  return wrap;
 }

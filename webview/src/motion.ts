@@ -1,5 +1,8 @@
 /**
- * The OS motion preference, read once and then watched.
+ * The motion preference, read once and then watched: the OS media query AND, since viewer M2,
+ * VS Code's own `vscode-reduce-motion` body class, which the editor sets on a webview when its
+ * Reduce Motion setting is on. Either one means `reduced`. A user who turned Reduce Motion on in
+ * VS Code but not in the OS used to get the full animation.
  *
  * The hover-intent timers deliberately do NOT read it (RENDER-19): they are
  * intent delays, not animation, and dropping them under `reduce` made every
@@ -13,17 +16,51 @@
  *    `display: none !important` for the element, so a stale node from a
  *    mid-session preference change cannot appear either.
  *
+ * Viewer M2: VS Code's screen-reader class (`vscode-using-screen-reader`) counts as `reduced` too:
+ * a reader listening to the diagram gains nothing from moving charges.
+ *
  * Every access is wrapped: `window.matchMedia` is absent in jsdom by default and
  * a host may hand back a partial stub (no `addEventListener`).
+ *
+ * The stylesheet honours both signals too (base.css, flow.css), so the CSS transitions and the
+ * blanket animation clamp follow the body class even where this module is not consulted.
  */
 
 export type MotionMode = 'full' | 'reduced';
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
-/** The current OS preference. `full` whenever it cannot be determined. */
+/** The class VS Code puts on a webview's <body> when its Reduce Motion setting applies. */
+export const REDUCE_MOTION_CLASS = 'vscode-reduce-motion';
+
+/**
+ * Viewer M2: the class VS Code puts on a webview's <body> while its screen-reader optimisation is
+ * on (`editor.accessibilitySupport`). The viewer then skips motion, as under Reduce Motion, and
+ * announces a selection by its claim (app.ts).
+ */
+export const SCREEN_READER_CLASS = 'vscode-using-screen-reader';
+
+/** The current preference. `full` whenever it cannot be determined. */
 export function motionMode(): MotionMode {
-  return matches(REDUCED_MOTION_QUERY) ? 'reduced' : 'full';
+  return matches(REDUCED_MOTION_QUERY) || bodyAsksStillness() ? 'reduced' : 'full';
+}
+
+/** True while VS Code says a screen reader is in use (the body class above). */
+export function screenReaderActive(): boolean {
+  return bodyHas(SCREEN_READER_CLASS);
+}
+
+function bodyAsksStillness(): boolean {
+  return bodyHas(REDUCE_MOTION_CLASS) || bodyHas(SCREEN_READER_CLASS);
+}
+
+function bodyHas(name: string): boolean {
+  try {
+    const body = typeof document !== 'undefined' ? document.body : null;
+    return !!body && body.classList.contains(name);
+  } catch (_e) {
+    return false;
+  }
 }
 
 function matches(query: string): boolean {
@@ -46,26 +83,43 @@ export class MotionWatcher {
 
   constructor(onChange: (mode: MotionMode) => void) {
     this.current = motionMode();
+    const handler = () => {
+      const next = motionMode();
+      if (next === this.current) return;
+      this.current = next;
+      onChange(next);
+    };
+    const stops: (() => void)[] = [];
     try {
-      if (typeof window === 'undefined' || !window.matchMedia) return;
-      const list = window.matchMedia(REDUCED_MOTION_QUERY);
-      if (!list || typeof list.addEventListener !== 'function') return;
-      const handler = () => {
-        const next = motionMode();
-        if (next === this.current) return;
-        this.current = next;
-        onChange(next);
-      };
-      list.addEventListener('change', handler);
-      this.stop = () => {
-        try {
-          list.removeEventListener('change', handler);
-        } catch (_e) {
-          /* a host may already have torn the query down */
-        }
-      };
+      const list = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(REDUCED_MOTION_QUERY) : null;
+      if (list && typeof list.addEventListener === 'function') {
+        list.addEventListener('change', handler);
+        stops.push(() => list.removeEventListener('change', handler));
+      }
     } catch (_e) {
       /* a host without matchMedia keeps the mode it was born with */
+    }
+    // VS Code rewrites the body classes when the setting (or the theme) changes.
+    try {
+      const body = typeof document !== 'undefined' ? document.body : null;
+      if (body && typeof MutationObserver === 'function') {
+        const observer = new MutationObserver(handler);
+        observer.observe(body, { attributes: true, attributeFilter: ['class'] });
+        stops.push(() => observer.disconnect());
+      }
+    } catch (_e) {
+      /* no observer: the class is still read at mount and on every media-query change */
+    }
+    if (stops.length) {
+      this.stop = () => {
+        for (const stop of stops) {
+          try {
+            stop();
+          } catch (_e) {
+            /* a host may already have torn the query down */
+          }
+        }
+      };
     }
   }
 

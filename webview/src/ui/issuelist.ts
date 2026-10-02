@@ -1,8 +1,8 @@
 /**
  * The Findings panel: the severity sections, the rows and the empty states.
  *
- * The rail file owns the three tabs, the Inspector and the Outline; this one
- * owns everything under the Findings tab.
+ * The rail file owns the four tabs and the Outline (the Selection and About panes are their own
+ * files); this one owns everything under the Findings tab.
  */
 
 import { add, button, clear, el, fileLine, locSpan, iconButton, on } from '../dom.js';
@@ -10,6 +10,7 @@ import { locSpoken } from '../notebook.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { basisChip } from './evidence.js';
+import { basisSpoken } from '../render/edges.js';
 import type { GraphIndex } from '../layout/model.js';
 import { allElsewhere, STALE_TEXT } from '../freshness.js';
 import type { Issue, Loc, RelatedLoc, StaleReason } from '../types.js';
@@ -25,7 +26,6 @@ export interface IssueListCallbacks {
   /** An Open / Go to control; `focusEditor` for Alt+click or Alt+Enter. */
   onOpen(loc: Loc | RelatedLoc, focusEditor?: boolean): void;
   onClearFilters(): void;
-  onClearScope(): void;
 }
 
 export interface IssueListState {
@@ -33,7 +33,6 @@ export interface IssueListState {
   issues: Issue[];
   keep(issue: Issue): boolean;
   selectedIssueId: string | null;
-  scope: { shown: number; hidden: number; total: number; where: string } | null;
   /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
   staleReason?(file: string): StaleReason | undefined;
 }
@@ -62,11 +61,12 @@ export function staleChipText(reasons: StaleReason[]): string {
 
 /**
  * Viewer M1: a finding's `suggestion`, labelled "What to change" (the skill's own words for it),
- * or null when the author wrote none, so no label ever stands over nothing. The Inspector passes
+ * or null when the author wrote none, so no label ever stands over nothing. The Selection pane passes
  * `h5` so the label is a heading among the finding's other sections; the Findings list uses a
- * plain label inside the expanded row.
+ * plain label inside the expanded row. Viewer M2: a finding listed under a step in the Selection pane
+ * passes `h6` (it sits under that finding's section heading).
  */
-export function suggestionBlock(issue: Issue, labelTag: 'h5' | 'div' = 'div'): HTMLElement | null {
+export function suggestionBlock(issue: Issue, labelTag: 'h5' | 'h6' | 'div' = 'div'): HTMLElement | null {
   const text = (issue.fixHint || '').trim();
   if (!text) return null;
   const box = el('div', 'mlv-insp__fix');
@@ -114,14 +114,10 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     return;
   }
   const visible = s.issues.filter(s.keep);
-  if (s.scope) panel.appendChild(scopeLine(s.scope, cb));
   if (!visible.length) {
     // Different results, told apart: there are no steps, nothing was recorded,
-    // the filters excluded everything, or the SCOPE excludes them (MLV-R1-013,
-    // MLV-R2-W05, FEATURES 3.7). Getting these apart is what stops a scope from
-    // reading as a clean bill of health.
-    if (s.scope && s.scope.hidden > 0) panel.appendChild(scopeEmptyState(s.scope, cb));
-    else if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
+    // or the filters excluded everything (MLV-R1-013, MLV-R2-W05).
+    if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
     else if ((s.index.graph.nodes || []).length === 0) panel.appendChild(nothingAnalyzedState(s));
     else panel.appendChild(noFindingsRecordedState(s));
     return;
@@ -134,7 +130,8 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     // h4 under the panel's h3 (VIEW-12).
     const heading = add(section, el('h4', 'mlv-rail__heading'));
     heading.appendChild(severityGlyph(sev, 12, ''));
-    add(heading, el('span', '', sev + ' · ' + group.length));
+    // Viewer M2: the count names its unit.
+    add(heading, el('span', '', sev + ' · ' + group.length + (group.length === 1 ? ' finding' : ' findings')));
     section.appendChild(flatList(group, sev, s, cb));
   }
 }
@@ -166,9 +163,10 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   row.setAttribute('aria-selected', selected ? 'true' : 'false');
   row.setAttribute(
     'aria-label',
-    issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
+    (issue.short ? issue.short + ', ' : '') + issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
       (issue.loc.file ? ', ' + locSpoken(issue.loc) : '') +
-      (issue.basis ? ', basis ' + issue.basis : ''),
+      // Viewer M2 review: the basis only when it is not observed, as on the canvas.
+      basisSpoken(issue.basis),
   );
   if (selected) row.classList.add('is-selected');
   const stale = issueStaleReasons(issue, s.staleReason);
@@ -178,13 +176,17 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
     row.setAttribute('aria-label', row.getAttribute('aria-label') + ', ' + staleChipText(stale) + (allElsewhere(stale) ? '' : ' since publishing'));
   }
   row.appendChild(severityGlyph(issue.severity, 14, ''));
+  // Viewer M2: the short label the canvas badges print; the real id stays in the meta line.
+  if (issue.short) add(row, el('span', 'mlv-issue__short', issue.short));
   const text = add(row, el('div', 'mlv-issue__text'));
   add(text, el('div', 'mlv-issue__title', issue.title));
   const meta = add(text, el('div', 'mlv-issue__meta'));
   add(meta, el('span', '', issue.code));
   if (issue.loc.file) meta.appendChild(locSpan('', issue.loc));
-  // MLV-P6: on EVERY row, so a missing chip never reads as "sure".
-  meta.appendChild(basisChip(issue));
+  // Viewer M2 review (M2R-7, A11Y-4): only the exceptions are marked, as on the canvas; the legend
+  // says an unmarked claim is observed.
+  const chip = basisChip(issue);
+  if (chip) meta.appendChild(chip);
   if (stale.length) meta.appendChild(staleChip(stale));
   on(row, 'click', (ev: MouseEvent) => cb.onSelectIssue(issue.id, ev));
   li.appendChild(row);
@@ -305,7 +307,7 @@ function noFindingsRecordedState(s: IssueListState): HTMLElement {
       'div',
       'mlv-clean__detail',
       'The assistant recorded no findings. Coverage: ' + status +
-        (limits ? '; ' + limits + (limits === 1 ? ' limitation' : ' limitations') + ' listed above' : '') +
+        (limits ? '; ' + limits + (limits === 1 ? ' limitation' : ' limitations') + ' listed in About' : '') +
         '. This is not a check result.',
     ),
   );
@@ -338,39 +340,6 @@ function nothingAnalyzedState(s: IssueListState): HTMLElement {
       add(list, el('li', '', d.kind + ' — ' + d.message));
     }
   }
-  return box;
-}
-
-/** "3 of 15 findings shown · 12 outside this scope — Show all". */
-function scopeLine(scope: { shown: number; hidden: number; total: number; where: string }, cb: IssueListCallbacks): HTMLElement {
-  const box = el('div', 'mlv-rail__scopeline');
-  box.setAttribute('role', 'status');
-  box.setAttribute('data-scope-line', '1');
-  add(
-    box,
-    el(
-      'span',
-      '',
-      scope.shown + ' of ' + scope.total + (scope.total === 1 ? ' finding' : ' findings') + ' shown · ' + scope.hidden + ' ' +
-        (scope.where || 'outside this scope'),
-    ),
-  );
-  const all = button('mlv-link mlv-link--inline', 'Show all', 'Clear the scope. Filters are separate.');
-  on(all, 'click', () => cb.onClearScope());
-  box.appendChild(all);
-  return box;
-}
-
-/** The fourth empty state: in scope, but nothing is wrong HERE. */
-function scopeEmptyState(scope: { hidden: number; total: number; where: string }, cb: IssueListCallbacks): HTMLElement {
-  const box = el('div', 'mlv-empty-note');
-  box.setAttribute('role', 'status');
-  box.setAttribute('data-scope-empty-rail', '1');
-  add(box, el('div', 'mlv-clean__title', 'No findings in this scope'));
-  add(box, el('div', 'mlv-clean__detail', scope.hidden + ' elsewhere in this project.'));
-  const all = button('mlv-btn', 'Show all');
-  on(all, 'click', () => cb.onClearScope());
-  box.appendChild(all);
   return box;
 }
 

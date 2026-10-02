@@ -10,7 +10,7 @@
  * implements it.
  */
 
-import type { Issue, MLNode, Viewport } from '../types.js';
+import type { Issue, Viewport } from '../types.js';
 
 /** How long a click on a collapsible box waits for a possible second click. */
 export const DOUBLE_CLICK_MS = 220;
@@ -34,11 +34,16 @@ export const MINIMAP_MIN_NODES = 30;
  */
 export const MINIMAP_MIN_CANVAS_H = 350;
 
+/**
+ * A panel this wide or narrower has no room for the minimap beside the diagram (it was an
+ * `@media (max-width: 900px)` rule). Viewer M2 live fix: the App applies it from the panel's
+ * width (`CanvasView.setPanelWidth`), so the ... menu can say why the map is not shown.
+ */
+export const MINIMAP_NARROW_W = 900;
+
 export interface CanvasHost {
   /** The App's issue filter — a marker is drawn only for issues this keeps. */
   keep(issue: Issue): boolean;
-  /** True when the stage filters exclude this node (dimmed, not removed). */
-  isFilteredOut(node: MLNode): boolean;
   /**
    * A node card was clicked: select it and show its claim (viewer M1: a click never opens the
    * source). `ev` is the pointer click, so its second click of a double-click can open it.
@@ -63,16 +68,6 @@ export interface CanvasHost {
   onMinimapCollapsed(collapsed: boolean): void;
   onKeyDown(ev: KeyboardEvent): void;
   onBackgroundClick(): void;
-  /** The empty scope's two ways out (FEATURES 3.7). */
-  widenScope(): void;
-  clearScope(): void;
-  /** The active scope's selector, or null — drives the scope-empty state. */
-  scopeSpec(): string | null;
-  /**
-   * Campaign 3 review (VL-1): how many pixels at the canvas's right edge the open rail covers.
-   * Docked beside the canvas it covers none; below the 900 px breakpoint it is a drawer over it.
-   */
-  coveredRight(): number;
   /** The node or connection the current selection points at, kept in view across a resize. */
   keptTarget(): { kind: 'node' | 'edge'; id: string } | null;
 }

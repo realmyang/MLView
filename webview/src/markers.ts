@@ -83,31 +83,65 @@ function ariaForCounts(counts: IssueCounts): string {
   return total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + (top ? SEVERITY_WORD[top] : 'none');
 }
 
+/** "2 findings: 1 medium, 1 low" — a cluster's tooltip, so its numbers name their unit. */
+export function clusterTitle(counts: IssueCounts): string {
+  const total = countsTotal(counts);
+  const parts = SEVERITY_ORDER.filter((sev) => counts[sev] > 0).map((sev) => counts[sev] + ' ' + SEVERITY_WORD[sev]);
+  return total + (total === 1 ? ' finding' : ' findings') + ': ' + parts.join(', ');
+}
+
+/** How many short labels a badge prints before "+N". */
+export const BADGE_MAX_LABELS = 2;
+
 /**
- * Node badge: one pill carrying the HIGHEST glyph and, when more than one issue
- * is present, the TOTAL count. Anchored top-right, overhanging the card.
+ * Viewer M2: what a card badge prints for its findings: up to two short labels, then "+N"
+ * (`F2 F5 +3`). The labels are `F1`…`Fn` in document order (`Issue.short`).
  */
-export function severityBadge(counts: IssueCounts, size = 18): HTMLElement | null {
+export function badgeText(labels: readonly string[]): string {
+  const shown = labels.slice(0, BADGE_MAX_LABELS).join(' ');
+  const rest = labels.length - BADGE_MAX_LABELS;
+  return rest > 0 ? shown + ' +' + rest : shown;
+}
+
+/** "finding F3" / "findings F3 and F5" / "findings F3, F5 and F7" — spoken names for short labels. */
+export function findingsSpoken(labels: readonly string[]): string {
+  if (!labels.length) return '';
+  if (labels.length === 1) return 'finding ' + labels[0];
+  return 'findings ' + labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
+}
+
+/**
+ * Node badge: one pill carrying the HIGHEST glyph and the short labels of the
+ * findings on the card (viewer M2: `F2 F5`, never a bare count). Anchored
+ * top-right, overhanging the card. Without labels it falls back to the total.
+ */
+export function severityBadge(counts: IssueCounts, size = 18, labels: readonly string[] = []): HTMLElement | null {
   const top = highestSeverity(counts);
   if (!top) return null;
   const total = countsTotal(counts);
   const pill = el('div', 'mlv-badge mlv-badge--' + top);
   pill.setAttribute('role', 'img');
-  pill.setAttribute('aria-label', ariaForCounts(counts));
+  pill.setAttribute('aria-label', labels.length
+    ? findingsSpoken(labels).replace(/^f/, 'F') + ', highest severity ' + SEVERITY_WORD[top]
+    : ariaForCounts(counts));
   pill.appendChild(severityGlyph(top, size, ''));
-  if (total > 1) pill.appendChild(el('span', 'mlv-badge__count', String(total)));
+  if (labels.length) pill.appendChild(el('span', 'mlv-badge__ids', badgeText(labels)));
+  else if (total > 1) pill.appendChild(el('span', 'mlv-badge__count', String(total)));
   return pill;
 }
 
 /**
  * Group / lane header cluster: up to three glyphs with their individual counts,
- * highest first. This is the aggregated view (spec R3.2).
+ * highest first. This is the aggregated view (spec R3.2). `label` replaces the
+ * accessible name and the tooltip when the caller has a more exact one (a lane
+ * says "findings touching this phase").
  */
-export function severityCluster(counts: IssueCounts, size = 14): HTMLElement | null {
+export function severityCluster(counts: IssueCounts, size = 14, label?: string): HTMLElement | null {
   if (countsTotal(counts) === 0) return null;
   const wrap = el('div', 'mlv-cluster');
   wrap.setAttribute('role', 'img');
-  wrap.setAttribute('aria-label', ariaForCounts(counts));
+  wrap.setAttribute('aria-label', label || ariaForCounts(counts));
+  wrap.title = label || clusterTitle(counts);
   for (const sev of SEVERITY_ORDER) {
     const n = counts[sev];
     if (n <= 0) continue;
@@ -124,11 +158,20 @@ export function edgeMarkerRadius(size: number): number {
   return size / 2 + 1.5;
 }
 
-/** Edge marker: the glyph on a surface-coloured disc at the path midpoint. */
-export function edgeMarker(severity: string, size = 16): SVGElement {
+/**
+ * Edge marker: the glyph on a surface-coloured disc at the path midpoint. Viewer M2: its name
+ * and tooltip say which findings (short labels) it stands for.
+ */
+export function edgeMarker(severity: string, size = 16, labels: readonly string[] = []): SVGElement {
   const sev = normalizeSeverity(severity);
   const g = svg('g', { class: 'mlv-edge-marker mlv-edge-marker--' + sev, role: 'img' });
-  g.setAttribute('aria-label', SEVERITY_WORD[sev] + ' severity issue on this connection');
+  const named = labels.length ? findingsSpoken(labels) + ' on this connection, highest severity ' + SEVERITY_WORD[sev] : SEVERITY_WORD[sev] + ' severity finding on this connection';
+  g.setAttribute('aria-label', named.charAt(0).toUpperCase() + named.slice(1));
+  if (labels.length) {
+    const title = svg('title');
+    title.textContent = g.getAttribute('aria-label') || '';
+    g.appendChild(title);
+  }
   const disc = svg('circle', { class: 'mlv-edge-marker__disc', r: edgeMarkerRadius(size), cx: 0, cy: 0 });
   g.appendChild(disc);
   const inner = severityGlyph(sev, size, '');

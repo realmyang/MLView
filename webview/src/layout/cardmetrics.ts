@@ -20,7 +20,13 @@
  *   .mlv-node__title      13/1.35                   17.6
  *   .mlv-node__sub        11/1.35                   14.8
  *   .mlv-node__loc        10 mono                   15.8   (only with a loc)
- *   .mlv-node__chips      18 px line + 4 px margin  26.0   (only with chips)
+ *   .mlv-node__chips      18 px line + 4 px margin  26.0   (only on a collapsed group)
+ *
+ * Viewer M2: an authored card has no chip row any more. The projection used to
+ * give every node a `basis=<basis>` chip, so every authored card was 26 px
+ * taller; the basis is now drawn only where it is not `observed`, as a border
+ * and a tag that take no layout space. The only chip row left is a collapsed
+ * group's "N steps" count. That change re-recorded the geometry golden.
  *
  * which is 70.1 for a three-row card (`NODE_H` 72, unchanged), 54.4 for a card
  * with no loc line (`NODE_H_GHOST` 60, unchanged) and 96.1 with the chip row
@@ -135,33 +141,11 @@ export function titleLines(node: MLNode, width: number): number {
 }
 
 /**
- * The attribute chips a card COULD draw, before any width budget.
- *
- * Lifted out of `render/nodes.ts:chipsFor` so the layout can ask the question
- * without a font metric. It is metric-free on purpose: `chipsFor` always keeps
- * its first candidate (the budget only ever drops the second and later ones),
- * so "is there a chip row" is decided here and identically in every host, while
- * "how many chips fit" stays a rendering decision.
+ * Whether the card draws its chip row: only a COLLAPSED GROUP does, for its
+ * "N steps" count (viewer M2; authored cards carry no attribute chips).
  */
-export function chipCandidates(node: MLNode): string[] {
-  const out: string[] = [];
-  const attrs = node.attrs || {};
-  const sublabel = node.sublabel || '';
-  for (const k of Object.keys(attrs)) {
-    const text = k + '=' + attrs[k];
-    if (sublabel.indexOf(text) >= 0) continue;
-    out.push(text);
-  }
-  return out;
-}
-
-/**
- * Whether the card draws its chip row. A COLLAPSED GROUP always does: its first
- * chip is the "N nodes" count, which is prepended after budgeting.
- */
-export function drawsChipRow(node: MLNode, collapsedGroup = false): boolean {
-  if (collapsedGroup) return true;
-  return chipCandidates(node).length > 0;
+export function drawsChipRow(collapsedGroup = false): boolean {
+  return collapsedGroup;
 }
 
 /**
@@ -177,7 +161,7 @@ export function drawsLocRow(node: MLNode): boolean {
 export function cardHeight(node: MLNode, collapsedGroup = false): number {
   const base = drawsLocRow(node) || collapsedGroup ? NODE_H : NODE_H_GHOST;
   const extraTitle = (titleLines(node, cardWidth(node, collapsedGroup)) - 1) * NODE_TITLE_LINE_H;
-  return base + extraTitle + (drawsChipRow(node, collapsedGroup) ? NODE_CHIP_ROW_H : 0);
+  return base + extraTitle + (drawsChipRow(collapsedGroup) ? NODE_CHIP_ROW_H : 0);
 }
 
 /** The reserved width of one card. Unchanged from the old `nodeSize`. */

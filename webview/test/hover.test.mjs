@@ -67,6 +67,25 @@ test('collapsing the hovered group clears the trace and the stale tooltip', asyn
   ctx.app.destroy();
 });
 
+test('Space on a focused group header collapses it once, and again expands it', async () => {
+  const ctx = await mount();
+  const space = (element) => element.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+  const header = () => ctx.document.querySelector('[data-node-id="loop"] .mlv-group__header');
+  // Right after a click the group is selected and its header has the focus: the state the canvas's
+  // own Space also acts on.
+  header().dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  await wait(450);
+  assert.equal(JSON.stringify(ctx.app.getState().selection), JSON.stringify({ kind: 'node', id: 'loop' }), 'precondition: the click selected the group');
+  header().focus();
+  space(header());
+  assert.ok(ctx.app.getState().collapsed.includes('loop'), 'one Space collapses the group (it used to toggle twice)');
+  const card = ctx.document.querySelector('[data-node-id="loop"]');
+  (card.querySelector('.mlv-group__header') || card).focus();
+  space(card.querySelector('.mlv-group__header') || card);
+  assert.ok(!ctx.app.getState().collapsed.includes('loop'), 'a second Space expands it');
+  ctx.app.destroy();
+});
+
 test('a revision arriving under a hovered card leaves no dimming and no tooltip', async () => {
   const ctx = await mount();
   const card = ctx.document.querySelector('[data-node-id="read"]');
@@ -138,7 +157,7 @@ async function mountEdges(doc = edgeFindingWorkflow()) {
   const tooltip = ctx.document.querySelector('.mlv-tooltip');
   const hit = (id) => ctx.document.querySelector(`.mlv-edge[data-edge-id="${id}"] .mlv-edge__hit`);
   const pointer = (type, element) => element.dispatchEvent(new ctx.window.Event(type, { bubbles: false }));
-  /** The hover card's finding rows, as "<glyph severity> <code> <title>". */
+  /** The hover card's finding rows, as "<glyph severity> <short label> · <code> <title>" (viewer M2). */
   const rows = () => Array.from(tooltip.querySelectorAll('.mlv-tooltip__row'))
     .filter((row) => row.querySelector('.mlv-glyph'))
     .map((row) => row.querySelector('.mlv-glyph').getAttribute('class').replace(/.*mlv-glyph--/, '') + row.textContent);
@@ -150,7 +169,7 @@ test('hovering a connection shows its finding on the card, as hovering a card do
   ctx.pointer('pointerenter', ctx.hit('b'));
   await wait(450);
   assert.equal(ctx.tooltip.hidden, false);
-  assert.deepEqual(ctx.rows(), ['medium f-edge Weights leak into eval']);
+  assert.deepEqual(ctx.rows(), ['medium F1 · f-edge Weights leak into eval']);
   ctx.app.destroy();
 });
 
@@ -161,7 +180,7 @@ test('a merged route lists a finding its members share once, in document order',
   ctx.pointer('pointerenter', ctx.hit('m1'));
   await wait(450);
   assert.match(ctx.tooltip.textContent, /2 merged connections/);
-  assert.deepEqual(ctx.rows(), ['high f-shared Rows and labels drift', 'low f-one Labels unchecked']);
+  assert.deepEqual(ctx.rows(), ['high F2 · f-shared Rows and labels drift', 'low F3 · f-one Labels unchecked']);
   ctx.app.destroy();
 });
 
@@ -175,7 +194,7 @@ test('a merged route lists its findings in document order, not in member order',
   assert.equal(ctx.document.querySelector('.mlv-edge[data-edge-id="m1"]').getAttribute('data-edge-ids'), 'm1 m2');
   ctx.pointer('pointerenter', ctx.hit('m1'));
   await wait(450);
-  assert.deepEqual(ctx.rows(), ['high f-shared Rows and labels drift', 'low f-one Labels unchecked']);
+  assert.deepEqual(ctx.rows(), ['high F2 · f-shared Rows and labels drift', 'low F3 · f-one Labels unchecked']);
   ctx.app.destroy();
 });
 
@@ -190,7 +209,7 @@ test('a collapsed group card lists the findings its badge counts, including a hi
   assert.match(card.getAttribute('aria-label'), /2 findings, highest severity medium/);
   ctx.pointer('pointerenter', card);
   await wait(450);
-  assert.deepEqual(ctx.rows(), ['medium f-edge Weights leak into eval', 'low f-child Step reuses a stale batch']);
+  assert.deepEqual(ctx.rows(), ['medium F1 · f-edge Weights leak into eval', 'low F4 · f-child Step reuses a stale batch']);
   ctx.app.destroy();
 });
 
@@ -211,7 +230,7 @@ test('the severity filter hides a filtered finding from the connection card', as
   ctx.app.setFilters({ severities: ['medium', 'low'] });
   ctx.pointer('pointerenter', ctx.hit('m1'));
   await wait(450);
-  assert.deepEqual(ctx.rows(), ['low f-one Labels unchecked']);
+  assert.deepEqual(ctx.rows(), ['low F3 · f-one Labels unchecked']);
   ctx.app.setFilters({ severities: ['high'] });
   ctx.pointer('pointerenter', ctx.hit('b'));
   await wait(450);
@@ -249,7 +268,7 @@ test('the rim of a severity marker opens its connection card at high zoom', asyn
   assert.ok(ctx.document.querySelector('.mlv-edge[data-edge-id="b"]').classList.contains('is-hover'));
   await wait(450);
   assert.equal(ctx.tooltip.hidden, false);
-  assert.deepEqual(ctx.rows(), ['medium f-edge Weights leak into eval']);
+  assert.deepEqual(ctx.rows(), ['medium F1 · f-edge Weights leak into eval']);
   // The card sits above the whole disc (8.5 world px), not over its top half: jsdom cannot
   // measure the card, so its anchor is the disc's top minus the 12 px gap.
   assert.equal(ctx.tooltip.style.left, Math.round(mx * vp.zoom + vp.x) + 'px');
@@ -429,13 +448,14 @@ test('a hover denser than the flow cap names the card, and focus mode names the 
   ctx.app.view.setHover('hub');
   assert.equal(ctx.litEdges().length, 121);
   assert.deepEqual(ctx.flowing(), [], 'over the cap nothing animates');
-  // Scoping to the card keeps every one of its connections, so the hover copy
-  // names the single-connection hover instead of scoping.
+  // The hover copy names the single-connection hover.
   assert.deepEqual(ctx.toasts(), ['This card has 121 connections, past the 120 the animation can carry. Hover a single connection to see its flow.']);
   ctx.app.view.setHover(null);
   ctx.app.select({ kind: 'node', id: 'hub' });
   ctx.app.view.toggleFocusMode(ctx.app.selection);
-  assert.equal(ctx.toasts().at(-1), 'This lineage has 121 connections, past the 120 the animation can carry. Press s to scope the diagram and the flow returns.');
+  assert.equal(ctx.toasts().at(-1), 'This lineage has 121 connections, past the 120 the animation can carry. Hover a single connection, or walk them with e, to see each flow.');
+  // Viewer M2 removed scoping, so the copy no longer offers the s key.
+  assert.doesNotMatch(ctx.toasts().join(' '), /Press s|scope/);
   ctx.app.destroy();
 });
 
@@ -494,7 +514,7 @@ test('turning focus mode off with the pointer on a card brings back its hover', 
   ctx.app.destroy();
 });
 
-test('a card the hover dims still takes the pointer; only focus mode makes dimmed cards inert', async () => {
+test('a hover dims nothing; only focus mode dims, and makes the dimmed cards inert (viewer M2 review, A11Y-9)', async () => {
   // jsdom applies no CSS, so the rule is read from the shipped stylesheet.
   const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
   const declarations = (selector) => {
@@ -508,10 +528,13 @@ test('a card the hover dims still takes the pointer; only focus mode makes dimme
     }
     return out;
   };
-  const tracing = declarations('.mlv-canvas.is-tracing .mlv-node:not(.is-lit)');
+  // The M2 direction: "Direct connections light; nothing dims." A hover used to fade every other
+  // card to 22%, which took 9 of 12 visible titles under 2:1 (Dark Modern, Light Modern and Dark
+  // High Contrast) whenever the pointer crossed a card.
+  const fading = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].includes('.is-tracing') && /(^|[;\s])(opacity|filter)\s*:/.test(m[2]));
+  assert.deepEqual(fading.map((m) => m[1].trim()), [], 'no hover rule fades or desaturates anything');
+  assert.match(declarations('.mlv-canvas.is-tracing .mlv-node.is-lit')['box-shadow'] || '', /var\(--mlv-text-2\)/, 'the lit neighbours are ringed');
   const focusing = declarations('.mlv-canvas.is-focusing .mlv-node:not(.is-lit)');
-  assert.equal(tracing.opacity, '.22', 'a hover still dims');
-  assert.equal(tracing['pointer-events'], undefined, 'a dimmed card can still be hovered and clicked');
   assert.equal(focusing.opacity, '.22');
   assert.equal(focusing['pointer-events'], 'none');
 });

@@ -1,101 +1,51 @@
 /*
- * Campaign 3, issue 1 — the authored header may never starve the diagram.
+ * The authored layer under the one-row header (viewer M2): the Refine… popover, which opens OVER
+ * the diagram, so opening it never moves the canvas. The request and coverage that also opened
+ * here are the rail's About tab now (rail.css).
  *
- * MEASURED in the live webview (1440x900 window, 541x798 panel beside the
- * artifact editor): the header printed the request and coverage text in full
- * and drew 736-915 px, leaving the canvas 0 px for 12 of 12 Claude Code
- * artifacts; at 393 px wide the canvas was 0 for 31 of 32. `.mlv-root` is
- * `overflow: hidden`, so nothing could be scrolled into view.
- *
- * Three rules, each sufficient on its own for a contract-maximum document:
- *   1. collapsed by default (`workflow.ts`): the title (two lines at most), the
- *      provenance chips and ONE line of the question, behind a disclosure;
- *   2. a height cap with its own scroller for the expanded state;
- *   3. `flex-shrink` with `min-height: 0`, so when the chrome above and the
- *      canvas floor below need the room the expanded header gives it up and
- *      scrolls, rather than pushing the diagram (or the status bar) off the
- *      page. The collapsed header is bounded and never shrinks (VL-2 below).
- * The canvas floor itself is `.mlv-root--workflow > .mlv-body` below.
+ * The section itself has no height: it sits right after the header and anchors the popover at
+ * the header's bottom edge, whatever the header's height.
  */
 .mlv-workflow {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: 42vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--mlv-border);
-  background: var(--mlv-surface);
+  position: relative;
+  z-index: 45;
+  flex: none;
+  height: 0;
 }
-.mlv-workflow__heading, .mlv-workflow__meta { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
-.mlv-workflow__heading { min-width: 0; }
-.mlv-workflow__title {
-  flex: 1 1 16ch;
-  min-width: 0;
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.35;
-  /* Two lines at most; the whole title is on `title` and in the panel tab. */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-/*
- * A 200-character model name is one ellipsised chip, never a row of its own.
- * `display: block` because `.mlv-chip` is a flex box, and `text-overflow`
- * only ellipsises the text of a block container.
- */
-.mlv-workflow__heading > .mlv-chip,
-.mlv-workflow__coverage-chip {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 18px;
-}
-.mlv-workflow__summary {
+
+/* The Refine… popover, anchored under the button at the header's right end. */
+.mlv-workflow__composer {
+  position: absolute;
+  top: 4px;
+  right: var(--mlv-s4);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  margin-top: 6px;
+  width: min(440px, calc(100vw - 2 * var(--mlv-s4)));
+  padding: 10px 12px;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
 }
-.mlv-workflow__toggle { flex: none; gap: 4px; padding-inline: 6px; }
-.mlv-workflow__chevron { transition: transform var(--mlv-dur-2) var(--mlv-ease); }
-.mlv-workflow[data-expanded="true"] .mlv-workflow__chevron { transform: rotate(90deg); }
-.mlv-workflow__coverage-chip { flex: none; }
-.mlv-workflow__question {
-  flex: 1 1 auto;
+.mlv-workflow__composer[hidden] { display: none; }
+.mlv-workflow__selection {
+  flex: 1 0 100%;
   min-width: 0;
-  margin: 0;
-  color: var(--mlv-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--mlv-text);
+  font-size: 12px;
+  font-weight: var(--mlv-fw-medium);
 }
-/* Expanded, the one line becomes the whole question, wrapped in place. */
-.mlv-workflow[data-expanded="true"] .mlv-workflow__summary { align-items: flex-start; }
-.mlv-workflow[data-expanded="true"] .mlv-workflow__question {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.mlv-workflow__details { margin-top: 6px; }
-.mlv-workflow__details[hidden] { display: none; }
-.mlv-workflow__meta > span { overflow-wrap: anywhere; }
-.mlv-workflow__composer { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
-.mlv-workflow__composer[hidden] { display: none; }
-.mlv-workflow__selection { color: var(--mlv-text-2); font-size: 11px; }
-.mlv-workflow__custom { min-width: min(320px, 100%); }
-.mlv-workflow__meta { font-size: 11px; color: var(--mlv-text-2); }
-.mlv-workflow__coverage { font-weight: 600; }
-.mlv-workflow__coverage--partial { color: var(--mlv-sev-medium); }
-.mlv-workflow__limitations { margin-top: 6px; font-size: 11px; color: var(--mlv-text-2); }
-.mlv-workflow__status { color: var(--mlv-text); font-size: 11px; }
-.mlv-workflow__limitations ul { margin: 4px 0 0; padding-left: 20px; }
+.mlv-workflow__intent { flex: 0 0 auto; }
+.mlv-workflow__custom { flex: 1 1 180px; min-width: 0; }
+.mlv-workflow__custom[hidden] { display: none; }
+.mlv-workflow__status { flex: 1 0 100%; color: var(--mlv-text); font-size: 11px; }
+.mlv-workflow__status:empty { display: none; }
+.mlv-workflow__hint { flex: 1 0 100%; margin: 0; color: var(--mlv-text-2); font-size: 11px; }
 
 /*
  * The host's status banner (Campaign 1 §1e). The host bootstrap prepends it to
@@ -155,11 +105,13 @@
 .mlv-hostnotice__actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .mlv-hostnotice__actions[hidden] { display: none; }
 
-/* Viewer M1: freshness in place — the status bar item, the Inspector's quotes and finding chips. */
+/* Viewer M1: freshness in place — the status bar item, the Selection pane's quotes and finding chips. */
 .mlv-status__fresh { display: inline-flex; align-items: center; gap: 4px; }
 .mlv-status__fresh.is-warn { color: var(--mlv-text); }
 .mlv-status__fresh.is-warn .mlv-uicon { color: var(--mlv-stale-ink); }
 .mlv-status__fresh.is-checking { color: var(--mlv-text-2); font-style: italic; }
+/* Viewer M2: every cited file unchanged (or no hashes to check): muted words, no icon, no colour. */
+.mlv-status__fresh.is-muted { color: var(--mlv-text-2); }
 .mlv-insp__stale-note {
   display: flex;
   align-items: flex-start;
@@ -189,64 +141,25 @@
 .mlv-sheet__note { margin: 0 0 8px; font-size: 12px; color: var(--mlv-text-2); }
 
 /*
- * The canvas floor (issue 1). With the header able to shrink to nothing, the
- * diagram keeps at least this much height whatever the authored text says;
- * `min()` lets a genuinely short panel still show the status bar.
+ * The canvas floor (issue 1). The header is one fixed row now, but a host notice can still sit
+ * under it; the diagram keeps at least this much height whatever it says, and `min()` lets a
+ * genuinely short panel still show the status bar.
  */
 .mlv-root--workflow > .mlv-body {
   /*
    * Basis 0, not auto: with `auto` the body's basis is its tallest content (a
    * docked rail full of evidence), and flexbox shrinks items in proportion to
-   * their basis, so the header lost 4-27 px to its own scroller even on a
-   * 1382x798 panel with room to spare. At 0 the body only takes free space,
-   * and the header shrinks only when the floor below needs the room.
+   * their basis, so the bands above lost height to their own scrollers even on
+   * a panel with room to spare. At 0 the body only takes free space.
    */
   flex: 1 1 0;
   min-height: min(320px, 50vh);
 }
 
-/*
- * Campaign 3 review (VL-2). MEASURED live: in a 541x502 panel (the bottom
- * terminal open) the collapsed header shrank to 62 of its 124 px behind an
- * overlay scrollbar, hiding the Details toggle, the coverage chip, the
- * question line and most of Refine. Collapsed, the header is bounded (a
- * two-line title, its chips, one question line: 125-153 px at 393-541 px
- * wide), so it never shrinks; while it is collapsed the canvas floor yields
- * instead, low enough that a 393x502 panel still shows the status bar.
- * Expanded, the rules above still apply: the long header scrolls and the
- * canvas keeps min(320px, 50vh).
- */
-.mlv-workflow:not([data-expanded="true"]) {
-  flex-shrink: 0;
-}
-.mlv-workflow:not([data-expanded="true"]) ~ .mlv-body {
-  min-height: min(320px, 25vh);
-}
-
-/*
- * The stage filter row can hold up to 100 authored phases. Three wrapped rows
- * at most; the rest scroll inside the row (the roving toolbar scrolls a
- * focused chip into view), like the capped chip row in chrome.css.
- */
-.mlv-root--workflow .mlv-filterrow {
-  max-height: 12vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  align-items: flex-start;
-}
-/* A 200-character phase label is one ellipsised chip; `title` carries it. */
-.mlv-root--workflow .mlv-filterrow .mlv-chip--stage {
-  max-width: 100%;
-  min-width: 0;
-}
-.mlv-root--workflow .mlv-filterrow .mlv-chip--stage > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). */
-.mlv-minimap.is-short {
+/* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). Viewer M2
+ * live fix: a panel 900 px wide or narrower has no room for it beside the diagram either; the App
+ * sets `.is-narrow` from the panel's width (it was an @media rule), so the ... menu says why. */
+.mlv-minimap.is-short,
+.mlv-minimap.is-narrow {
   display: none;
 }

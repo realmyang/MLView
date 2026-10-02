@@ -1,6 +1,9 @@
 /**
  * The search results list. A plain listbox over the substring matches from
  * search.ts (amendment A6 trims the fuzzy palette to exactly this).
+ *
+ * Viewer M2: each row is two lines, the title first (up to two lines) and the location under it,
+ * cut from its start so the file name and the line stay; a count with its units heads the list.
  */
 
 import { add, button, clear, el, on } from '../dom.js';
@@ -10,6 +13,24 @@ import type { SearchHit, SearchResult } from '../search.js';
 /** The id of the nth option — the combobox's `aria-activedescendant` target. */
 export function optionId(list: HTMLElement, index: number): string {
   return (list.id || 'mlv-search-results') + '-opt-' + index;
+}
+
+/** Longest location a row shows before it is cut from the start ("…/callbacks/finetuning.py:184"). */
+const META_CHARS = 52;
+
+/** A location cut from its start, keeping its end (the file name, the cell and the line). */
+export function cutStart(text: string, max = META_CHARS): string {
+  return text.length <= max ? text : '…' + text.slice(text.length - (max - 1));
+}
+
+const plural = (n: number, one: string, many: string): string => n + ' ' + (n === 1 ? one : many);
+
+/** "12 matches: 9 steps, 3 findings" — every count names its unit. */
+export function matchCountText(result: SearchResult): string {
+  const parts: string[] = [];
+  if (result.totalNodes) parts.push(plural(result.totalNodes, 'step', 'steps'));
+  if (result.totalIssues) parts.push(plural(result.totalIssues, 'finding', 'findings'));
+  return plural(result.total, 'match', 'matches') + (parts.length ? ': ' + parts.join(', ') : '');
 }
 
 export interface SearchListView {
@@ -38,6 +59,9 @@ export function renderSearchResults(list: HTMLElement, input: HTMLInputElement, 
     input.removeAttribute('aria-activedescendant');
     return;
   }
+  const count = add(list, el('li', 'mlv-result__count', matchCountText(result)));
+  count.setAttribute('role', 'presentation');
+  count.setAttribute('data-search-count', String(result.total));
   hits.forEach((hit, i) => {
     const li = add(list, el('li'));
     li.setAttribute('role', 'presentation');
@@ -45,10 +69,16 @@ export function renderSearchResults(list: HTMLElement, input: HTMLInputElement, 
     row.type = 'button';
     row.id = optionId(list, i);
     row.setAttribute('role', 'option');
+    // An option is reached with the field's arrow keys (aria-activedescendant), never by Tab: the
+    // header keeps one tab stop besides the field (viewer M2 review, M2R-1).
+    row.tabIndex = -1;
     row.setAttribute('aria-selected', i === cursor ? 'true' : 'false');
     if (hit.severity) row.appendChild(severityGlyph(hit.severity, 12, ''));
     add(row, el('span', 'mlv-result__label', hit.label));
-    add(row, el('span', 'mlv-result__meta', hit.meta));
+    if (hit.meta) {
+      const meta = add(row, el('span', 'mlv-result__meta', cutStart(hit.meta)));
+      if (meta.textContent !== hit.meta) meta.title = hit.meta;
+    }
     // VIEW-09a: the pinned `path:line` hit says WHY it is first, and whether the
     // line is inside that node or merely the nearest one in the file.
     if (hit.location) {

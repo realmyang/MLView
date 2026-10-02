@@ -24,12 +24,19 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { IssueCounts, Loc, MLNode, Severity, StaleReason } from '../types.js';
+import type { IssueCounts, Loc, Severity, StaleReason, WorkflowBasis } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
   lane: LayoutLane;
+  /**
+   * Findings touching this phase: each finding that names a step or connection of the phase,
+   * counted once here and once in every other phase it touches (the PR #14 rule). Phase counts
+   * are therefore not a partition and need not sum to the document's total.
+   */
   counts: IssueCounts;
+  /** Viewer M2: the phase's document position, the key of its colour (`GraphIndex.phaseIndexOf`). */
+  phase: number;
 }
 
 /** A drawn box, and whether it is the dashed frame of an EXPANDED group. */
@@ -49,7 +56,6 @@ export interface ScenePlanOptions {
   keep: IssuePredicate;
   /** Viewer M1: workspace-relative paths the host reported stale, with the reason. Empty draws no mark. */
   staleFiles: ReadonlyMap<string, StaleReason>;
-  isFilteredOut(node: MLNode): boolean;
 }
 
 export interface ScenePlan {
@@ -76,7 +82,7 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
 
   const lanes: LaneVisual[] = [];
   for (const lane of frame.lanes) {
-    lanes.push({ lane, counts: index.laneCounts(lane.id, keep) });
+    lanes.push({ lane, counts: index.laneCounts(lane.id, keep), phase: index.phaseIndexOf(lane.id) });
   }
 
   const nodes: PlannedNode[] = [];
@@ -86,17 +92,19 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
     const node = index.nodeById.get(box.id);
     if (!node) continue;
     const expandedGroup = box.isGroup && !box.collapsed;
-    const counts =
-      expandedGroup || box.collapsed ? index.subtreeCounts(box.id, keep) : index.ownCounts(box.id, keep);
+    const group = expandedGroup || box.collapsed;
+    const issues = group ? index.subtreeIssues(box.id, keep) : index.issuesOf(box.id, keep);
     nodes.push({
       expandedGroup,
       visual: {
         node,
         box,
-        counts,
+        counts: index.countsFor(issues),
+        // Viewer M2: the badge names its findings by short label (F1…Fn), in document order.
+        findings: issues.map((issue) => issue.short).filter(Boolean),
+        phase: index.phaseIndexOf(node.stage),
         descendants: index.descendantCount(box.id),
         ...staleOf(node.evidenceLocs, node.loc, opts.staleFiles),
-        filteredOut: opts.isFilteredOut(node),
       },
     });
   }
@@ -110,6 +118,8 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
     edges.push({
       route,
       severity: highestSeverity(index.countsFor(issues)),
+      findings: issues.map((issue) => issue.short).filter(Boolean),
+      phase: src ? index.phaseIndexOf(src.stage) : undefined,
       // Back-edges always carry their label; data-edge labels come in with the
       // `full` LOD class, driven from CSS so zooming never re-renders (MLV-R1-012).
       labelVisible: route.back,
@@ -118,12 +128,13 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       targetLabel: dst ? dst.label || dst.qualname : undefined,
       mountSerial: opts.mountSerial,
       placement: opts.labels ? opts.labels.get(route.id) : undefined,
-      filtered: !!((src && opts.isFilteredOut(src)) || (dst && opts.isFilteredOut(dst))),
       // How many connections the route merges. Decided here, in the plan, so the
       // DOM and the SVG export cannot draw two different numbers on the same cable.
       weight: routeWeight(route.ids),
       // Viewer M1: a cable is marked when any connection it stands for cites a stale file.
       ...staleOfRoute(route.ids, index, opts.staleFiles),
+      // Viewer M2: the least certain basis among the connections the cable stands for.
+      basis: routeBasis(route.ids, index),
     });
   }
 
@@ -147,12 +158,30 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       bundle,
       severity,
       stage: bundle.sourceLane,
+      phase: index.phaseIndexOf(bundle.sourceLane),
       sourceLabel: laneLabel.get(bundle.sourceLane),
       targetLabel: laneLabel.get(bundle.targetLane),
     });
   }
 
   return { index, frame, lanes, nodes, edges, bundles };
+}
+
+/** Least certain first: a merged cable is only as certain as its weakest member. */
+const BASIS_RANK: Record<string, number> = { unresolved: 0, inferred: 1, observed: 2 };
+
+/**
+ * Viewer M2: the basis a cable is drawn and named with. A merged route stands for several
+ * connections, so it takes the least certain of them; a route with no authored basis has none.
+ */
+export function routeBasis(ids: string[], index: GraphIndex): WorkflowBasis | undefined {
+  let out: WorkflowBasis | undefined;
+  for (const id of ids) {
+    const basis = index.edgeById.get(id)?.basis;
+    if (!basis) continue;
+    if (!out || (BASIS_RANK[basis] ?? 2) < (BASIS_RANK[out] ?? 2)) out = basis;
+  }
+  return out;
 }
 
 function compare(a: string, b: string): number {

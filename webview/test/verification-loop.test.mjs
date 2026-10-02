@@ -84,7 +84,7 @@ test('a click on a card, connection, finding or outline row selects it and opens
     mouse(ctx, card(ctx, 'loss'), 'click');
     assert.ok(card(ctx, 'loss').classList.contains('is-selected'), 'the clicked card is selected');
     assert.equal(ctx.app.getState().selection.id, 'loss');
-    assert.ok(sourceButtons(ctx).some((li) => /Open train\.py:10/.test(li.textContent)), 'the Inspector shows the claim and its evidence');
+    assert.ok(sourceButtons(ctx).some((li) => /^Open train\.py:10/.test(li.querySelector('.mlv-quote__open').getAttribute('aria-label'))), 'the Selection pane shows the claim and its evidence');
 
     mouse(ctx, edgeHit(ctx, 'load-loss'), 'click');
     assert.equal(ctx.app.getState().selection.kind, 'edge');
@@ -182,11 +182,13 @@ test('the second click of a double-click opens the card even when the rail now l
     assert.equal(composer.hidden, true, 'the Inspector control under the second click was not pressed');
     assert.equal(d.secondDownDefault, false, 'its mousedown is cancelled, so focus does not move to it');
 
-    // UX-1: in a narrow panel the second click hits the drawer's scrim; the drawer stays open.
+    // UX-1; viewer M2: the second click lands on the rail's tab strip (a bottom sheet that just
+    // opened under the pointer). It switches no tab, and the claim stays shown.
     ctx.app.railChosen = false;
     ctx.app.setRailOpen(false);
-    realDoubleClick(ctx, () => card(ctx, 'step'), () => $(ctx, '.mlv-scrim'));
-    assert.equal(ctx.app.railOpen, true, 'the scrim did not close the drawer');
+    realDoubleClick(ctx, () => card(ctx, 'step'), () => $(ctx, '.mlv-rail__tab[data-tab="about"]'));
+    assert.equal(ctx.app.railOpen, true, 'the claim is still shown');
+    assert.equal(ctx.app.getState().railTab, 'inspector', 'the tab under the second click was not pressed');
     assert.equal(opens(ctx).length, 2);
     assert.equal(opens(ctx)[1].evidenceId, 'e3');
 
@@ -322,7 +324,12 @@ test('the stale frame marks cards, connections, quotes, findings and the status 
   const ctx = await mount();
   try {
     assert.equal($(ctx, '.is-stale'), null, 'nothing is marked before the host reports a stale file');
-    assert.equal($(ctx, '[data-freshness]'), null, 'no freshness item while every file is unchanged (no green)');
+    // Viewer M2: no warning while nothing is stale, only muted words (this fixture has no hashes).
+    assert.equal($(ctx, '[data-freshness="stale"]'), null, 'no warning while nothing is stale (no green either)');
+    const quiet = $(ctx, '[data-freshness="unverified"]');
+    assert.equal(quiet.textContent, 'Freshness not checked');
+    assert.ok(quiet.classList.contains('is-muted'));
+    assert.equal(quiet.querySelector('svg'), null, 'no icon for a state that is not a problem');
 
     stale(ctx, [{ path: 'data.py', reason: 'changed' }]);
     assert.ok(card(ctx, 'load').classList.contains('is-stale'), 'a card citing the changed file is marked');
@@ -381,7 +388,8 @@ test('the stale frame marks cards, connections, quotes, findings and the status 
     assert.equal($(ctx, '.mlv-node.is-stale'), null);
     assert.equal($(ctx, '.mlv-edge.is-stale'), null);
     assert.equal($(ctx, '.mlv-issue.is-stale'), null);
-    assert.equal($(ctx, '[data-freshness]'), null);
+    assert.equal($(ctx, '[data-freshness="stale"]'), null);
+    assert.ok($(ctx, '[data-freshness="unverified"]'), 'the muted item comes back');
   } finally {
     ctx.app.destroy();
   }
@@ -434,7 +442,7 @@ test('a malformed stale frame marks nothing', async () => {
     ctx.bridge.send({ v: 1, type: 'stale', files: 'data.py' });
     ctx.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'gone' }, { path: 42, reason: 'changed' }, null] });
     assert.equal($(ctx, '.is-stale'), null);
-    assert.equal($(ctx, '[data-freshness]'), null);
+    assert.equal($(ctx, '[data-freshness="stale"]'), null);
   } finally {
     ctx.app.destroy();
   }

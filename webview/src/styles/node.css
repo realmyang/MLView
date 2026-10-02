@@ -6,7 +6,9 @@
   align-items: stretch;
   gap: 0;
   overflow: visible;
-  border: 1px solid var(--mlv-border);
+  /* Viewer M2: about 3:1 against the canvas (tokens.css --mlv-node-edge), so a card reads as a
+   * card in every theme; it used to be widget.border, 1.3:1 on Dark Modern. */
+  border: 1px solid var(--mlv-node-edge, var(--mlv-border));
   border-radius: var(--mlv-r-node);
   background: var(--mlv-surface);
   box-shadow: var(--mlv-sh-1);
@@ -40,6 +42,7 @@
   overflow: hidden;
 }
 
+/* Viewer M2: neutral. The phase colour is on the card's left edge only (`.mlv-node__rail`). */
 .mlv-node__iconbox {
   flex: none;
   display: flex;
@@ -48,8 +51,8 @@
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--mlv-stage) 12%, transparent);
-  color: var(--mlv-stage, var(--mlv-stage-unknown));
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text-2);
 }
 
 .mlv-node__text {
@@ -75,6 +78,16 @@
   line-height: var(--mlv-lh-tight);
 }
 
+/* Viewer M2 review (A11Y-6): two lines of the authored detail where the file:line row was. */
+.mlv-node__sub[data-lines="2"] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .mlv-node__loc {
   /* A `.mlv-loc` too (NB): the flex box shrinks the path and never the cell.
    * `overflow: hidden` stays for the box itself; the ellipsis now belongs to
@@ -96,8 +109,8 @@
 
 /*
  * A chip that does not fit ellipsises instead of being guillotined mid-character
- * at the card's right edge (MLV-R1-011). `chipsFor()` also budgets by text
- * length, so this is the belt to that pair of braces.
+ * at the card's right edge (MLV-R1-011). Since viewer M2 the only card chip is a
+ * collapsed group's count.
  */
 .mlv-node__chips .mlv-chip {
   display: inline-block;
@@ -126,16 +139,102 @@
 }
 
 .mlv-node.has-issues {
-  border-color: color-mix(in srgb, var(--mlv-sev) 55%, var(--mlv-border));
+  border-color: color-mix(in srgb, var(--mlv-sev) 55%, var(--mlv-node-edge, var(--mlv-border)));
+  --mlv-basis-ink: color-mix(in srgb, var(--mlv-sev) 70%, var(--mlv-text));
 }
 
 /*
  * Viewer M1: a card whose evidence cites a file that changed or went missing since publishing.
- * Dashed border plus a corner warning mark, so the state never rests on colour alone.
+ * A border in the stale colour plus a corner warning mark, so the state never rests on colour
+ * alone. Viewer M2: no longer dashed — a dashed border now means "inferred".
  */
 .mlv-node.is-stale {
-  border-style: dashed;
   border-color: var(--mlv-stale-ink);
+  --mlv-basis-ink: var(--mlv-stale-ink);
+}
+
+/*
+ * Viewer M2: mark the exceptions, not the common case. An observed card carries no basis mark;
+ * an inferred card gets a dashed border and an "inferred" tag, an unresolved card a dotted border,
+ * a faint hatch and a "? unresolved" tag (render/nodes.ts basisTag). The border is an overlay
+ * drawn at a constant width on screen (1.5 px / --mlv-z, written by render/canvas.ts), so the
+ * dashes survive zooming out; it takes no layout space, so the geometry does not change.
+ */
+.mlv-node[data-basis="inferred"],
+.mlv-node[data-basis="unresolved"] {
+  border-color: transparent;
+}
+
+.mlv-node[data-basis="inferred"]::after,
+.mlv-node[data-basis="unresolved"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: calc(1.5px / var(--mlv-z, 1)) dashed var(--mlv-basis-ink, var(--mlv-text-2));
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.mlv-node[data-basis="unresolved"]::after {
+  border-style: dotted;
+}
+
+/* Faint enough that the card's text keeps its contrast (calm-canvas.test.mjs). */
+.mlv-node[data-basis="unresolved"] {
+  background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--mlv-text) 8%, transparent) 7px 8px);
+}
+
+/* The tag: small, the same size on screen at every zoom, half over the card's bottom edge. */
+.mlv-basis-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px dashed var(--mlv-basis-ink, var(--mlv-text-2));
+  border-radius: 3px;
+  background: var(--mlv-bg);
+  color: var(--mlv-text);
+  font-size: 10px;
+  font-weight: var(--mlv-fw-regular);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mlv-basis-tag[data-basis="unresolved"] {
+  border-style: dotted;
+}
+
+.mlv-node > .mlv-basis-tag {
+  position: absolute;
+  top: 100%;
+  left: 10px;
+  z-index: 5;
+  transform-origin: 0 50%;
+  transform: translateY(-50%) scale(calc(1 / var(--mlv-z, 1)));
+  pointer-events: none;
+}
+
+.mlv-group__header .mlv-basis-tag {
+  flex: none;
+}
+
+/*
+ * Viewer M2: exceptions mode (the toolbar's "N not observed" toggle). Observed claims recede
+ * through FILL and STROKE only — never opacity, which would take their text below 4.5:1 — so the
+ * inferred and unresolved ones stand out and every title stays readable.
+ */
+.mlv-canvas[data-exceptions="on"] .mlv-node[data-basis="observed"] {
+  border-color: color-mix(in srgb, var(--mlv-node-edge, var(--mlv-border)) 35%, var(--mlv-bg));
+  background: var(--mlv-bg);
+  box-shadow: none;
+}
+
+.mlv-canvas[data-exceptions="on"] .mlv-node[data-basis="observed"] .mlv-node__rail {
+  background: color-mix(in srgb, var(--mlv-stage, var(--mlv-stage-unknown)) 30%, var(--mlv-bg));
+}
+
+.mlv-canvas[data-exceptions="on"] .mlv-node[data-basis="observed"] .mlv-node__iconbox {
+  background: transparent;
 }
 
 .mlv-node__stale {
@@ -169,15 +268,50 @@
   50% { box-shadow: var(--mlv-sh-2), 0 0 0 7px color-mix(in srgb, var(--mlv-accent) 30%, transparent); }
 }
 
-/* level of detail — boxes are always laid out at full size, only paint changes */
+/*
+ * Level of detail: boxes are always laid out at full size, only paint changes, so zooming never
+ * lays the diagram out again.
+ *
+ * Viewer M2, the compact level (below 62 %): the card shows its title only, at a readable size.
+ * The icon tile, detail, file:line and chips go, and the title is counter-scaled through --mlv-z
+ * (render/canvas.ts writes it in buckets about 25 % apart, so text reflows only when a bucket edge
+ * is crossed) to 11.2 px on screen, which the bucket rounding keeps between 10 and 12.5 px. It is
+ * capped so its lines fit the card's own box: `100cqh` is the content height of
+ * `.mlv-node__main`, made a size container here, so the title never overflows its card or ends in
+ * a half-cut line. Two lines, three for a title that reserved three. Titles stay at 10 px or more
+ * down to about 35 % (43 % on the shorter card of a step with no evidence); further out the cap
+ * holds them to their card and they shrink with it (test/readable-view.test.mjs).
+ *
+ * The literal counter-scale (11 px at every zoom, the lines it needs) was tried on this layout
+ * first: at 43 % every card's title overflowed its box and was cut mid-line, and at 25 % a card
+ * showed about a tenth of its title, so the cap is what makes counter-scaling work here.
+ */
 .mlv-canvas[data-lod="compact"] .mlv-node__sub,
 .mlv-canvas[data-lod="compact"] .mlv-node__loc,
-.mlv-canvas[data-lod="compact"] .mlv-node__chips {
+.mlv-canvas[data-lod="compact"] .mlv-node__chips,
+.mlv-canvas[data-lod="compact"] .mlv-node__iconbox {
   display: none;
 }
 
+.mlv-canvas[data-lod="compact"] .mlv-node__main {
+  container-type: size;
+  align-items: center;
+  padding: 2px 8px;
+}
+
 .mlv-canvas[data-lod="compact"] .mlv-node__title {
-  font-size: var(--mlv-fs-12);
+  font-size: min(calc(var(--mlv-compact-title) / var(--mlv-z, 1)), calc(100cqh / 2.3));
+  line-height: 1.15;
+}
+
+/*
+ * The title now reaches the card's bottom edge, where the inferred / unresolved tag straddled it
+ * and covered half the last line; at this level the tag hangs from that edge instead, still the
+ * same size on screen.
+ */
+.mlv-canvas[data-lod="compact"] .mlv-node > .mlv-basis-tag {
+  transform-origin: 0 0;
+  transform: translateY(-1px) scale(calc(1 / var(--mlv-z, 1)));
 }
 
 .mlv-canvas[data-lod="compact"] .mlv-edge-label {
@@ -252,11 +386,19 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
 .mlv-badge--medium { border: 1px solid color-mix(in srgb, var(--mlv-sev-medium) 45%, transparent); }
 .mlv-badge--low { border: 1px solid color-mix(in srgb, var(--mlv-sev-low) 45%, transparent); }
 
-.mlv-badge__count {
+.mlv-badge__count,
+.mlv-badge__ids {
   color: var(--mlv-text-2);
   font-size: var(--mlv-fs-10);
   font-weight: var(--mlv-fw-semi);
   font-variant-numeric: tabular-nums;
+}
+
+/* Viewer M2: the short labels (F1…Fn) the badge names its findings by, in the text colour. */
+.mlv-badge__ids {
+  padding-right: 2px;
+  color: var(--mlv-text);
+  white-space: nowrap;
 }
 
 .mlv-cluster {
@@ -277,23 +419,23 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
   font-variant-numeric: tabular-nums;
 }
 
-/* stage colour bindings — the one place saturated colour appears.
- * The bare [data-stage] rule comes FIRST so an unknown stage id falls back to
- * the neutral hue while the eight canonical ids override it (invariant 1.1/6).
+/* Phase colour bindings (viewer M2). Phase i of the document takes tone i mod 8
+ * (render/phase.ts stamps `data-phase-tone`), so every authored phase has a colour whatever its
+ * id; the old rules coloured only the eight analyzer stage ids and left 88% of authored phases
+ * grey. The bare [data-stage] rule is the neutral fallback for an element without a tone.
  *
- * NOTE: since the flow layer landed these selectors also match the 45-300 SVG
- * <g> elements of the edge layer, which carry `data-stage` stamped from their
- * SOURCE node. That is deliberate and free: it is what makes `--mlv-stage`
- * resolve for the charge colour (styles/flow.css, CONTRACTS 11.13 rule 4). */
+ * NOTE: these selectors also match the SVG <g> elements of the edge layer, which carry the SOURCE
+ * node's phase. That is what makes `--mlv-stage` resolve for the charge colour (styles/flow.css,
+ * CONTRACTS 11.13 rule 4). */
 [data-stage] { --mlv-stage: var(--mlv-stage-unknown); }
-[data-stage="config"] { --mlv-stage: var(--mlv-stage-config); }
-[data-stage="data"] { --mlv-stage: var(--mlv-stage-data); }
-[data-stage="preprocess"] { --mlv-stage: var(--mlv-stage-preprocess); }
-[data-stage="model"] { --mlv-stage: var(--mlv-stage-model); }
-[data-stage="objective"] { --mlv-stage: var(--mlv-stage-objective); }
-[data-stage="train"] { --mlv-stage: var(--mlv-stage-train); }
-[data-stage="eval"] { --mlv-stage: var(--mlv-stage-eval); }
-[data-stage="deliver"] { --mlv-stage: var(--mlv-stage-deliver); }
+[data-phase-tone="0"] { --mlv-stage: var(--mlv-phase-0); }
+[data-phase-tone="1"] { --mlv-stage: var(--mlv-phase-1); }
+[data-phase-tone="2"] { --mlv-stage: var(--mlv-phase-2); }
+[data-phase-tone="3"] { --mlv-stage: var(--mlv-phase-3); }
+[data-phase-tone="4"] { --mlv-stage: var(--mlv-phase-4); }
+[data-phase-tone="5"] { --mlv-stage: var(--mlv-phase-5); }
+[data-phase-tone="6"] { --mlv-stage: var(--mlv-phase-6); }
+[data-phase-tone="7"] { --mlv-stage: var(--mlv-phase-7); }
 
 [data-sev="high"] { --mlv-sev: var(--mlv-sev-high); }
 [data-sev="medium"] { --mlv-sev: var(--mlv-sev-medium); }
@@ -320,8 +462,9 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
  * reserved for it (`layout/cardmetrics.ts` titleLines, written as `data-lines`
  * by render/nodes.ts) and is clamped there with ONE ellipsis. The old path cut
  * the label to 34 characters in the middle and then again at the end. Below
- * the detail threshold the rows under the title are not drawn, so the same box
- * holds two more title lines.
+ * the detail threshold the rows under the title are not drawn and the title is
+ * drawn larger, in two lines (three when it reserved three) that fit the box
+ * (viewer M2; the level-of-detail rules above).
  */
 .mlv-node__title--wrap {
   display: -webkit-box;
@@ -335,17 +478,12 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
 
 .mlv-node__title--wrap[data-lines="2"] { -webkit-line-clamp: 2; line-clamp: 2; }
 .mlv-node__title--wrap[data-lines="3"] { -webkit-line-clamp: 3; line-clamp: 3; }
-.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap { -webkit-line-clamp: 3; line-clamp: 3; }
-.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap[data-lines="2"] { -webkit-line-clamp: 4; line-clamp: 4; }
-.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap[data-lines="3"] { -webkit-line-clamp: 5; line-clamp: 5; }
-
-/*
- * Issue 14: the one uncertainty treatment on an authored card is the basis
- * `unresolved` — a dashed icon tile, the renderer's existing "partially
- * resolved" idiom — never an unfamiliar kind word. It does not claim the step
- * is absent (that is the ghost outline, which authored cards never use).
- */
-.mlv-node[data-basis="unresolved"] .mlv-node__iconbox {
-  outline: 1px dashed var(--mlv-text-3);
-  outline-offset: 1px;
+/* Viewer M2: the compact title's lines (see the level-of-detail rules above). */
+.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap { -webkit-line-clamp: 2; line-clamp: 2; }
+.mlv-canvas[data-lod="compact"] .mlv-node__title--wrap[data-lines="3"] {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  font-size: min(calc(var(--mlv-compact-title) / var(--mlv-z, 1)), calc(100cqh / 3.45));
 }
+
+
