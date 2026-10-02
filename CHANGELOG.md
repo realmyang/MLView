@@ -30,6 +30,51 @@ Calmer cards (the one deliberate geometry change):
   connection's accessible name says "inferred, not observed" or "unresolved"
   for the exceptions instead of repeating the basis through the label.
 
+A calm canvas (layout unchanged; the geometry golden is byte-identical):
+- Only the exceptions are marked. An observed step or connection carries no
+  basis mark. An inferred one has a dashed border or line and an `inferred`
+  tag; an unresolved one has a dotted border or line, faint hatching and a
+  `? unresolved` tag. The tags and dashes stay the same size on screen as you
+  zoom, so they are still visible when the diagram is zoomed out. The Outline
+  marks the exceptions the same way.
+- Line style now means certainty, not connection kind: solid is observed,
+  dashed is inferred, dotted is unresolved. Every connection has the same
+  arrowhead. The kind is written in the hover card and the Inspector, and the
+  legend lists the kinds the diagram uses with how many connections have each.
+- Each phase gets a colour by its place in the document, shown as a thin rule
+  on the lane's left edge and on each card's left edge. Every phase is
+  coloured now; before, only the eight analyzer-era phase ids had a colour, so
+  most authored phases were grey. Colour is otherwise used only for problems.
+- Connections and card borders are easier to see: at least 3:1 against the
+  canvas in Dark Modern, Light Modern and Dark High Contrast (WCAG 1.4.11),
+  computed from VS Code 1.139's theme colours. Connections went from 1.86-3.59:1
+  (by kind) to 3.97:1 on Dark Modern and from 1.94-4.59:1 to 3.87:1 on Light
+  Modern; card borders from 1.27:1 to 3.26:1 and from 1.26:1 to 3.31:1.
+- A toolbar toggle, "N not observed (3 steps, 4 connections, …)", fades the
+  observed claims so the inferred and unresolved ones stand out. It fades
+  fills and lines only, so every title stays readable (4.5:1 or better). It is
+  hidden when every claim is observed. Below 1000 px wide the bracket folds
+  away into the tooltip, and below 700 px the toolbar's step and connection
+  counts give way to the status bar, so at 900 and 541 px the toolbar is no
+  taller than before.
+- Finding badges name findings `F1`, `F2`… in document order (`F2 F5 +1` when a
+  step has several). A new revision can renumber them; the hover card, the
+  Findings list and the Inspector show the real id beside the number, and
+  Refine and Challenge prompts use the real id.
+- Every count names its unit: "31 steps · 41 connections", "7 findings",
+  "6 coverage limitations", "medium · 2 findings", "5 steps" on a lane or a
+  group. Phase counts read "2 findings touch this phase": a finding that cites
+  two phases still counts once in each, so the phase counts can add up to more
+  than the total.
+- Motion settles. A hover or focus-mode (F) flow runs two passes and then
+  stays still, showing direction with static marks; Shift+A plays it again.
+  VS Code's own Reduce Motion setting (the `vscode-reduce-motion` class on the
+  webview) now stops the animation and transitions, as the operating-system
+  setting already did.
+- The SVG export draws the same tags, dashes and phase colours.
+- The screenshot harness gained `focus-settled`, `exceptions` and `legend`
+  states, and finds the severity chips by `data-severity`.
+
 ## Unreleased — viewer M1: verification loop and cleanup
 
 Step 1 of the viewer's first milestone: check a claim against its source

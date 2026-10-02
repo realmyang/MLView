@@ -64,6 +64,42 @@ Viewer M1 Inspector content (no protocol change):
   labels no longer end in ` · basis` (`MLEdge.label` is the authored label;
   `MLEdge.authoredLabel` is gone). A card's second line (`sublabel`) is the
   authored detail, else the kind.
+- Viewer M2 calm canvas (no geometry change; the golden is byte-identical):
+  - Phase colour by document order. `GraphIndex.phaseIndexOf(id)` is the
+    phase's position among the declared phases; `render/phase.ts` stamps
+    `data-phase-index` and `data-phase-tone` (index mod 8) on lanes, cards,
+    groups, connections, trunks, minimap dots and phase chips, and node.css
+    binds `--mlv-stage` from the tone (`--mlv-phase-0` … `--mlv-phase-7` in
+    tokens.css, eight literals per theme kind, the contrast border in high
+    contrast). `data-stage` stays, because the golden hashes it.
+  - Exceptions only. Cards, groups and connections carry `data-basis`; the
+    stylesheet dashes `inferred` and dots `unresolved` (cards through a
+    `::after` overlay, so the border takes no layout space) and leaves
+    `observed` unmarked. `render/nodes.ts` adds a `.mlv-basis-tag` to
+    inferred and unresolved cards and group headers only. The edge dash
+    channel is the basis, not the kind (`edge.css`); `mlv-edge--<kind>` stays
+    for the flow layer. One arrowhead marker, `#mlv-arrow`.
+  - `--mlv-z` is written on the canvas: the zoom rounded to the nearest of
+    13 buckets. Tags, exception dashes and a 1 px stroke floor divide by it
+    to keep their size on screen.
+  - `--mlv-edge` and `--mlv-node-edge` are the theme's text colour mixed into
+    its background (54% / 46% on dark, 64% / 58% on light); export/palette.ts
+    recomputes the same mix.
+  - `Issue.short` is `F1`…`Fn` in document order. Badges, edge markers and the
+    Findings list print it; tooltips, the Inspector and the refine selection
+    keep `Issue.id`.
+  - `.mlv-canvas[data-exceptions="on"]` (the toolbar's not-observed toggle)
+    fades observed cards and connections through fill and stroke only.
+  - `motion.ts` reads `body.vscode-reduce-motion` as well as the media query
+    and watches the body class. A flow runs `FLOW.SETTLE_PASSES` (2) passes:
+    the stream's dash train gets a per-cable `--mlv-flow-iter`, the pulse's
+    SMIL dot `repeatCount="2"`, and `animationend` calls
+    `FlowController.settle()`, which leaves the static marks and sets
+    `data-flow-settled` on the canvas. Shift+A calls `replay()`.
+  - `test/calm-canvas.test.mjs` computes the contrast of connections, card
+    borders, phase tones, basis borders and faded text from the harness's
+    theme table (`tools/screenshots/themes.js`) and tokens.css, and covers
+    the marks, the F labels, the units, the toggle and the motion rules.
 - The Inspector shows the title, the phase label and kind, one basis chip, a
   sentence for an inferred or unresolved basis, the full detail, the findings
   on the item with **What to change** (the finding's `suggestion`), the source
@@ -111,9 +147,13 @@ node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/sh
 ```
 
 - States: `initial`, `select-node`, `hover-node`, `hover-connection`,
-  `focus-mode`, `filter`, `search`, `finding` (a finding with its suggestion),
-  `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
-  `--states`.
+  `focus-mode`, `focus-settled` (focus mode, then 7 s for the flow to
+  settle), `exceptions` (the "not observed" toggle on), `legend`, `filter`,
+  `search`, `finding` (a finding with its suggestion), `stale`,
+  `stale-selected` and `narrow-selected` (900x800). Pick some with
+  `--states`. `index.json` records, per shot, how many connections are lit
+  and moving, whether the flow has settled, the canvas box and the toolbar
+  and status bar heights.
 - Inputs: by default `samples/configured_training.mlview.json` (read only)
   and a synthetic 120-step document built from `tools/benchmark-model.mjs`.
   `--artifact` and `--workspace` open your own; with a workspace, cited files

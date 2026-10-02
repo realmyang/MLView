@@ -142,6 +142,25 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M2, steps 7 and 8 (a calm canvas): cards lost the
+`basis=observed` chip row and connection labels the " · observed" suffix (the
+one deliberate geometry change of M2; cards are 26 px shorter). Only inferred
+and unresolved claims are marked, with a dashed or dotted border or line and
+a small tag that keeps its size as you zoom; line style now means certainty,
+not connection kind, and the kind is written in the hover card and the
+Inspector. Each phase is coloured by its place in the document. Connections
+and card borders reach at least 3:1 against the canvas in Dark Modern, Light
+Modern and Dark High Contrast (computed from theme colours, not measured on
+screen). A toolbar toggle fades the observed claims. Finding badges read
+`F1`, `F2`… in document order, with the real id kept in the hover card, the
+Inspector and Refine prompts. Every count names its unit, and phase counts say
+"findings touch this phase" (a finding in two phases counts in both). Flow
+animations stop after two passes (Shift+A replays them) and follow VS Code's
+Reduce Motion setting. No contract change and no new setting. Checked by local
+jsdom tests and headless-Chrome screenshots of a simulated host only, not in
+live VS Code, with a screen reader or as a usability check
+([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

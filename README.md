@@ -67,7 +67,13 @@ and Unresolved views alongside the diagram.
 
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
-Observed, inferred, and unresolved claims remain distinguishable. Saved source
+Observed, inferred, and unresolved claims remain distinguishable: only the
+inferred (dashed, with an `inferred` tag) and unresolved (dotted, with a
+`? unresolved` tag) ones are marked on the diagram, and the toolbar's
+**N not observed** toggle fades the rest. Each phase is coloured by its place
+in the document; colour is otherwise used only for problems. Finding badges
+read F1, F2… in document order; the Inspector and Refine prompts keep the
+real finding id. Saved source
 edits mark the steps, connections, findings and quotes that cite the changed
 files, and block jumps into those files; malformed updates retain the last
 valid diagram. When the workspace root is a parent of the folder the diagram

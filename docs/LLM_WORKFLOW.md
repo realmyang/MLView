@@ -125,6 +125,19 @@ adjacent anchors; source-less items explain why navigation is unavailable.
 **Challenge this claim** opens the refinement composer for the current item;
 you still decide whether to send the copied request.
 
+On the diagram, observed claims carry no basis mark. An inferred step or
+connection has a dashed border or line and an `inferred` tag; an unresolved
+one has a dotted border or line and a `? unresolved` tag. Line style shows
+this certainty, not the connection's kind, which the hover card and the
+Inspector name. The toolbar's **N not observed** toggle fades the observed
+claims so the others stand out. Each phase is coloured by its place in the
+document. Finding badges read F1, F2… in document order; a new revision can
+renumber them, so the Inspector shows the real id beside the number, and
+Refine and Challenge prompts use the real id. A phase's finding count is the
+findings touching that phase, so a finding that cites two phases counts in
+both. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
+again, and VS Code's Reduce Motion setting turns the animation off.
+
 Use **Outline → Text relationships** to enumerate connections without relying
 on the canvas. All shows relationships in the current scope; Incoming and
 Outgoing use the selected node, and Unresolved shows relationships involving

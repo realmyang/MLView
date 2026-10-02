@@ -57,6 +57,14 @@ focus to the editor. For a notebook citation the cell is selected and
 revealed; its lines are highlighted when VS Code has the cell's editor ready.
 In High Contrast themes the highlighted lines are outlined with the theme's
 range-highlight border, since those themes define no highlight background.
+Only inferred (dashed, `inferred` tag) and unresolved (dotted, `? unresolved`
+tag) steps and connections are marked; observed ones carry no mark, and the
+toolbar's **N not observed** toggle fades them. Line style shows certainty,
+not connection kind; the hover card and the Inspector name the kind. Each phase
+is coloured by its place in the document. Finding badges read F1, F2… in
+document order, with the real id in the Inspector and in Refine prompts. Flow
+animations stop after two passes (Shift+A replays them) and follow VS Code's
+Reduce Motion setting.
 The Refine action
 copies a follow-up prompt for the assistant that authored the diagram, with one
 of five intents (Explain, Expand, Challenge, Trace, or a custom request).
