@@ -275,6 +275,25 @@ driven over the DevTools protocol (vit-cc, the diagram at about 541 and
 Not with a screen reader, on Windows or Linux, or as a usability check
 ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M3, live-check fixes in the viewer: a live check of the
+milestone in an isolated VS Code 1.139 Extension Development Host (vit-cc)
+found five viewer problems, now fixed. The Selection tab starts each new
+claim at its top (it kept the scroll of the claim before, so beside the code
+neither the title nor the walk's quote showed), and the review walk then
+brings the quote's file line and what the editor shows into view, keeping the
+title when both fit. After a changed file is restored, the walk no longer says
+its quote was not opened. A keyboard move or a walk step hides the hover card
+until the pointer moves, so a card passing under a resting pointer no longer
+covers the diagram. The phase overview's header, with **Back**, the counts
+and the key, stays at the top while the overview scrolls. From a connection
+the arrow keys select its end that lies that way (they went to the diagram's
+first card); from a finding they move as from its first cited step. The
+narrow walk bar is two rows at 320 px instead of four. No contract change, no
+new setting or keybinding and no geometry change. Checked by local jsdom tests
+(each fails on the code before the fixes) and headless-Chrome runs of a
+simulated host; not yet in VS Code after the fixes, with a screen reader, on
+Windows or Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, live-check fixes: a live check of the branch found
 seven problems, now fixed. When the panel resizes or the rail changes shape
 and a selection that was in view no longer is, the diagram pans the least

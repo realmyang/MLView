@@ -14,8 +14,9 @@ through the diagram claim by claim and opens each one's cited lines beside it
 look at the cost of jumping through a large notebook, the phase overview
 with the labelled phase index that replaced the minimap (step 13), and
 **Reveal in Diagram**, the way back from a cited line in the editor to the
-claim in the diagram (step 14), and the fixes from an independent review of
-those steps (at the end of this section). Steps 11, 12 and 14 were checked by local
+claim in the diagram (step 14), the fixes from an independent review of
+those steps, and the viewer's fixes from a live check of the milestone (both
+at the end of this section). Steps 11, 12 and 14 were checked by local
 jsdom and mock `vscode` tests (mutation-checked against the fixes) and in an
 isolated VS Code 1.139 Extension Development Host on macOS driven over the
 DevTools protocol. Step 13 was checked by local jsdom tests and headless-Chrome
@@ -45,7 +46,9 @@ The review walk (step 11):
   (Alt+Enter also moves the focus to the editor), `n` / `p` for the next or
   previous finding in the walk's order, and `r` or Escape to end it. `u` starts
   the walk on Not observed, and `u` / Shift+U then step through those claims
-  whatever the filter. ← and → still move to the nearest card. Outside the
+  whatever the filter. ← and → still move to a card as they do outside the
+  walk (since the live-check fixes, from a connection to its end that lies
+  that way, where they went to the diagram's first card). Outside the
   walk `j`, `k`, `[`, `]` and the arrows do what they did; the walk uses no Ctrl
   or Cmd keys.
 - Each step selects the claim and brings it into view (a finding frames the
@@ -65,7 +68,8 @@ The review walk (step 11):
   keys, **Exit**, and a line such as "In the editor beside: train.py · lines
   12–14, highlighted. Focus stays here." Below 620 px wide it is one row:
   "3/16", Previous and Next (added in the review fixes), the filters and
-  **Exit**; a quote that was not opened adds a warning
+  **Exit** (below about 420 px the filters wrap onto a second row, since the
+  live-check fixes); a quote that was not opened adds a warning
   mark there and the Selection tab says why. It sits under the diagram rather
   than under the header so the diagram stays within four Tab presses of the
   top, and Tab goes from the diagram to the walk's controls to the claim.
@@ -442,6 +446,88 @@ stepped; after Alt+Enter the focus was in the notebook and the bar said
 "Focus moved to the editor." A changed file, the phase overview changes and
 the phase index were not tried live. Not with a screen reader, on Windows or
 Linux, or as a usability check.
+
+Live-check fixes, the viewer (found in a live check of the milestone in an
+isolated VS Code 1.139 Extension Development Host on macOS, on a scratch copy
+of vit-cc driven over the DevTools protocol; each was reproduced first in
+jsdom or in headless Chrome with the screenshot harness's simulated host, and
+each fix has a test that fails on the code before it):
+- **The Selection tab starts each claim at its top.** The tab is one scroller
+  and kept the offset of the claim before. Live at 540x798 with the bottom
+  panel, after `k` `k` `j` `j` in the walk it was scrolled 194 px in a 315 px
+  pane: the claim's title sat 163 px above the pane and the walk's quote 335
+  px down, so neither showed. A plain click did the same (since before M3). A
+  new claim now starts at the top, so its title shows; the same claim built
+  again (a host answer, a freshness change, a resize) keeps your place.
+- **The walk brings its quote into view.** Each step then scrolls the tab the
+  least distance that shows the quote's file line and the line under it
+  saying what the editor beside shows, keeping the claim's title in view when
+  both fit; when they do not fit, the quote wins. The quoted lines may run
+  past the fold, since the editor beside shows them highlighted. `[` and `]`
+  follow the same rule (they scrolled the whole quote into view before). The
+  scroll is set at once, so nothing moves under Reduce Motion. When the step
+  also opens the bottom panel, the quote is brought into view again once the
+  panel has its height: with reduced motion the panel still measured 16 px
+  during the step in headless Chrome, and the quote went to the top with the
+  title gone.
+- **A restored file.** After a changed file was restored, the walk bar and the
+  quote kept "… changed after revision … was published; not opened." and the
+  warning mark until Enter. When the host's list of stale files changes for
+  the file of a quote it did not open, they now say "Enter shows …" (nothing
+  is opened by itself) or the new reason, such as "data.py: file missing; not
+  opened." A quote not opened for another reason (unsaved edits that lost the
+  cited lines, a cell that no longer exists) keeps its message until the next
+  open.
+- **No hover card while the keyboard moves the diagram.** Live, the hover card
+  of whatever passed under the resting pointer covered part of the diagram
+  while the walk or the arrow keys panned it. The arrow keys, `e` / Shift+E,
+  `n` / `p`, zoom, fit, `z`, Enter on a phase overview block and every walk
+  step now hide the hover card (with a card's highlight of its connections),
+  and nothing that passes under the resting pointer gets one until the
+  pointer moves or is pressed. In headless Chrome on vit-cc at 541x798, with
+  the pointer resting at four places and ten walk and arrow keys at each, 3
+  of the 40 keys left a hover card before the fix and none after.
+- **The phase overview keeps its header.** With the focused block low (live at
+  901 and 540 px), **Back**, the counts and the key scrolled out of view, and
+  Home stopped 12 px above the first block with the header still hidden. The
+  header now sticks to the top of the overview while it scrolls, a block
+  brought into view is placed below it, and Home scrolls to the top. A header
+  taller than half the overview scrolls with the blocks, as before. In
+  headless Chrome at 541x798, 541x500 and 901x470 **Back** stayed in view and
+  clickable at every block.
+- **Arrow keys from a connection.** Live, → on a focused connection selected
+  the first step of phase 1. The arrows started only from a selected step; from
+  a connection or a finding they went to the diagram's first card. From a
+  connection, → and ← now select whichever of its two cards lies further right
+  or left, and ↓ and ↑ the lower or higher one (on a tie, → and ↓ take its
+  target, ← and ↑ its source). From a finding they move as from its first
+  cited step, which the diagram marks for it (a finding on connections only:
+  as from its first connection), and from a selected step folded inside a
+  group as from that group (it went to the first card too). With nothing
+  selected, or a finding that cites neither, they still select the first
+  card. In vit-cc, → on "torch
+  generator seeds torch.randn parameter init" now selects seed_everything(42)
+  and ← the ViT wrapper group. The shortcut sheet's line for the arrows says
+  so.
+- **The walk bar at 320 px.** At the documented floor the narrow bar wrapped
+  into four rows, 102 px of the column. It stays in the column's flow, so it
+  never covered the panel's tabs. Its controls now share the place's row and
+  the filters wrap between Next and Exit: two rows, 55 px, in the same order
+  for the eye and for Tab. At 541 px it is one row, as before.
+
+Checked for the live-check fixes: `webview/test/m3-live.test.mjs` (jsdom, 14
+tests, with a stand-in layout for the Selection tab and the overview; all 14
+fail on the build before the fixes, and the reduced-motion one also fails with
+only the second reveal switched off) and the `[` / `]` case in
+`walk.test.mjs`, which now checks where the tab is scrolled instead of the
+`scrollIntoView` call. Headless-Chrome runs of
+the screenshot harness's simulated host on vit-cc, before and after: the tab
+at 541x798 with and without reduced motion, the hover cards at 541x798, the
+overview at 541x798, 541x500 and 901x470, the arrows at 1440x900 and the walk
+bar at 320, 400 and 541 px wide. Not checked in VS Code after the fixes, not
+with a screen reader, on Windows or Linux, or as a usability check. No
+contract change, no new setting or keybinding, and the geometry golden is
+unchanged.
 
 ## Unreleased — viewer M2: readable at your width
 

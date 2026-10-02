@@ -77,7 +77,11 @@ cited lines open beside the diagram, highlighted, with the keyboard kept on
 the diagram (also when the walk was started from **Review** or the **⋯**
 menu); a quote whose file changed or is missing, or whose unsaved edits no
 longer contain the cited lines, is not opened, and the walk bar (under the
-diagram) and the Selection tab say why, with no notification. The walk
+diagram) and the Selection tab say why, with no notification; once VS Code
+reports the file unchanged again, they say Enter shows it. Each claim
+starts at the top of the Selection tab, and the walk brings its quote's file
+line and what the editor shows into view, with the title when both fit. A
+walk step or a keyboard move hides the hover card until the pointer moves. The walk
 remembers its place per revision in the panel's view state and records
 nothing else; the changed-files notice offers **Review affected claims**,
 which starts at the first affected claim.
@@ -88,7 +92,8 @@ those that skip ahead or go back. A block that does not fit ends with "… N
 more steps". The arrow keys move between blocks, Enter or a click goes to that
 phase at reading size, and Escape returns to where you were (a legend opened
 over it closes first). A key under the overview's header explains ◌, ? and
-the brackets at every width. The phase index
+the brackets at every width; the header, with **Back**, stays at the top
+while the overview scrolls. The phase index
 in the diagram's lower right corner lists each phase with its findings and
 step count and marks the phases in view; a row goes to its phase. Below 1000
 px wide it is one line such as "4/6 Objective, optimizer & scheduler" that
