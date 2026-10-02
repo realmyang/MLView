@@ -10,11 +10,14 @@ truth lives in [docs/STATUS.md](docs/STATUS.md) and
 
 The viewer's third milestone, in progress. So far: the review walk, which goes
 through the diagram claim by claim and opens each one's cited lines beside it
-(roadmap step 11), the host side of that walk (step 12), a fix for Escape, and
-a look at the cost of jumping through a large notebook. Checked by local jsdom
-and mock `vscode` tests (mutation-checked against the fixes) and in an isolated
-VS Code 1.139 Extension Development Host on macOS driven over the DevTools
-protocol. Not tried on Windows or Linux, with a screen reader or as a usability
+(roadmap step 11), the host side of that walk (step 12), a fix for Escape, a
+look at the cost of jumping through a large notebook, and the phase overview
+with the labelled phase index that replaced the minimap (step 13). Steps 11
+and 12 were checked by local jsdom and mock `vscode` tests (mutation-checked
+against the fixes) and in an isolated VS Code 1.139 Extension Development Host
+on macOS driven over the DevTools protocol. Step 13 was checked by local jsdom
+tests and headless-Chrome screenshots of a simulated host only, not yet in
+VS Code. Not tried on Windows or Linux, with a screen reader or as a usability
 check. No contract change, no new setting, no geometry change, and the version
 is unchanged.
 
@@ -147,6 +150,83 @@ Notebook load (measured, see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)):
   and must see every cited file, so it was not narrowed.
 - With Pylance running, the extra time was outside MLView's code. These runs
   cannot attribute it more finely, and no freeze was reproduced.
+
+The phase overview (step 13):
+- Press Shift+0 on the diagram, or choose **Phase overview** in the **⋯** menu,
+  to see every phase at once. Each phase is a block: its number and name, its
+  step count (with how many steps are inferred or unresolved), the findings
+  that touch it, then its step titles in the Outline's order, a group before
+  its steps. Inferred steps are marked ◌ and unresolved ones ?; observed steps
+  carry no mark. Each title is followed by the F labels of its findings, for
+  the severities the header's toggles show.
+- An arrow between two neighbouring blocks says how many connections go from
+  one phase to the next ("3 connections"). A connection that skips a phase or
+  goes back to an earlier one is a bracket on the right with its count,
+  dashed when it goes back. The header gives the connections as a sum, for
+  vit-cc "6 phases · 31 steps · 41 connections: 19 inside a phase, 8 to the
+  next phase, 14 skip ahead or go back."
+- A block with more titles than fit lists its first ones and ends with "… N
+  more steps", so every step is either listed or counted, and the counts add
+  up to the document's steps. The longest blocks give up rows first, and no
+  block drops below two titles and its count; past that the overview scrolls.
+  The layout on the two shakedown artifacts: at 1440x900 vit-cc lists all 31
+  titles and yolov5-cc2 52 of 59. At 900x800 they list 19 and 38. Beside the
+  code at 541x798 the titles are one column: yolov5-cc2's four phases list 13
+  titles and fit, while vit-cc's six phases list 13 titles and scroll a little.
+- ↑ / ↓ (or ← / →), Home and End move between blocks. Enter, Space or a click
+  goes to that phase at reading size, the same zoom rule as the first view
+  uses for phase 1. The move takes about 240 ms, or happens at once with VS
+  Code's Reduce Motion, the OS's reduced-motion setting or a screen reader.
+  The selection does not change, and the next arrow key starts at that
+  phase's first step. Escape, Shift+0 again or **Back** returns to the diagram
+  exactly as it was, with the keyboard where it was. Any other key the
+  diagram uses (for example `r`) closes the overview and then acts. The
+  shortcut sheet, search and the legend open over it.
+- A screen reader reads each block as a button, for example "Phase 2 of 6:
+  Data preparation. 9 steps (1 inferred). 2 findings touch this phase. 3
+  connections to phase 3; 1 connection ahead to phase 5. Enter goes to this
+  phase.", described by its titles. Opening the overview announces the
+  number of phases and steps and the keys.
+- Shift+0 no longer folds every group and fits the diagram. **Fit the whole
+  diagram** stays in the **⋯** menu, and each group keeps its own chevron.
+- The overview is drawn over the diagram, not in it: nothing in the diagram's
+  layout moves, and the geometry golden is unchanged.
+
+The phase index (step 13):
+- The labelled phase index replaces the minimap (the unlabelled overview map
+  in the corner). It lists every phase in the diagram's lower right corner:
+  the number in the phase's colour, the name, the findings that touch it by
+  severity (a finding on two phases counts in each, as on the lane headings)
+  and the step count. The phases in view are marked, and a row goes to that
+  phase, as a block of the overview does.
+- In a panel under 1000 px wide, or on a diagram under 350 px tall, it is one
+  line naming the phase most in view, such as "4/6 Objective, optimizer &
+  scheduler", which opens the list above itself; Escape closes it. Wide, the
+  list's chevron folds it to that line. It sits inside the diagram, so in the
+  bottom panel's layout it stays above the panel.
+- It never covers the card you are on. Moving with the arrow keys, choosing a
+  step in the Outline or in search, stepping through the review walk and VS
+  Code's reveal all pan the least distance that keeps the card out from under
+  it. A finding keeps its first cited step clear; a finding whose cited steps
+  span more than the room beside the index can still have a later one under
+  it.
+- **Phase index** in the **⋯** menu (in place of **Overview map**) shows or
+  hides it. It is disabled, with the reason, for a diagram with fewer than
+  two phases. The choice is kept in the panel's view state, and a minimap you
+  had collapsed opens as the folded index.
+
+Checked for step 13: `webview/test/phase-overview.test.mjs` runs on synthetic
+documents of the vit-cc and yolov5-cc2 shapes and small hand-made ones. It
+covers the overview's layout at the canvases of 1440x900, 900x800 and 541x798
+(every step listed or counted, the connection counts summing, blocks inside
+the canvas, one or two columns), the keys, Escape giving the focus back, the
+animation and reduced motion, the blocks' names, and the diagram's geometry
+unchanged by the overlay. It also covers the index's rows and pill, and the
+selected card never under the index along each path above, at all three
+sizes. Removing the index's cover rule makes that last check fail. Headless
+Chrome screenshots of vit-cc and yolov5-cc2 at the three sizes were looked at.
+Not tried in VS Code, with a screen reader, on Windows or Linux, or as a
+usability check.
 
 ## Unreleased — viewer M2: readable at your width
 

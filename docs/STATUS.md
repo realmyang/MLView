@@ -188,6 +188,32 @@ tests and in an isolated VS Code 1.139 Extension Development Host on macOS
 driven over the DevTools protocol; not on Windows or Linux, with a screen
 reader or as a usability check ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M3, step 13 (the phase overview and the phase index):
+Shift+0, or **Phase overview** in the ⋯ menu, shows every phase as a block
+over the diagram: its number, name, step count and the findings that touch it,
+then its step titles in the Outline's order with ◌ for inferred, ? for
+unresolved and the F labels of the findings on each step. Arrows between
+neighbouring blocks say how many connections go to the next phase, and
+brackets on the right count the ones that skip ahead or go back. The header
+reads, for vit-cc, "6 phases · 31 steps · 41 connections: 19 inside a phase, 8
+to the next phase, 14 skip ahead or go back." A block that does not fit ends
+with "… N more steps", and the listed titles and those counts add up to the
+document's steps. Arrow keys move between blocks; Enter or a click goes to
+that phase at reading size (about 240 ms, instant under reduced motion) and
+Escape returns to the diagram as it was. The labelled phase index replaces the
+overview map (the minimap): a list in the lower right corner with each phase's
+number, name, findings by severity and step count, the phases in view marked,
+and a row going to its phase. Below 1000 px wide it is one line such as "4/6
+Objective, optimizer & scheduler" that opens the list. It sits inside the
+diagram, above the bottom panel, and the card you are on is panned out from
+under it. The ⋯ menu's **Phase index** shows or hides it. Shift+0 no longer
+folds every group; **Fit the whole diagram** stays in the ⋯ menu. No contract
+change, no new setting and no geometry change. Checked by local jsdom tests
+(with synthetic documents of the vit-cc and yolov5-cc2 shape) and headless-Chrome
+screenshots of a simulated host at 1440x900, 900x800 and 541x798; not in live
+VS Code, with a screen reader or as a usability check
+([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, live-check fixes: a live check of the branch found
 seven problems, now fixed. When the panel resizes or the rail changes shape
 and a selection that was in view no longer is, the diagram pans the least

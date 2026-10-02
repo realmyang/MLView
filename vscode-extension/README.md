@@ -78,6 +78,16 @@ walk bar (under the diagram) and the Selection tab say why, with no
 notification. The walk remembers its place per revision in the panel's view
 state and records nothing else; the changed-files notice offers **Review
 affected claims**.
+Shift+0 (or **Phase overview** in the **⋯** menu) shows every phase as a block
+of its step titles, with ◌ for inferred, ? for unresolved and the F labels of
+findings. Arrows count the connections to the next phase, and brackets count
+those that skip ahead or go back. A block that does not fit ends with "… N
+more steps". The arrow keys move between blocks, Enter or a click goes to that
+phase at reading size, and Escape returns to where you were. The phase index
+in the diagram's lower right corner lists each phase with its findings and
+step count and marks the phases in view; a row goes to its phase. Below 1000
+px wide it is one line such as "4/6 Objective, optimizer & scheduler" that
+opens the list. It never covers the card you are on.
 Enter, a double-click (on a step, connection, finding or Outline step) or a
 quote's **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
 stays in the diagram. The source goes to an editor group you already have
@@ -109,14 +119,14 @@ search (Ctrl+F, or Cmd+F on macOS), the severity toggles, **N not observed**,
 finding it will refine.
 Below 620 px wide only the title, the severity toggles, **N not observed**,
 **⋯** and **Refine…** stay in the row; search, the revision and **Review** move
-into the **⋯** menu, which always has **Review the claims** and also holds the legend, the flow animation, the overview map,
-the side or bottom panel, **Fit the whole diagram**, the exports and the shortcut sheet.
-The overview map item is disabled, with the reason, when the map is not drawn
-(at 900 px wide or narrower, under 350 px tall, or below 30 cards). The
+into the **⋯** menu, which always has **Review the claims** and also holds the phase overview, the legend, the flow animation,
+the phase index, the side or bottom panel, **Fit the whole diagram**, the exports and the shortcut sheet.
+The phase index item is disabled, with the reason, for a diagram with fewer
+than two phases. The
 viewer's other keys are single keys, so VS Code's Ctrl and Cmd shortcuts are
 left alone; the shortcut sheet prints the keys for your platform.
 Escape in the diagram closes the topmost thing (the menu, the shortcut sheet,
-the Refine popover, the legend, the review walk, the open bottom panel, focus
+the Refine popover, the phase list, the legend, the phase overview, the review walk, the open bottom panel, focus
 mode, the selection) or clears the search, and VS Code does not also act on that key
 press. Once nothing is left to close and the focus is off the diagram, Escape
 goes to VS Code, for example to hide a notification.

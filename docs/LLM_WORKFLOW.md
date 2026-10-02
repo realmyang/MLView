@@ -198,6 +198,40 @@ state, so `r` resumes there; a new revision starts fresh. It marks nothing as
 checked and writes nothing to any file. When cited files change, the notice
 offers **Review affected claims**, which walks the claims citing them.
 
+The phase overview shows the whole workflow at once. Press Shift+0 on the
+diagram, or choose **Phase overview** in the **⋯** menu. Each phase is a block
+with its number, name, step count (and how many steps are inferred or
+unresolved) and the findings that touch it. Under that come its step titles in
+the Outline's order, a group before its steps, with ◌ for inferred, ? for
+unresolved and the F labels of the findings on each step. An arrow between
+two neighbouring blocks says how many connections go from one phase to the
+next. A connection that skips a phase or goes back is a bracket on the right
+with its count, dashed when it goes back. The header gives the counts as a
+sum, for example "6 phases · 31 steps · 41 connections: 19 inside a phase, 8
+to the next phase, 14 skip ahead or go back." A block with more titles than
+fit ends with "… N more steps", so every step is either listed or counted.
+Beside your code, a document with many phases scrolls a little rather than
+dropping the titles. ↑ / ↓ (or ← / →), Home and End move between blocks.
+Enter or a click goes to that phase at reading size; the move takes about a
+quarter of a second, or happens at once with Reduce Motion or a screen reader.
+The next arrow key then starts at the phase's first step. Escape, Shift+0 or
+**Back** returns to the diagram exactly as it was, with the keyboard where it
+was. Any other key the diagram uses closes the overview first. A screen
+reader reads each block as a button named by its phase, counts and
+connections, with its titles as the description.
+
+The phase index sits in the lower right corner of the diagram. It lists every
+phase with its number, name, findings by severity (a finding on two phases
+counts in each, as on the lane headings) and step count, and it marks the
+phases in view. Clicking a row goes to that phase. In a panel under 1000 px
+wide, or on a diagram under 350 px tall, it is one line naming the phase most
+in view, such as "4/6 Objective, optimizer & scheduler"; clicking it opens the
+list above it. When wide, its chevron folds it to that line. It stays inside
+the diagram, above the bottom panel, and never hides the card you are on:
+arrows, search, the Outline, a finding, the review walk and VS Code's reveal
+all pan the card out from under it. **Phase index** in the **⋯** menu shows or
+hides it, and the panel remembers the choice.
+
 On the diagram, observed claims carry no basis mark. An inferred step or
 connection has a dashed border or line and an `inferred` tag; an unresolved
 one has a dotted border or line and a `? unresolved` tag. Line style shows
@@ -221,24 +255,24 @@ The diagram opens readable: the whole document if it fits at 62% zoom or
 more, otherwise the first phase at 90% (or all of the first phase, when it
 fits at 75% or more). Reopening the same revision keeps where you were. Press
 `0` to return to that first view from any zoom; **Fit the whole diagram** in
-the header's **⋯** menu shows everything, and Shift+0 (Overview) also folds
-every group. Zoomed out below 62%, cards show only their titles, at about
+the header's **⋯** menu shows everything. Shift+0 opens the phase overview;
+it no longer folds every group (each group keeps its own chevron). Zoomed out below 62%, cards show only their titles, at about
 11 px on screen down to about 35% zoom; the full title is in the hover card.
 
 The header is one row: the title, the assistant and revision, search, the
 severity toggles (each with its count), **N not observed**, **Review**, a
 **⋯** menu and **Refine…**. In a panel under 620 px wide, such as beside your
 code, search, the revision and **Review** move into the **⋯** menu; a row still too full folds **N not
-observed** into it as well, so **Refine…** stays in view. The menu also holds the legend, the
-flow animation, the overview map, the side or bottom panel, **Fit the whole diagram**,
-zoom to the selection, the SVG and PNG exports and the shortcut sheet, and
-always **Review the claims**. The overview map item is disabled, with the reason, when the map is not drawn: in
-a panel 900 px wide or narrower, a diagram under 350 px tall, or with fewer
-than 30 cards. Ctrl+F (Cmd+F on macOS), or `/` on the diagram, focuses
+observed** into it as well, so **Refine…** stays in view. The menu also holds the
+phase overview, the legend, the flow animation, the phase index, the side or
+bottom panel, **Fit the whole diagram**, zoom to the selection, the SVG and PNG
+exports and the shortcut sheet, and always **Review the claims**. The phase
+index item is disabled, with the reason, for a diagram with fewer than two
+phases. Ctrl+F (Cmd+F on macOS), or `/` on the diagram, focuses
 search; the viewer's other keys are single keys, so VS Code's own Ctrl and Cmd
 shortcuts keep working, and the shortcut sheet prints them for your platform.
-Escape closes one thing at a time in the viewer (a menu or panel, the review
-walk, the bottom sheet, focus mode, the selection, then the focus on the
+Escape closes one thing at a time in the viewer (a menu or panel, the phase
+index's list, the phase overview, the review walk, the bottom sheet, focus mode, the selection, then the focus on the
 diagram) without VS
 Code also acting on it; after that it goes to VS Code, for example to hide a
 notification. Each search result shows its

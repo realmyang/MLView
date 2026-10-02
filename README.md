@@ -93,6 +93,16 @@ diagram, highlighted, while the keyboard stays on the diagram: `j` / `k` (or
 walk. A quote whose file changed is not opened; the walk says why. The walk
 remembers its place for each revision and records nothing else.
 
+To see the whole workflow at once, press Shift+0 (or **Phase overview** in the
+**⋯** menu). The overview shows each phase as a block of its step titles, with
+inferred and unresolved marks and the F labels of findings. Arrows count the
+connections from one phase to the next, and brackets count those that skip
+ahead or go back. Arrow keys and Enter (or a click) go to a phase; Escape
+returns you to where you were. The phase index in the diagram's lower right
+corner lists every phase with its findings and step count and marks the ones
+in view. Beside the code it shrinks to one line such as "4/6 Objective,
+optimizer & scheduler".
+
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
 Observed, inferred, and unresolved claims remain distinguishable: only the
