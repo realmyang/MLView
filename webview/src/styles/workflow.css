@@ -161,8 +161,8 @@
  * walk runs: directly above the bottom sheet's tabs, or with the side panel (1260 px and wider)
  * along the bottom of the diagram. It is after the canvas in the document, so the canvas stays
  * within four Tab presses of the top and Tab goes canvas, walk controls, sheet. Wide: the place and the filters, the key hint and Exit on one
- * row, the editor line under them. Narrow (data-layout="narrow", under 620 px): "3/16", the filters
- * and Exit on one row; the row may wrap below about 400 px rather than scroll sideways. Plain text
+ * row, the editor line under them. Narrow (data-layout="narrow", under 620 px): "3/16", Previous
+ * and Next, the filters and Exit on one row; the row may wrap below about 400 px rather than scroll sideways. Plain text
  * colours; colour only marks a quote the host did not open. No motion.
  */
 .mlv-walkbar {
@@ -205,6 +205,17 @@
   gap: var(--mlv-s2) var(--mlv-s4);
   min-width: 0;
 }
+/* Previous and Next (M3 review, A11Y-M3-2): the claim before or after, as k and j; chevrons up and down. */
+.mlv-walkbar__steps { display: inline-flex; flex: none; gap: 2px; }
+.mlv-walkbar__step {
+  width: 24px;
+  min-width: 0;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+}
+.mlv-walkbar__step--prev .mlv-uicon { transform: rotate(-90deg); }
+.mlv-walkbar__step--next .mlv-uicon { transform: rotate(90deg); }
 .mlv-walkbar__filters { display: inline-flex; flex-wrap: wrap; gap: var(--mlv-s2); }
 .mlv-walkbar__filter {
   display: inline-flex;

@@ -528,7 +528,9 @@ export class Chrome {
     this.reviewBtn.title = s.walking
       ? 'End the review walk (Escape). It remembers its place for this revision.'
       : 'Review the claims one by one (R): each is selected here and its cited lines are opened and highlighted in the editor beside. Focus stays here.';
-    this.reviewBtn.setAttribute('aria-label', s.walking ? 'Review walk running; press to end it' : 'Review the claims');
+    // One name; `aria-pressed` carries the state (M3 review, A11Y-M3-7): "Review the claims, toggle
+    // button, pressed" while the walk runs.
+    this.reviewBtn.setAttribute('aria-label', 'Review the claims');
 
     this.syncSearch();
     this.renderStatus(s);

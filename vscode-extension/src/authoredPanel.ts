@@ -140,7 +140,7 @@ interface PanelHooks {
     changed(): void;
     /** Write the registry now; resolves once it is stored. */
     flush(): Promise<void>;
-    /** Viewer M3 (step 14): the panel validated again; the cited-file context key follows. */
+    /** Viewer M3 (step 14): the panel validated again; the cited-files context key follows. */
     citationsChanged(): void;
 }
 /**
@@ -352,7 +352,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
     private sweeps: Promise<number> = Promise.resolve(0);
     /** Front tabs already reported as dead without a registry entry, so each is logged once. */
     private readonly unmatched = new WeakSet<vscode.Tab>();
-    /** Viewer M3 (step 14): MLView: Reveal in Diagram and the `mlview.citedFile` context key. */
+    /** Viewer M3 (step 14): MLView: Reveal in Diagram and the `mlview.citedFiles` context key. */
     readonly revealer: RevealInDiagram;
     constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo, private readonly settleMs: number = RECOVERY_SETTLE_MS) {
         this.revealer = new RevealInDiagram(() => [...this.panels.values()], log);
@@ -361,8 +361,8 @@ export class AuthoredDiagramController implements vscode.Disposable {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*');
         const registered = [
             vscode.commands.registerCommand(OPEN_AUTHORED_COMMAND, (uri?: vscode.Uri) => this.open(uri)),
-            // Viewer M3 (step 14): the way back from the code; its editor listeners and its context
-            // key live only while a panel is open (`panelsChanged`).
+            // Viewer M3 (step 14): the way back from the code; its context key lists the cited files
+            // of the open panels (`panelsChanged`, `citationsChanged`).
             this.revealer.register(),
             vscode.window.registerWebviewPanelSerializer(AUTHORED_VIEW_TYPE, { deserializeWebviewPanel: async (panel, state: unknown) => this.restore(panel, state) }),
             // Saves and watcher events change the files on disk: revalidate.
@@ -428,7 +428,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
                 // A closed tab leaves the registry. When the host shuts down (`dispose`), the
                 // panels stay registered: their tabs stay open for the next host.
                 void this.recordPanels();
-                // The last panel takes the reveal command's listeners and context key with it.
+                // The reveal command's list of cited files follows; the last panel empties it.
                 this.revealer.panelsChanged();
             }
         }, this.hooks, this.validator, this.io);
@@ -968,8 +968,8 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
             this.scheduleRetry();
         else
             this.retryCount = 0;
-        // Viewer M3 (step 14): a new revision, or a changed or restored cited file, can turn the
-        // reveal command's context key on or off.
+        // Viewer M3 (step 14): a new revision, or a changed or restored cited file, changes the
+        // reveal command's list of cited files.
         this.hooks.citationsChanged();
     }
     /**
@@ -1683,6 +1683,21 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
     }
     artifactPath(): string {
         return this.artifactRel;
+    }
+    /**
+     * The displayed revision's cited files that are unchanged since publishing, as absolute paths
+     * under this panel's workspace folder: the reveal command's context key (M3 review, F1). A stale
+     * file (changed, missing, unreadable, too large, or found only under the folder the root hint
+     * names) is left out, as the command would not match it.
+     */
+    citedFiles(): string[] {
+        const index = this.citations;
+        const shown = this.lastValid;
+        if (this.disposed || !index || !shown || index.document !== shown.document)
+            return [];
+        const stale = new Set(shown.stale.map(s => s.rel));
+        const root = this.folder.uri.fsPath;
+        return index.files().filter(rel => !stale.has(rel)).map(rel => path.resolve(root, rel));
     }
     /**
      * What the displayed revision says about the reader's file: not cited; a cited file found in the

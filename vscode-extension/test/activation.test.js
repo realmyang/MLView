@@ -19,7 +19,7 @@ function context() {
 
 // Viewer M3 (roadmap step 14), changed deliberately: activation registers a second command, MLView:
 // Reveal in Diagram, the owner-approved widening of the manifest (see packaging.test.js). Its
-// context key starts off, and nothing else is registered.
+// context key, the list of cited files, starts empty, and nothing else is registered.
 test('activation registers only the authored workflow surface and Reveal in Diagram', () => {
   vscode.__recorded.commands.clear();
   vscode.__recorded.serializers.clear();
@@ -27,7 +27,7 @@ test('activation registers only the authored workflow surface and Reveal in Diag
   const ctx = context();
   extension.activate(ctx);
   assert.deepEqual([...vscode.__recorded.commands.keys()], ['mlview.openGeneratedDiagram', 'mlview.revealInDiagram']);
-  assert.equal(vscode.__recorded.contexts.get('mlview.citedFile'), false, 'the cited-file key starts off');
+  assert.deepEqual(vscode.__recorded.contexts.get('mlview.citedFiles'), [], 'the cited-files key starts empty');
   assert.ok(vscode.__recorded.serializers.has('mlview.authoredDiagram'));
   assert.ok(ctx.subscriptions.length >= 2);
   extension.deactivate();

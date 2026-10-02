@@ -2,7 +2,7 @@
  * Viewer M3, roadmap step 13: the phase index (it replaced the minimap) and the phase overview.
  *
  * Both are overlays inside the canvas and outside the world layer, so neither moves the routed
- * picture. Sizes here are the ones `render/phaseindex.ts` (INDEX_W, INDEX_HEAD_H, INDEX_ROW_H,
+ * picture. Sizes here are the ones `render/phaseindex.ts` (INDEX_W, INDEX_MAX_W, INDEX_HEAD_H, INDEX_ROW_H,
  * PILL_H, INDEX_MARGIN) and `render/phaseoverview.ts` (HEAD_H, ROW_H, …) compute with; change them
  * together. Colours are tokens only: the phase tone (`--mlv-stage`, bound from `data-phase-tone`
  * in node.css) on the number and the block's left rule, severity on the glyphs, the accent on
@@ -38,8 +38,10 @@
 .mlv-phaseindex__panel {
   display: flex;
   flex-direction: column;
-  width: 288px;
-  max-width: 100%;
+  /* From 288 px, growing to fit the longest phase name up to 360 px (INDEX_W, INDEX_MAX_W). */
+  width: max-content;
+  min-width: min(288px, 100%);
+  max-width: min(360px, 100%);
   min-height: 0;
   padding: 4px 0;
   border: 1px solid var(--mlv-border-strong);

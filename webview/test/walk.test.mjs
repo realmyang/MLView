@@ -419,7 +419,8 @@ test('a blocked result shows its reason in the bar and the pane and is announced
     const mark = $(ctx, '.mlv-quote.is-walk');
     assert.equal(mark.getAttribute('data-walk-status'), 'blocked');
     assert.match(mark.querySelector('.mlv-quote__walk').textContent, /no longer contain the cited lines; not opened/);
-    assert.match(live(ctx), /^Not opened: Unsaved changes in data\.py/);
+    // The host's message already says nothing was opened: it is announced as it is (M3 review, A11Y-M3-8).
+    assert.equal(live(ctx), 'Unsaved changes in data.py no longer contain the cited lines; not opened. Save or revert the file.');
     assert.equal($$(ctx, '.mlv-toast').length, 0, 'no toast');
     // A file the host already reported stale is said at once, and still asked for (the host never
     // opens it, and clears the earlier claim's highlight).
@@ -460,7 +461,7 @@ test('the live region announces the place, the filter, the kind, the title and a
     press(ctx, 'j');
     assert.equal(live(ctx), 'Claim 3 of 5, not observed: Step LR schedule, unresolved.');
     ctx.app.walk.setFilter('all');
-    assert.equal(live(ctx), 'All: 14 claims. Claim 7 of 14: Step LR schedule, unresolved.');
+    assert.equal(live(ctx), 'All 14 claims. Claim 7 of 14: Step LR schedule, unresolved.');
     for (let i = 0; i < 3; i++) press(ctx, 'k');
     assert.equal(live(ctx), 'Claim 4 of 14: Step Augment.', 'no basis word for an observed claim, no filter word for All');
   } finally {
@@ -646,7 +647,10 @@ test('at 541 px the bar is "3/16", the filters and Exit; at 900 px it has the pl
     assert.equal(bar.getAttribute('data-layout'), 'narrow');
     assert.equal(visible(ctx, $(ctx, '.mlv-header__review')), false, 'the 541 px header keeps the M2 controls; Review is in the ⋯ menu');
     assert.equal($(ctx, '.mlv-walkbar__postext').textContent, '3/16');
-    assert.equal($(ctx, '.mlv-walkbar__pos').getAttribute('aria-label'), 'Claim 3 of 16, Not observed');
+    // The whole place is screen-reader text inside the paragraph, not a name on it (M3 review, A11Y-M3-6).
+    assert.equal($(ctx, '.mlv-walkbar__pos').getAttribute('aria-label'), null);
+    assert.equal($(ctx, '.mlv-walkbar__posspoken').textContent, 'Claim 3 of 16, Not observed');
+    assert.equal($(ctx, '.mlv-walkbar__postext').getAttribute('aria-hidden'), 'true');
     assert.equal(visible(ctx, $(ctx, '.mlv-walkbar__keys')), false, 'no key hint');
     assert.equal(visible(ctx, $(ctx, '.mlv-walkbar__editor')), false, 'no editor line');
     assert.ok(visible(ctx, $(ctx, '.mlv-walkbar__filter[data-walk-filter="notObserved"]')));
@@ -657,11 +661,13 @@ test('at 541 px the bar is "3/16", the filters and Exit; at 900 px it has the pl
     ctx.app.walk.flushOpen();
     answer(ctx, opens(ctx).at(-1), 'blocked', { reason: 'missing', message: 'utils.py is missing since revision syn-r1 was published; not opened.' });
     assert.ok(visible(ctx, $(ctx, '.mlv-walkbar__mark')));
-    assert.match($(ctx, '.mlv-walkbar__pos').getAttribute('aria-label'), /utils\.py is missing since revision syn-r1 was published; not opened\./);
+    assert.match($(ctx, '.mlv-walkbar__posspoken').textContent, /^Claim 3 of 16, Not observed\. Quote 1 of \d+: utils\.py is missing since revision syn-r1 was published; not opened\.$|^Claim 3 of 16, Not observed\. utils\.py is missing since revision syn-r1 was published; not opened\.$/);
     assert.match($(ctx, '.mlv-quote.is-walk .mlv-quote__walk').textContent, /utils\.py is missing/, 'and the pane says it in full');
     ctx.resize(900);
     assert.equal(bar.getAttribute('data-layout'), 'wide');
     assert.equal($(ctx, '.mlv-walkbar__postext').textContent, 'Claim 3 of 16 · Not observed');
+    assert.equal($(ctx, '.mlv-walkbar__postext').getAttribute('aria-hidden'), null, 'wide, the visible place is what is read');
+    assert.equal(visible(ctx, $(ctx, '.mlv-walkbar__posspoken')), false);
     assert.ok(visible(ctx, $(ctx, '.mlv-walkbar__keys')));
     assert.ok(visible(ctx, $(ctx, '.mlv-walkbar__editor')));
   } finally {
@@ -737,6 +743,252 @@ test('a click on a claim the walk holds moves the walk there without opening it;
     assert.equal(frame.evidenceId, 'e5');
     assert.equal(frame.walk, true, 'the Open link went through the walk (no notification when blocked)');
     assert.equal(frame.cell, 7);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+/* ── M3 review fixes ─────────────────────────────────────────────────── */
+
+test('M3 review F2: "Review affected claims" after a walk elsewhere starts at Claim 1 of the affected claims; u after a walk on All starts at the first claim not observed', async () => {
+  const ctx = await mount(orderDoc(), { width: 1440 });
+  try {
+    // Walk Not observed to its last claim, then end it.
+    press(ctx, 'r');
+    for (let i = 0; i < 6; i++) press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'issue', id: 'f-edge' }, 'precondition: the last claim not observed');
+    press(ctx, 'Escape');
+    ctx.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'changed' }] });
+    ctx.bridge.send({ v: 1, type: 'workflowError', message: 'data.py changed since revision o1 was published.', codes: ['stale'] });
+    $(ctx, '[data-notice-action="review"]').click();
+    assert.equal(ctx.app.walk.filter, 'changed');
+    assert.equal(ctx.app.walk.position, 0, 'the first affected claim, not the one after the old place');
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'load' });
+    assert.equal($(ctx, '.mlv-walkbar__postext').textContent, 'Claim 1 of 8 · Changed files');
+    // Resuming the same filter keeps its place.
+    press(ctx, 'j');
+    press(ctx, 'j');
+    press(ctx, 'Escape');
+    ctx.bridge.send({ v: 1, type: 'workflowError', message: 'data.py changed since revision o1 was published.', codes: ['stale'] });
+    const again = $(ctx, '[data-notice-action="review"]');
+    assert.ok(again, 'the action is back after the walk ended');
+    again.click();
+    eq(ctx.app.walk.current(), { kind: 'edge', id: 'c-load-step' }, 'the same filter resumes where it ended');
+    // u after a walk on All begins Not observed at its first claim.
+    ctx.app.walk.setFilter('all');
+    walkTo(ctx, 'zero', 'j');
+    press(ctx, 'Escape');
+    ctx.canvas.focus();
+    press(ctx, 'u');
+    assert.equal(ctx.app.walk.filter, 'notObserved');
+    assert.equal(ctx.app.walk.position, 0);
+    eq(ctx.app.walk.current(), { kind: 'edge', id: 'c-aug-step' });
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('M3 review F3: when the current claim leaves Changed files, the walk shows the claim now in its place (selected, announced, nothing opened) and j does not skip it', async () => {
+  const ctx = await mount(orderDoc(), { width: 1440 });
+  try {
+    ctx.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'changed' }, { path: 'train.py', reason: 'changed' }] });
+    assert.equal(ctx.app.walk.start('changed'), true);
+    walkTo(ctx, 'step', 'j');
+    ctx.app.walk.flushOpen();
+    const opensBefore = opens(ctx).length;
+    const framesBefore = walkFrames(ctx).length;
+    // train.py is unchanged again; data.py stays changed. Optimizer step cites only train.py.
+    ctx.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'changed' }] });
+    eq(ctx.app.walk.list.map(key), ['node:load', 'edge:c-load-aug', 'edge:c-load-step', 'node:aug', 'edge:c-aug-step', 'issue:f-two', 'issue:f-whole', 'issue:f-edge']);
+    eq(ctx.app.walk.current(), { kind: 'issue', id: 'f-whole' }, 'the next affected claim after the old one');
+    eq(ctx.app.selection, ctx.app.walk.current(), 'and it is the one selected and shown');
+    assert.equal($(ctx, '.mlv-walkbar__postext').textContent, 'Claim 7 of 8 · Changed files');
+    assert.match(live(ctx), /^Claim 7 of 8, changed files: Finding F1 No seed\.$/);
+    assert.equal(ctx.app.walk.pendingOpen, false, 'nothing is opened by itself');
+    assert.equal(opens(ctx).length, opensBefore);
+    eq(walkFrames(ctx).slice(framesBefore), [{ v: 1, type: 'walk', state: 'clear' }], 'the old highlight is cleared');
+    // Its quote cites data.py, still changed: the bar says why Enter will not open it.
+    assert.equal($(ctx, '.mlv-walkbar__editortext').textContent, 'data.py: changed since publishing; not opened.');
+    press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'issue', id: 'f-edge' }, 'j goes to the claim after it, nothing skipped');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('M3 review F4: a quote whose file the host reported stale never reads "Enter shows": a filter on the same claim, a click, a remount', async () => {
+  const doc = orderDoc();
+  const ctx = await mount(doc, { width: 1440 });
+  let saved;
+  try {
+    ctx.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'changed' }] });
+    press(ctx, 'r');
+    ctx.app.walk.setFilter('all');
+    walkTo(ctx, 'load', 'k');
+    ctx.app.walk.flushOpen();
+    answer(ctx, opens(ctx).at(-1), 'blocked', { reason: 'changed', message: 'data.py changed after revision o1 was published; not opened.' });
+    const text = () => $(ctx, '.mlv-walkbar__editortext').textContent;
+    assert.equal(text(), 'data.py changed after revision o1 was published; not opened.');
+    // A filter that holds the same claim keeps what the bar said.
+    ctx.app.walk.setFilter('changed');
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'load' });
+    assert.equal(text(), 'data.py changed after revision o1 was published; not opened.');
+    assert.equal($(ctx, '.mlv-quote.is-walk').getAttribute('data-walk-status'), 'blocked');
+    // A click on another claim of the walk that cites the stale file.
+    ctx.app.walk.setFilter('all');
+    const card = $(ctx, '.mlv-node[data-node-id="aug"]');
+    card.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'aug' });
+    assert.equal(text(), 'data.py: changed since publishing; not opened.');
+    assert.doesNotMatch($(ctx, '.mlv-quote.is-walk .mlv-quote__walk').textContent, /Enter shows/);
+    saved = JSON.parse(JSON.stringify(ctx.app.getState()));
+  } finally {
+    ctx.app.destroy();
+  }
+  // A remount brings the walk back before the host has sent its stale files; when they come, the
+  // bar says why the quote will not open.
+  const again = await mount(doc, { width: 1440, state: saved });
+  try {
+    assert.equal(again.app.walk.active, true);
+    assert.match($(again, '.mlv-walkbar__editortext').textContent, /^Enter shows data\.py/);
+    again.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'changed' }] });
+    assert.equal($(again, '.mlv-walkbar__editortext').textContent, 'data.py: changed since publishing; not opened.');
+  } finally {
+    again.app.destroy();
+  }
+});
+
+test('M3 review A11Y-M3-1: the header Review button and the ⋯ menu item give the keyboard to the diagram, so j steps at once', async () => {
+  const wide = await mount(orderDoc(), { width: 1440 });
+  try {
+    const review = $(wide, '.mlv-header__review');
+    review.focus();
+    review.click();
+    assert.equal(wide.app.walk.active, true);
+    assert.equal(wide.document.activeElement, wide.canvas, 'the diagram has the keys');
+    press(wide, 'j');
+    press(wide, 'j');
+    assert.equal(wide.app.walk.position, 2, 'j stepped twice');
+    // Ending the walk with the button leaves the focus where it is.
+    review.focus();
+    review.click();
+    assert.equal(wide.app.walk.active, false);
+    assert.equal(wide.document.activeElement, review);
+  } finally {
+    wide.app.destroy();
+  }
+  const narrow = await mount(orderDoc(), { width: 541 });
+  try {
+    const more = $(narrow, '.mlv-btn--more');
+    more.focus();
+    more.click();
+    $(narrow, '[data-more-item="review"]').click();
+    assert.equal(narrow.app.walk.active, true);
+    assert.equal(narrow.document.activeElement, narrow.canvas, 'not the ⋯ button');
+    press(narrow, 'j');
+    press(narrow, 'j');
+    assert.equal(narrow.app.walk.position, 2);
+  } finally {
+    narrow.app.destroy();
+  }
+});
+
+test('M3 review A11Y-M3-2: Previous and Next in the bar at every width step as k and j, named with their keys, inside the one tab stop', async () => {
+  for (const width of [1440, 900, 541]) {
+    const ctx = await mount(orderDoc(), { width });
+    try {
+      press(ctx, 'r');
+      const prev = $(ctx, '.mlv-walkbar [data-walk-step="prev"]');
+      const next = $(ctx, '.mlv-walkbar [data-walk-step="next"]');
+      assert.ok(visible(ctx, prev) && visible(ctx, next), `${width} px: both are shown`);
+      assert.equal(prev.getAttribute('aria-label'), 'Previous claim (k)');
+      assert.equal(next.getAttribute('aria-label'), 'Next claim (j)');
+      assert.ok($(ctx, '.mlv-walkbar__tools').contains(next), 'in the bar\'s toolbar');
+      next.click();
+      next.click();
+      assert.equal(ctx.app.walk.position, 2, `${width} px: Next stepped twice`);
+      eq(ctx.app.selection, ctx.app.walk.current());
+      prev.click();
+      assert.equal(ctx.app.walk.position, 1, `${width} px: Previous stepped back`);
+      prev.click();
+      prev.click();
+      assert.equal(live(ctx), 'Claim 1 of 5 is the first one.');
+      const stops = $$(ctx, '.mlv-walkbar button').filter((b) => b.tabIndex === 0 && visible(ctx, b));
+      assert.equal(stops.length, 1, `${width} px: still one tab stop`);
+    } finally {
+      ctx.app.destroy();
+    }
+  }
+});
+
+test('M3 review A11Y-M3-3: after Alt+Enter the bar and the pane say the focus moved to the editor; after Enter that it stays here', async () => {
+  const ctx = await mount(orderDoc(), { width: 1440 });
+  try {
+    press(ctx, 'r');
+    ctx.app.walk.flushOpen();
+    answer(ctx, opens(ctx).at(-1), 'done');
+    assert.match($(ctx, '.mlv-walkbar__editortext').textContent, /, highlighted\. Focus stays here\.$/);
+    assert.equal($(ctx, '.mlv-quote.is-walk .mlv-quote__walk').textContent, 'In the editor beside, highlighted.');
+    press(ctx, 'Enter', { altKey: true });
+    const frame = opens(ctx).at(-1);
+    assert.equal(frame.focus, true);
+    answer(ctx, frame, 'done');
+    assert.match($(ctx, '.mlv-walkbar__editortext').textContent, /, highlighted\. Focus moved to the editor\.$/);
+    assert.equal($(ctx, '.mlv-quote.is-walk .mlv-quote__walk').textContent, 'In the editor beside, highlighted; the focus moved there.');
+    press(ctx, 'Enter', {}, ctx.canvas);
+    answer(ctx, opens(ctx).at(-1), 'done');
+    assert.match($(ctx, '.mlv-walkbar__editortext').textContent, /Focus stays here\.$/);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('M3 review A11Y-M3-4: a late answer for a claim the walk has left is not shown as the current claim\'s', async () => {
+  const ctx = await mount(orderDoc(), { width: 1440 });
+  try {
+    press(ctx, 'r');
+    ctx.app.walk.flushOpen();
+    const first = opens(ctx).at(-1);
+    // Two quick steps: to F2, then to LR schedule, which cites no lines; no open is sent yet.
+    press(ctx, 'j');
+    press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'sched' });
+    answer(ctx, first, 'done');
+    assert.equal($(ctx, '.mlv-walkbar__editortext').textContent, 'This claim cites no lines, so nothing is opened for it.');
+    assert.doesNotMatch($(ctx, '.mlv-walkbar__editortext').textContent, /In the editor beside: ,/);
+    // The same for a claim with lines: the answer for the claim left behind is ignored.
+    press(ctx, 'j');
+    ctx.app.walk.flushOpen();
+    const stepOpen = opens(ctx).at(-1);
+    press(ctx, ']');
+    answer(ctx, stepOpen, 'done');
+    assert.equal($(ctx, '.mlv-walkbar__editor').getAttribute('data-walk-status'), 'opening', 'the quote changed: still waiting for its own open');
+    ctx.app.walk.flushOpen();
+    answer(ctx, opens(ctx).at(-1), 'done');
+    assert.match($(ctx, '.mlv-walkbar__editortext').textContent, /^In the editor beside: train\.py · lines 8–9 \(quote 2 of 2\), highlighted\./);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('M3 review A11Y-M3-8: "All claims" names its unit; a blocked open is announced without saying "not opened" twice', async () => {
+  const ctx = await mount(shapedWorkflow(VIT_SHAPE), { width: 1440 });
+  try {
+    press(ctx, 'r');
+    const all = $(ctx, '.mlv-walkbar__filter[data-walk-filter="all"]');
+    assert.equal(all.querySelector('.mlv-walkbar__flabel').textContent, 'All claims');
+    assert.equal(all.querySelector('.mlv-walkbar__fcount').textContent, '79');
+    assert.equal(all.getAttribute('aria-label'), 'All 79 claims');
+    assert.equal($(ctx, '.mlv-walkbar__filter[data-walk-filter="notObserved"]').getAttribute('aria-label'), 'Not observed, 7 claims');
+    ctx.app.walk.flushOpen();
+    answer(ctx, opens(ctx).at(-1), 'blocked', { reason: 'changed', message: 'examples/cats_and_dogs.ipynb changed after revision syn-r1 was published; not opened.' });
+    assert.equal(live(ctx), 'examples/cats_and_dogs.ipynb changed after revision syn-r1 was published; not opened.');
+    assert.equal((live(ctx).match(/not opened/gi) || []).length, 1);
+    // A message without those words is still said as not opened.
+    press(ctx, 'j');
+    ctx.app.walk.flushOpen();
+    answer(ctx, opens(ctx).at(-1), 'blocked', { message: 'The file is outside the workspace.' });
+    assert.equal(live(ctx), 'Not opened: The file is outside the workspace.');
   } finally {
     ctx.app.destroy();
   }

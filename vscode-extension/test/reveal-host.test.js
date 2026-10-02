@@ -1,11 +1,12 @@
 'use strict';
 /**
  * Viewer M3 (roadmap step 14): MLView: Reveal in Diagram, the host side. The citation index built
- * from the validated document (claims by cited file and range), the `mlview.citedFile` context key
- * (on only while a panel is open and the active editor's file is cited, unchanged, and still has the
- * quotes at the cited lines), the index following each revalidation, the claim and diagram
- * QuickPicks, the `reveal {kind, id}` frame and the one explicit focus move, notebook cell editors,
- * and everything going with the last panel. Mock `vscode` only: none of this is a live check.
+ * from the validated document (claims by cited file and range), the `mlview.citedFiles` context key
+ * (the open panels' cited files that are unchanged since publishing) and the manifest's `when`
+ * clause evaluated against it for the editor under the pointer, the index following each
+ * revalidation, the claim and diagram QuickPicks, the `reveal {kind, id}` frame and the one explicit
+ * focus move, notebook cell editors, and everything going with the last panel. Mock `vscode` only:
+ * none of this is a live check (the clause is evaluated here by a small stand-in for VS Code's).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,8 +22,43 @@ async function open(options) {
   fixtures.push(fixture);
   return fixture;
 }
-const KEY = 'mlview.citedFile';
+const KEY = 'mlview.citedFiles';
 const key = () => vscode.__recorded.contexts.get(KEY);
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+/**
+ * A stand-in for VS Code's when-clause evaluation, for the clause shapes the manifest uses: terms
+ * joined by `&&`, each `key =~ /re/`, `key in listKey` or a bare key (truthy). VS Code's renderer
+ * evaluates the clause against the context of the editor under the pointer, with the context keys
+ * as they are at that moment: no extension code runs in between.
+ */
+function evaluateWhen(clause, context) {
+  return clause.split('&&').map((term) => term.trim()).every((term) => {
+    let m = /^([\w.]+) =~ \/(.*)\/$/.exec(term);
+    if (m) return new RegExp(m[2]).test(String(context[m[1]] ?? ''));
+    m = /^([\w.]+) in ([\w.]+)$/.exec(term);
+    if (m) {
+      const list = context[m[2]];
+      return Array.isArray(list) ? list.includes(context[m[1]]) : !!list && typeof list === 'object' && Object.prototype.hasOwnProperty.call(list, context[m[1]]);
+    }
+    if (/^[\w.]+$/.test(term)) return !!context[term];
+    throw new Error('clause term not understood: ' + term);
+  });
+}
+/**
+ * Whether the editor context menu offers Reveal in Diagram on a right-click in an editor of `fsPath`
+ * (a text file, or with `cell` a notebook cell), with the keys as they are now and whatever editor
+ * VS Code calls active (the diagram may have the focus: no active text editor at all).
+ */
+function offered(fsPath, { cell = false } = {}) {
+  const item = MANIFEST.contributes.menus['editor/context'].find((x) => x.command === 'mlview.revealInDiagram');
+  // VS Code's `resourcePath`: the fsPath of a file URI, the path of any other URI (a notebook cell's
+  // `vscode-notebook-cell` URI has the notebook's path).
+  const context = cell
+    ? { resourceScheme: 'vscode-notebook-cell', resourcePath: vscode.Uri.file(fsPath).path }
+    : { resourceScheme: 'file', resourcePath: vscode.Uri.file(fsPath).fsPath };
+  for (const [name, value] of vscode.__recorded.contexts) context[name] = value;
+  return evaluateWhen(item.when, context);
+}
 const reveals = (panel) => panel.posted.filter((m) => m.type === 'reveal');
 const infos = () => vscode.__recorded.messages.filter((m) => m[0] === 'info').map((m) => m[1]);
 const picks = () => vscode.__recorded.quickPicks;
@@ -133,51 +169,60 @@ test('selection lines: the cursor\'s line; a selection; one that ends at the sta
 
 /* ── the context key ─────────────────────────────────────────────────── */
 
-test('the context key is on only for a cited, unchanged file while a panel is open', async () => {
+test('M3 review F1: the menu item is offered on a cited, unchanged file while a panel is open, even when the diagram has the focus (no active text editor)', async () => {
   const fixture = await openCited();
-  await settle();
-  assert.equal(key(), false, 'no active editor');
-  cursor(fixture, 'source.py', 0);
-  await settle();
-  assert.equal(key(), true, 'source.py is cited');
-  cursor(fixture, 'plain.py', 0);
-  await settle();
-  assert.equal(key(), false, 'plain.py is not cited');
-  cursor(fixture, 'other.py', 0);
-  await settle();
-  assert.equal(key(), true, 'other.py is cited');
-  // A webview (the panel itself) took the focus: no text editor.
+  const file = (rel) => path.join(fixture.root, rel);
+  // The reader pressed Enter on a card: the editor beside shows source.py, and the focus is still in
+  // the diagram, so VS Code reports no active text editor. The right-click comes next, at once.
   vscode.__setActiveEditor(undefined);
   await settle();
-  assert.equal(key(), false);
+  assert.equal(offered(file('source.py')), true, 'source.py is cited: offered on the first right-click');
+  assert.equal(offered(file('other.py')), true, 'other.py is cited');
+  assert.equal(offered(file('plain.py')), false, 'plain.py is not cited');
+  assert.equal(offered(path.join(fixture.root, '..', 'elsewhere.py')), false);
+  assert.ok(Array.isArray(key()), 'the key is a list');
+  // The active editor plays no part: the list is the same whichever editor is active.
+  const before = JSON.stringify(key());
+  cursor(fixture, 'plain.py', 0);
+  await settle();
+  assert.equal(JSON.stringify(key()), before);
+  assert.equal(offered(file('source.py')), true, 'coming from an uncited editor too');
+  // Only the cited files of the displayed revision, absolute, in every spelling VS Code may use.
+  assert.deepEqual([...new Set(key())].sort(), [...new Set([file('other.py'), file('source.py')].flatMap(api.citedPathForms))].sort());
 });
 
-test('the context key goes off when the cited file goes stale and comes back when it is restored', async () => {
+test('cited path forms: the path and its URI path; either case of a Windows drive letter', () => {
+  assert.deepEqual(api.citedPathForms('/repo/train.py'), ['/repo/train.py']);
+  const windows = api.citedPathForms('c:\\repo\\nb.ipynb');
+  for (const form of ['c:\\repo\\nb.ipynb', 'C:\\repo\\nb.ipynb']) assert.ok(windows.includes(form), form);
+});
+
+test('the item goes when the cited file goes stale and comes back when it is restored', async () => {
   const fixture = await openCited();
+  const file = path.join(fixture.root, 'source.py');
   cursor(fixture, 'source.py', 1);
   await settle();
-  assert.equal(key(), true);
-  const file = path.join(fixture.root, 'source.py');
+  assert.equal(offered(file), true);
   fs.writeFileSync(file, SOURCE + '# edited\n');
   await h.diskEvent(fixture.panel, 'change', file);
   await settle();
-  assert.equal(key(), false, 'changed since publishing');
-  // The command says why, plainly, and reveals nothing.
+  assert.equal(offered(file), false, 'changed since publishing');
+  assert.equal(offered(path.join(fixture.root, 'other.py')), true, 'the other cited file is still offered');
+  // The command (from a keybinding the reader made, say) says why, plainly, and reveals nothing.
   await runReveal();
   assert.equal(reveals(fixture.panel).length, 0);
   assert.match(infos().at(-1), /^MLView: source\.py changed after revision r1 was published, so its lines no longer match the diagram\./);
   fs.writeFileSync(file, SOURCE);
   await h.diskEvent(fixture.panel, 'change', file);
   await settle();
-  assert.equal(key(), true, 'restored');
+  assert.equal(offered(file), true, 'restored');
 });
 
-test('unsaved edits that move the cited lines turn the key off (throttled); undoing them turns it on', async () => {
+test('unsaved edits that move the cited lines: the item stays (the list cannot see the buffer) and the command explains in one line', async () => {
   const fixture = await openCited();
   const file = path.join(fixture.root, 'source.py');
   cursor(fixture, 'source.py', 1);
   await settle();
-  assert.equal(key(), true);
   const type = async (text, dirty) => {
     vscode.__setDocument(file, text);
     vscode.__setDirty(file, dirty);
@@ -185,31 +230,27 @@ test('unsaved edits that move the cited lines turn the key off (throttled); undo
     vscode.window.activeTextEditor.document = document;
     for (const listener of [...vscode.__recorded.changeListeners]) listener({ document, contentChanges: [] });
   };
-  // An edit that keeps every cited line where it was: still on.
-  await type(SOURCE.replace('import x', 'import y'), true);
-  await h.sleep(api.CITED_KEY_THROTTLE_MS + 60);
-  await settle();
-  assert.equal(key(), true, 'the quotes are still at the cited lines');
   // Two lines added at the top: no quote is at its cited lines any more.
   await type('# a\n# b\n' + SOURCE, true);
-  assert.equal(key(), true, 'throttled: not at once');
-  await h.sleep(api.CITED_KEY_THROTTLE_MS + 60);
   await settle();
-  assert.equal(key(), false, 'the unsaved text moved the cited lines');
+  assert.equal(offered(file), true);
   await runReveal();
   assert.match(infos().at(-1), /^MLView: the unsaved text of source\.py no longer has the quoted lines where the diagram cites them/);
   assert.equal(reveals(fixture.panel).length, 0);
+  // Undone: the command reveals again (three claims cite line 2: the reader picks the first).
   await type(SOURCE, false);
-  await h.sleep(api.CITED_KEY_THROTTLE_MS + 60);
-  await settle();
-  assert.equal(key(), true, 'undone');
+  vscode.__answerQuickPick(0);
+  await runReveal();
+  assert.equal(reveals(fixture.panel).length, 1);
 });
 
-test('the index and the key follow a new revision', async () => {
+test('the index and the list follow a new revision', async () => {
   const fixture = await openCited();
+  const plainFile = path.join(fixture.root, 'plain.py');
+  const otherFile = path.join(fixture.root, 'other.py');
   cursor(fixture, 'plain.py', 0);
   await settle();
-  assert.equal(key(), false);
+  assert.equal(offered(plainFile), false);
   // Revision r2 cites plain.py instead of other.py.
   const { document, files } = citedDoc({ id: 'r2', parent: 'r1' });
   document.evidence[2] = { id: 'e3', file: 'plain.py', line: 1, endLine: 1, quote: 'pass' };
@@ -218,12 +259,10 @@ test('the index and the key follow a new revision', async () => {
   await h.diskEvent(fixture.panel, 'change', fixture.artifact);
   assert.equal(h.shownRevision(fixture.panel), 'r2');
   await settle();
-  assert.equal(key(), true, 'plain.py is cited by r2');
+  assert.equal(offered(plainFile), true, 'plain.py is cited by r2');
   await runReveal();
   assert.deepEqual(plain(reveals(fixture.panel).at(-1)), { v: 1, type: 'reveal', kind: 'node', id: 'n' });
-  cursor(fixture, 'other.py', 0);
-  await settle();
-  assert.equal(key(), false, 'other.py is no longer cited');
+  assert.equal(offered(otherFile), false, 'other.py is no longer cited');
 });
 
 /* ── the command ─────────────────────────────────────────────────────── */
@@ -297,7 +336,7 @@ test('the parent-folder case: a cited file found only under the folder the notic
   assert.deepEqual(h.lastBanner(fixture.panel).codes, ['root-hint']);
   cursor(fixture, 'copy/source.py', 0);
   await settle();
-  assert.equal(key(), false, 'the diagram is validated against the workspace root, where the file is missing');
+  assert.equal(offered(path.join(fixture.root, 'copy/source.py')), false, 'the diagram is validated against the workspace root, where the file is missing');
   await runReveal();
   assert.equal(infos().at(-1), 'MLView: the diagram cites source.py from the workspace root, where it is missing; this copy in ./copy/ is unchanged. Add that folder to the workspace (the diagram\'s notice offers it), then try again.');
   assert.equal(reveals(fixture.panel).length, 0);
@@ -404,7 +443,7 @@ test('a revision that changes while the reader chooses reveals nothing and says 
   assert.equal(infos().at(-1), 'MLView: the diagram changed to another revision while you were choosing. Run Reveal in Diagram again.');
 });
 
-test('notebook cell editors: a cited cell turns the key on and reveals its claim; another cell offers the nearest; the raw file as text says how', async () => {
+test('notebook cell editors: a cited notebook offers the item in its cells and reveals the claim; another cell offers the nearest; the raw file as text says how', async () => {
   const document = h.workflow('notes.ipynb');
   document.evidence = [{ id: 'e', file: 'notes.ipynb', cell: 1, line: 2, endLine: 3, quote: 'fit()\nsave()' }];
   document.edges[0].evidence = ['e'];
@@ -416,71 +455,86 @@ test('notebook cell editors: a cited cell turns the key on and reveals its claim
   vscode.__setNotebooks([{ path: nb, cells: [{ text: 'a()' }, { text: 'x = 1\nfit()\nsave()' }] }]);
   vscode.__setActiveEditor({ cellOf: nb, cell: 1, viewColumn: 1, selection: [1, 0, 1, 0] });
   await settle();
-  assert.equal(key(), true, 'the cited cell');
+  assert.equal(offered(nb, { cell: true }), true, 'in a cell editor of the cited notebook');
+  assert.equal(offered(nb), true, 'and with the notebook editor\'s own resource');
   vscode.__answerQuickPick(0);
   await runReveal();
   assert.deepEqual(picks()[0].items.map((i) => i.label), ['Step: Fit', 'Connection: Fit → Weights', 'F1 Finding: Unverified output']);
   assert.match(picks()[0].options.placeHolder, /^3 claims cite cell 1, line 2 of notes\.ipynb/);
   assert.deepEqual(plain(reveals(fixture.panel)), [{ v: 1, type: 'reveal', kind: 'node', id: 'n' }]);
-  // Another cell of the same notebook: the file is cited, so the key stays on; the nearest are offered.
+  // Another cell of the same notebook: the file is cited, so the item is offered; the nearest are offered.
   vscode.__setActiveEditor({ cellOf: nb, cell: 0, viewColumn: 1 });
   await settle();
-  assert.equal(key(), true);
   await runReveal();
   assert.equal(picks()[1].options.title, 'Reveal in Diagram: no claim cites cell 0, line 1 of notes.ipynb');
   assert.deepEqual(picks()[1].items.map((i) => i.detail), ['Cited at cell 1, lines 2–3, 1 cell below', 'Cited at cell 1, lines 2–3, 1 cell below', 'Cited at cell 1, lines 2–3, 1 cell below']);
-  // The notebook opened as raw JSON text: the diagram cites it by cell.
+  // The notebook opened as raw JSON text: the item is offered (the list cannot tell the editor's
+  // form), and the command says the diagram cites it by cell.
   cursor(fixture, 'notes.ipynb', 0);
   await settle();
-  assert.equal(key(), false);
   await runReveal();
   assert.equal(infos().at(-1), 'MLView: the diagram cites notes.ipynb by notebook cell. Open it in the notebook editor and use Reveal in Diagram in a cell.');
 });
 
-test('everything goes with the last panel: the editor listeners, the key; the command stays registered', async () => {
+test('the list follows the panels alone: no editor listener, one setContext per change, a panel that throws is skipped', () => {
+  const counts = () => [vscode.__recorded.activeEditorListeners.length, vscode.__recorded.changeListeners.length, vscode.__recorded.notebookChangeListeners.length];
+  const before = counts();
+  const warnings = [];
+  const log = { info() {}, warn: (m) => warnings.push(m), error() {}, debug() {} };
+  let files = ['/repo/a.py'];
+  const panels = [{ citedFiles: () => files }, { citedFiles: () => { throw new Error('gone'); } }];
+  const service = new api.RevealInDiagram(() => panels, log);
+  vscode.__recorded.contexts.delete(KEY);
+  service.panelsChanged();
+  assert.deepEqual(key(), ['/repo/a.py']);
+  assert.deepEqual(counts(), before, 'no editor listener');
+  assert.equal(warnings.length, 1, 'the panel that threw is logged and skipped');
+  vscode.__recorded.contexts.delete(KEY);
+  service.citationsChanged();
+  assert.equal(key(), undefined, 'an unchanged list is not sent again');
+  files = ['/repo/a.py', '/repo/b.py'];
+  service.citationsChanged();
+  assert.deepEqual(key(), ['/repo/a.py', '/repo/b.py']);
+  service.dispose();
+  assert.deepEqual(key(), []);
+});
+
+test('everything goes with the last panel: the list empties; the command stays registered', async () => {
   const fixture = await openCited();
   const { controller, root } = fixture;
   const service = controller.revealer;
-  assert.equal(service.attached, true, 'listening while a panel is open');
   const second = path.join(root, 'second.mlview.json');
   h.writeJson(second, citedDoc().document);
   await controller.open(vscode.Uri.file(second));
   const panel2 = vscode.__recorded.panels.at(-1);
   panel2.fire({ v: 1, type: 'ready' });
   await h.tick();
-  cursor(fixture, 'source.py', 1);
   await settle();
-  assert.equal(key(), true);
-  const listeners = { active: vscode.__recorded.activeEditorListeners.length, text: vscode.__recorded.changeListeners.length, notebook: vscode.__recorded.notebookChangeListeners.length };
+  const sourceFile = path.join(root, 'source.py');
+  assert.equal(offered(sourceFile), true);
   fixture.panel.dispose();
   await settle();
-  assert.equal(service.attached, true, 'one panel is still open');
-  assert.equal(key(), true, 'the second diagram cites the file too');
+  assert.equal(offered(sourceFile), true, 'the second diagram cites the file too');
   panel2.dispose();
   await settle();
-  assert.equal(service.attached, false);
-  assert.equal(key(), false, 'cleared with the last panel');
-  // The service's three listeners, and each panel's own active-editor listeners, are gone.
-  assert.equal(vscode.__recorded.changeListeners.length, listeners.text - 1);
-  assert.equal(vscode.__recorded.notebookChangeListeners.length, listeners.notebook - 1);
-  assert.ok(vscode.__recorded.activeEditorListeners.length <= listeners.active - 3);
-  // An editor change after the last panel changes nothing.
+  assert.deepEqual(key(), [], 'emptied with the last panel');
+  assert.deepEqual(service.citedPaths, []);
+  assert.equal(offered(sourceFile), false);
+  // The list does not depend on the editor: an editor change after the last panel changes nothing.
   cursor(fixture, 'other.py', 0);
   await settle();
-  assert.equal(key(), false);
+  assert.deepEqual(key(), []);
   assert.ok(vscode.__recorded.commands.has('mlview.revealInDiagram'), 'a contributed command stays registered');
   controller.dispose();
   assert.equal(vscode.__recorded.commands.has('mlview.revealInDiagram'), false, 'until the extension is disposed');
 });
 
-test('controller dispose with panels open turns the key off and removes the command', async () => {
+test('controller dispose with panels open empties the list and removes the command', async () => {
   const fixture = await openCited();
-  cursor(fixture, 'source.py', 1);
   await settle();
-  assert.equal(key(), true);
+  assert.equal(offered(path.join(fixture.root, 'source.py')), true);
   fixture.controller.dispose();
   await settle();
-  assert.equal(key(), false);
-  assert.equal(fixture.controller.revealer.attached, false);
+  assert.deepEqual(key(), []);
   assert.equal(vscode.__recorded.commands.has('mlview.revealInDiagram'), false);
 });

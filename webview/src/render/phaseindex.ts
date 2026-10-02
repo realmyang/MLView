@@ -45,8 +45,13 @@ export interface CoveredRect {
   h: number;
 }
 
-/** Panel width, row and head heights, the pill's height and widest size, and the corner margin (CSS px). */
+/**
+ * The panel's narrowest and widest size, row and head heights, the pill's height and widest size,
+ * and the corner margin (CSS px). The panel grows from INDEX_W to fit its longest phase name, up to
+ * INDEX_MAX_W (M3 review, A11Y-M3-5: names were cut at 288 px on a 1440 px canvas).
+ */
 export const INDEX_W = 288;
+export const INDEX_MAX_W = 360;
 export const INDEX_HEAD_H = 26;
 export const INDEX_ROW_H = 24;
 export const INDEX_PAD_Y = 4;
@@ -217,7 +222,10 @@ export class PhaseIndex {
       btn.setAttribute('data-phase-id', row.id);
       stampPhase(btn, row.index);
       add(btn, el('span', 'mlv-phaseindex__num', String(row.index + 1))).setAttribute('aria-hidden', 'true');
-      add(btn, el('span', 'mlv-phaseindex__label', row.label));
+      // The full name on the label's own tooltip (it can still be cut short); the row's tooltip is
+      // the action, so a screen reader does not hear the name twice (M3 review, A11Y-M3-7).
+      const label = add(btn, el('span', 'mlv-phaseindex__label', row.label));
+      label.title = 'Phase ' + (row.index + 1) + ': ' + row.label;
       const cluster = severityCluster(row.counts, 11, findingsWords(row.counts));
       if (cluster) {
         cluster.classList.add('mlv-phaseindex__sev');
@@ -228,7 +236,7 @@ export class PhaseIndex {
       add(btn, el('span', 'mlv-phaseindex__steps', steps(row.steps))).setAttribute('aria-hidden', 'true');
       btn.setAttribute('data-name', 'Phase ' + (row.index + 1) + ' of ' + last + ': ' + row.label + ', ' + steps(row.steps) +
         (countsTotal(row.counts) ? ', ' + findingsWords(row.counts) + ' (' + clusterTitle(row.counts).replace(/^\d+ findings?: /, '') + ')' : ''));
-      btn.title = btn.getAttribute('data-name') + '. Go to this phase.';
+      btn.title = 'Go to this phase';
       on(btn, 'click', (ev: MouseEvent) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -336,7 +344,7 @@ export class PhaseIndex {
   /**
    * The part of the canvas the index covers, in canvas pixels, or null when it is not shown. Read
    * from the boxes on screen when the host lays them out; otherwise (jsdom, before layout) from the
-   * same sizes the stylesheet gives them, the pill at its widest.
+   * same sizes the stylesheet gives them, the panel and the pill at their widest.
    */
   coveredRect(canvasW: number, canvasH: number, canvasLeft = 0, canvasTop = 0): CoveredRect | null {
     if (this.root.hidden || !(canvasW > 0) || !(canvasH > 0)) return null;
@@ -350,14 +358,14 @@ export class PhaseIndex {
       const m = INDEX_MARGIN;
       const listH = INDEX_HEAD_H + this.rowsData.length * INDEX_ROW_H + 2 * INDEX_PAD_Y;
       if (this.root.getAttribute('data-form') === 'list') {
-        const w = Math.min(INDEX_W, canvasW - 2 * m);
+        const w = Math.min(INDEX_MAX_W, canvasW - 2 * m);
         const h = Math.min(listH, canvasH - 2 * m);
         parts.push({ x: canvasW - m - w, y: canvasH - m - h, w, h });
       } else {
         const w = Math.min(PILL_MAX_W, canvasW - 2 * m);
         parts.push({ x: canvasW - m - w, y: canvasH - m - PILL_H, w, h: PILL_H });
         if (this.popover) {
-          const pw = Math.min(INDEX_W, canvasW - 2 * m);
+          const pw = Math.min(INDEX_MAX_W, canvasW - 2 * m);
           const ph = Math.min(listH, Math.max(0, canvasH - 2 * m - PILL_H - POPOVER_GAP));
           parts.push({ x: canvasW - m - pw, y: canvasH - m - PILL_H - POPOVER_GAP - ph, w: pw, h: ph });
         }

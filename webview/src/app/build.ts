@@ -59,8 +59,15 @@ export function buildAppUi(app: App): void {
     onShortcuts: () => app.toggleShortcuts(true),
     // The menu reads the state as it opens (the selection changes without a chrome repaint).
     onMenuOpen: () => renderChrome(app),
-    // Viewer M3: the header's Review button and the ... menu's item start or end the walk.
-    onReview: () => app.walk.toggle(),
+    // Viewer M3: the header's Review button and the ... menu's item start or end the walk. A walk
+    // they start gives the keyboard to the diagram, as "Review affected claims" does, so j and k
+    // step at once instead of reaching a header button (M3 review, A11Y-M3-1). The menu has
+    // already closed (and handed the focus back to its trigger) when this runs.
+    onReview: () => {
+      const wasActive = app.walk.active;
+      app.walk.toggle();
+      if (!wasActive && app.walk.active) focusCanvas(app);
+    },
   }, shell.zoomBar);
 
   // The header is the first thing after the skip link; the ... menu's panel goes on the app root,
@@ -73,6 +80,10 @@ export function buildAppUi(app: App): void {
   // claim in the sheet.
   app.walkBar = new WalkBar({
     onFilter: (filter) => app.walk.setFilter(filter),
+    // Previous and Next: as k and j. The focus stays on the button, so it can be pressed again.
+    onStep: (delta) => {
+      app.walk.step(delta);
+    },
     onExit: () => {
       app.walk.stop();
       focusCanvas(app);

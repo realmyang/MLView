@@ -8,17 +8,20 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'ut
 
 // Viewer M3 (roadmap step 14), changed deliberately: the manifest's one widening, approved by the
 // owner, is a SECOND command, MLView: Reveal in Diagram (the way from the code back to the diagram).
-// It is offered in the editor context menu and the Command Palette only while an open diagram cites
-// the active file (the `mlview.citedFile` context key), has no default keybinding, and adds no
-// activation event, setting, hover, CodeLens or diagnostics.
+// It is offered in the editor context menu and the Command Palette only on a file an open diagram
+// cites, unchanged since publishing (`resourcePath in mlview.citedFiles`, a list the extension keeps
+// of the open panels' cited files, so the renderer can decide for the editor under the pointer at
+// once: M3 review, F1), has no default keybinding, and adds no activation event, setting, hover,
+// CodeLens or diagnostics.
 test('manifest exposes only the authored artifact command, Reveal in Diagram, and the activation path', () => {
   assert.deepEqual(manifest.contributes.commands.map(x => x.command), ['mlview.openGeneratedDiagram', 'mlview.revealInDiagram']);
   const reveal = manifest.contributes.commands.find(x => x.command === 'mlview.revealInDiagram');
   assert.equal(reveal.title, 'Reveal in Diagram');
   assert.equal(reveal.category, 'MLView');
   const gated = (list) => (list || []).filter(x => x.command === 'mlview.revealInDiagram');
-  assert.deepEqual(gated(manifest.contributes.menus['editor/context']).map(x => x.when), ['mlview.citedFile']);
-  assert.deepEqual(gated(manifest.contributes.menus.commandPalette).map(x => x.when), ['mlview.citedFile']);
+  const when = 'resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles';
+  assert.deepEqual(gated(manifest.contributes.menus['editor/context']).map(x => x.when), [when]);
+  assert.deepEqual(gated(manifest.contributes.menus.commandPalette).map(x => x.when), [when]);
   assert.deepEqual(gated(manifest.contributes.menus['editor/title']), []);
   assert.equal(manifest.contributes.keybindings, undefined, 'no default keybinding');
   assert.deepEqual(manifest.activationEvents, [

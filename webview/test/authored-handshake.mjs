@@ -587,7 +587,8 @@ export async function authoredWalkHandshake() {
     // The host's own words replace the viewer's (one quote, so no "Quote 1 of 1").
     await waitFor(() => $(page, '.mlv-walkbar__editortext').textContent === result.message, () => 'the bar did not show the host\'s reason: ' + $(page, '.mlv-walkbar__editortext').textContent + ' / ' + result.message);
     assert.match(result.message, /source\.py/);
-    assert.match(page.window.document.querySelector('.mlv-root > [aria-live]').textContent, /^Not opened: /);
+    // The host's message already says "not opened": it is announced as it is, once (M3 review, A11Y-M3-8).
+    assert.equal(page.window.document.querySelector('.mlv-root > [aria-live]').textContent, result.message);
     process.stdout.write('  PASS  stale revision → "Review affected claims" → blocked by the host, nothing opened, the reason in the bar\n');
   } finally {
     wire.controller.dispose();
@@ -612,9 +613,9 @@ export async function authoredRevealHandshake() {
     const runReveal = () => vscode.__recorded.commands.get('mlview.revealInDiagram')();
     const revealFrames = () => wire.hostPosts.filter((m) => m.type === 'reveal');
     const cursor = (line) => vscode.__setActiveEditor({ path: join(wire.root, 'source.py'), viewColumn: 1, selection: [line, 0, line, 0] });
-    // The context key: on for the cited file.
+    // The context key lists the cited file (M3 review, F1: whatever editor is active).
     cursor(0);
-    await waitFor(() => vscode.__recorded.contexts.get('mlview.citedFile') === true, 'the cited-file key did not turn on');
+    await waitFor(() => (vscode.__recorded.contexts.get('mlview.citedFiles') || []).includes(join(wire.root, 'source.py')), 'the cited-files key does not list source.py');
 
     // Line 1: one claim, the step "Compute loss", revealed at once.
     await runReveal();
@@ -650,9 +651,9 @@ export async function authoredRevealHandshake() {
     const lastLoad = wire.hostPosts.slice(wire.hostPosts.findLastIndex((m) => m.type === 'init')).map((m) => m.type);
     assert.ok(lastLoad.indexOf('workflow') >= 0 && lastLoad.indexOf('reveal') > lastLoad.indexOf('workflow'), 'posted after the document');
 
-    // The last panel closes: the key goes off.
+    // The last panel closes: the list empties.
     wire.panel.dispose();
-    await waitFor(() => vscode.__recorded.contexts.get('mlview.citedFile') === false, 'the key outlived the last panel');
+    await waitFor(() => (vscode.__recorded.contexts.get('mlview.citedFiles') || ['x']).length === 0, 'the list outlived the last panel');
     assert.equal(vscode.__recorded.messages.filter((m) => m[0] === 'warn' || m[0] === 'error').length, 0, 'no notification');
     process.stdout.write('  PASS  Reveal in Diagram → one claim at once, several in a QuickPick → the page selects it with the keyboard on it → a discarded page gets it after ready\n');
   } finally {

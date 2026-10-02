@@ -5,8 +5,10 @@
  *
  * Keyboard: each phase block is one focusable element of a roving group. ↓ / → and ↑ / ← move
  * between blocks, Home and End jump to the first and last, Enter or Space goes to the phase, and
- * Escape or Shift+0 goes back to where the reader was. Tab is never held. Every other key goes on
- * to the canvas, whose handler closes the overview first and then acts (app/keys.ts).
+ * Shift+0 goes back to where the reader was. Escape goes on to the canvas's Escape cascade, which
+ * closes a legend or phase list opened over the overview first and then leaves the overview (M3
+ * review, F5). Tab is never held. Every other key goes on to the canvas, whose handler closes the
+ * overview first and then acts (app/keys.ts).
  *
  * Names: a block is a button named "Phase 2 of 6: Data preparation. 9 steps (1 inferred). 2
  * findings touch this phase. 3 connections to phase 3; 4 connections ahead to phase 5. Enter goes
@@ -232,6 +234,7 @@ export class PhaseOverview {
         if (item.step < 0) {
           row.classList.add('mlv-ovitem--more');
           row.textContent = '… ' + plural(item.more, 'more step', 'more steps');
+          add(row, el('span', 'mlv-sr', '.'));
           continue;
         }
         const step = phase.steps[item.step];
@@ -256,8 +259,13 @@ export class PhaseOverview {
             t.appendChild(glyph);
             add(t, el('span', 'mlv-ovitem__tagid', tag.short));
           }
-          add(row, el('span', 'mlv-sr', ', ' + (step.tags.length === 1 ? 'finding ' : 'findings ') + step.tags.map((t) => t.short).join(' ')));
+          // The tags are drawn for the eye; a screen reader hears the F labels once, in words.
+          tags.setAttribute('aria-hidden', 'true');
+          add(row, el('span', 'mlv-sr', ', ' + (step.tags.length === 1 ? 'finding ' : 'findings ') + step.tags.map((t) => t.short).join(', ')));
         }
+        // A separator after each title, so the block's description does not run them together.
+        if (step.tags.length || !/[.!?…]$/.test(step.title.trim())) add(row, el('span', 'mlv-sr', '. '));
+        else add(row, el('span', 'mlv-sr', ' '));
       }
       on(box, 'click', (ev: MouseEvent) => {
         ev.preventDefault();
@@ -279,7 +287,9 @@ export class PhaseOverview {
     const key = ev.key;
     const n = this.blockEls.length;
     let handled = true;
-    if (key === 'Escape' || key === ')' || (key === '0' && ev.shiftKey)) this.cb.back();
+    // Escape is not handled here: the canvas's cascade (ui/appkeys.ts) closes what is on top of the
+    // overview first (the legend, the phase list) and leaves the overview on the next press.
+    if (key === ')' || (key === '0' && ev.shiftKey)) this.cb.back();
     else if (key === 'ArrowDown' || key === 'ArrowRight') this.focusBlock(Math.min(n - 1, this.active + 1));
     else if (key === 'ArrowUp' || key === 'ArrowLeft') this.focusBlock(Math.max(0, this.active - 1));
     else if (key === 'Home') this.focusBlock(0);

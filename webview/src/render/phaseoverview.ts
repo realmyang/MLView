@@ -192,8 +192,14 @@ export function overviewSummary(input: OverviewInput): string {
     plural(input.totalConnections, 'connection', 'connections') + ': ' + pieces.join(', ') + '.';
 }
 
-/** What the arrows, brackets and marks mean; shown under the counts when there is room. */
-export const OVERVIEW_KEY = 'Arrows join a phase to the next; brackets on the right skip ahead (solid) or go back (dashed). ◌ inferred, ? unresolved.';
+/**
+ * What the arrows, brackets and marks mean, under the counts; it says what a bracket's number counts
+ * (M3 review, A11Y-M3-8). One line at 900 px (at most 127 characters at SUMMARY_CHAR_W). Below
+ * 620 px a shorter key keeps the marks and the brackets explained on screen (the arrows carry their
+ * own "N connections" labels).
+ */
+export const OVERVIEW_KEY = 'Arrows go to the next phase; brackets count connections that skip ahead (solid) or back (dashed). ◌ inferred, ? unresolved.';
+export const OVERVIEW_KEY_NARROW = '◌ inferred, ? unresolved. Brackets count connections that skip ahead (solid) or go back (dashed).';
 
 /** "9 steps (1 inferred, 3 unresolved)": the block's step count with its exceptions. */
 export function blockStepsText(phase: OverviewPhase): string {
@@ -329,7 +335,7 @@ export interface OverviewLayout {
   scrolls: boolean;
   /** One column of blocks with one column of titles (below NARROW_W). */
   narrow: boolean;
-  header: Rect & { lines: number; summary: string; key: string | null };
+  header: Rect & { lines: number; summary: string; key: string };
   blocks: OverviewBlock[];
   arrows: OverviewArrow[];
   brackets: OverviewBracket[];
@@ -379,9 +385,10 @@ export function phaseOverviewLayout(input: OverviewInput, w: number, h: number):
   const twoLineHead = !twoColumns;
   const headH = twoLineHead ? HEAD_H_TWO_LINES : HEAD_H;
 
-  // The header: a title row, then the counts (and, with room, the key), at an estimated line count.
+  // The header: a title row, then the counts and the key (shorter when narrow), at an estimated
+  // line count.
   const summary = overviewSummary(input);
-  const key = narrow ? null : OVERVIEW_KEY;
+  const key = narrow ? OVERVIEW_KEY_NARROW : OVERVIEW_KEY;
   const textW = Math.max(80, viewW - 2 * pad);
   const linesFor = (text: string) => Math.max(1, Math.ceil((text.length * SUMMARY_CHAR_W) / textW));
   const lines = linesFor(summary) + (key ? linesFor(key) : 0);

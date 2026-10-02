@@ -27,8 +27,8 @@ import {
   claimBasis,
   claimLocs,
   claimOrder,
-  FILTER_LABEL,
   filterClaims,
+  filterCountText,
   filterCounts,
   isNotObserved,
   offeredFilters,
@@ -36,6 +36,7 @@ import {
   sameClaim,
   walkAnnouncement,
   walkLocText,
+  walkResultAnnouncement,
   WALK_FILTERS,
 } from '../walk.js';
 import { STALE_TEXT } from '../freshness.js';
@@ -81,8 +82,14 @@ export class ReviewWalk {
   private orderIndex: GraphIndex | null = null;
   /** Every numbered open of this page; the host drops one that is not above the last it saw. */
   private seq = 0;
-  /** The `seq` of the walk's latest open: only its answer is shown. */
+  /**
+   * The `seq` of the walk's latest open: only its answer is shown. Reset to 0 whenever the walk
+   * moves (another claim or quote) before it asks again, so a late answer for the claim it left is
+   * never shown as the current claim's (M3 review, A11Y-M3-4).
+   */
   private latestSeq = 0;
+  /** Whether that open asked VS Code to move the focus to the editor (Alt+Enter). */
+  private latestFocus = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The place the walk resumes from, for `revision` (kept after the walk ends). */
   private remembered: { revision: string; state: WalkViewState } | null = null;
@@ -150,7 +157,10 @@ export class ReviewWalk {
    * Start the walk, or carry on with it (`r`, Review, the ⋯ menu; `u` asks for Not observed and the
    * stale notice for Changed files). Without a filter it resumes the place remembered for this
    * revision, else starts on Not observed (All when no claim is marked inferred or unresolved).
-   * A filter asked for that holds no claim is said, and nothing starts. True when it runs.
+   * A filter asked for resumes the remembered place only when that place was on the same filter;
+   * any other filter starts at its first claim, so "Review affected claims" after a walk elsewhere
+   * never skips the claims before the old place (M3 review, F2). A filter asked for that holds no
+   * claim is said, and nothing starts. True when it runs.
    */
   start(filter?: WalkFilter): boolean {
     const index = this.index();
@@ -179,12 +189,12 @@ export class ReviewWalk {
     if (!wasActive) this.app.openRailForWalk();
     this.filter = next;
     this.list = list;
-    const anchor = saved ? saved.claim : null;
-    this.position = Math.max(0, positionFor(list, anchor, this.claims()));
-    this.quote = saved && sameClaim(saved.claim, this.current()) ? Math.min(saved.quote || 0, Math.max(0, this.currentLocs().length - 1)) : 0;
+    const resume = saved && saved.filter === next ? saved : null;
+    this.position = Math.max(0, positionFor(list, resume ? resume.claim : null, this.claims()));
+    this.quote = resume && sameClaim(resume.claim, this.current()) ? Math.min(resume.quote || 0, Math.max(0, this.currentLocs().length - 1)) : 0;
     this.active = true;
     if (!wasActive) this.app.onWalkShown(true);
-    this.show(true);
+    this.show('open');
     return true;
   }
 
@@ -206,7 +216,10 @@ export class ReviewWalk {
     else this.start();
   }
 
-  /** j / k, ↓ / ↑: the next or previous claim. At either end the walk stays and says so. */
+  /**
+   * j / k, ↓ / ↑ and the bar's Next and Previous (M3 review, A11Y-M3-2): the next or previous
+   * claim. At either end the walk stays and says so.
+   */
   step(delta: number): boolean {
     if (!this.active || !this.list.length) return false;
     const next = Math.max(0, Math.min(this.list.length - 1, this.position + delta));
@@ -218,7 +231,7 @@ export class ReviewWalk {
     }
     this.position = next;
     this.quote = 0;
-    this.show(true);
+    this.show('open');
     return true;
   }
 
@@ -277,11 +290,14 @@ export class ReviewWalk {
     }
     this.position = Math.max(0, this.list.findIndex((claim) => sameClaim(claim, target)));
     this.quote = 0;
-    this.show(true);
+    this.show('open');
     return true;
   }
 
-  /** A filter chosen in the bar. The walk keeps its claim when the new filter holds it. */
+  /**
+   * A filter chosen in the bar. The walk keeps its claim when the new filter holds it, and then
+   * also keeps what the bar says about the editor (M3 review, F4); another claim is opened.
+   */
   setFilter(filter: WalkFilter): void {
     if (!this.active || this.offered().indexOf(filter) < 0) return;
     const before = this.current();
@@ -290,8 +306,9 @@ export class ReviewWalk {
     this.position = Math.max(0, positionFor(this.list, before, this.claims()));
     const same = sameClaim(before, this.current());
     if (!same) this.quote = 0;
-    this.show(!same);
-    this.app.announce(FILTER_LABEL[filter] + ': ' + this.list.length + (this.list.length === 1 ? ' claim. ' : ' claims. ') + this.announcement());
+    this.show(same ? 'keep' : 'open');
+    // "Not observed, 5 claims. Claim 3 of 5: …" or "All 14 claims. Claim 7 of 14: …".
+    this.app.announce(filterCountText(filter, this.list.length) + '. ' + this.announcement());
   }
 
   /** Enter (and an Open link of the current claim): open the current quote again, now. */
@@ -329,8 +346,9 @@ export class ReviewWalk {
     this.position = at;
     this.quote = 0;
     this.cancelTimer();
+    this.latestSeq = 0;
     this.app.bridge.post({ v: 1, type: 'walk', state: 'clear' });
-    this.status = this.statusFor('idle');
+    this.status = this.unansweredStatus('idle');
     this.remember();
     this.render();
   }
@@ -377,26 +395,44 @@ export class ReviewWalk {
     this.quote = sameClaim(saved.claim, this.current()) ? Math.min(saved.quote || 0, Math.max(0, this.currentLocs().length - 1)) : 0;
     this.active = true;
     this.app.onWalkShown(true);
-    this.show(false);
+    this.show('rest');
   }
 
-  /** The host's stale files changed: the Changed files filter follows; the walk keeps its claim. */
+  /**
+   * The host's stale files changed: the Changed files filter follows, and the walk keeps its claim
+   * while the list holds it. When the claim left the list (its file is unchanged again), the walk
+   * is on the next claim of the list: that claim is selected, shown and announced, so the bar
+   * never names a claim that is not on screen and `j` never skips it (M3 review, F3). It is not
+   * opened by itself (the reader may be editing beside the panel); Enter opens it, and the
+   * highlight of the claim it left is cleared. A claim not asked for yet is said again, so a quote
+   * whose file just went stale says why it will not open (F4).
+   */
   onStale(): void {
     if (!this.active) return;
     if (this.offered().indexOf(this.filter) < 0) this.filter = 'all';
     const before = this.current();
     this.list = this.listFor(this.filter);
     this.position = Math.max(0, positionFor(this.list, before, this.claims()));
+    if (!sameClaim(before, this.current())) {
+      this.quote = 0;
+      this.cancelTimer();
+      this.latestSeq = 0;
+      this.app.bridge.post({ v: 1, type: 'walk', state: 'clear' });
+      this.show('rest');
+      return;
+    }
+    if (this.timer !== null) this.status = this.unansweredStatus('opening');
+    else if (this.latestSeq === 0 && (this.status.state === 'idle' || this.status.state === 'blocked')) this.status = this.unansweredStatus('idle');
     this.render();
   }
 
   private onResult(result: ActionResult, seq: number): void {
     if (!this.active || seq !== this.latestSeq || result.outcome === 'cancelled') return;
-    if (result.outcome === 'done') this.status = this.statusFor('done');
+    if (result.outcome === 'done') this.status = this.statusFor('done', undefined, this.latestFocus);
     else {
       const message = result.message || (result.outcome === 'blocked' ? 'Not opened.' : 'VS Code could not show the file.');
       this.status = this.statusFor(result.outcome, message);
-      this.app.announce((result.outcome === 'blocked' ? 'Not opened: ' : 'Failed: ') + message);
+      this.app.announce(walkResultAnnouncement(result.outcome, message));
     }
     this.render();
   }
@@ -408,13 +444,30 @@ export class ReviewWalk {
     this.timer = null;
   }
 
-  private statusFor(state: WalkOpenStatus['state'], message?: string): WalkOpenStatus {
+  private statusFor(state: WalkOpenStatus['state'], message?: string, focusEditor = false): WalkOpenStatus {
     const locs = this.currentLocs();
     const quote = Math.min(this.quote, Math.max(0, locs.length - 1));
     const out: WalkOpenStatus = { state, quote, quotes: locs.length };
     if (locs[quote] && state !== 'none' && state !== 'unavailable') out.loc = locs[quote];
     if (message) out.message = message;
+    if (focusEditor && (state === 'opening' || state === 'done')) out.focusEditor = true;
     return out;
+  }
+
+  /**
+   * What the bar says before the host has answered for the current quote: nothing to open, no way
+   * to open, the viewer's own reason for a file the host already reported stale, or `state`:
+   * `opening` while an open waits for the pause after a step, `idle` ("Enter shows …") for a claim
+   * the walk is on but will not open by itself (a remount, a click, a claim it moved to). Never
+   * "Enter shows" for a quote that Enter would not open (M3 review, F4).
+   */
+  private unansweredStatus(state: 'opening' | 'idle'): WalkOpenStatus {
+    const locs = this.currentLocs();
+    const loc = locs[Math.min(this.quote, locs.length - 1)];
+    if (!locs.length || !loc) return this.statusFor('none');
+    if (!this.app.caps.canOpenSource) return this.statusFor('unavailable');
+    const local = this.localBlock(loc);
+    return local ? this.statusFor('blocked', local) : this.statusFor(state);
   }
 
   /**
@@ -430,14 +483,9 @@ export class ReviewWalk {
   /** After the pause, ask the host for the current quote (or, with none, to clear the highlight). */
   private scheduleOpen(): void {
     this.cancelTimer();
-    const locs = this.currentLocs();
-    const loc = locs[Math.min(this.quote, locs.length - 1)];
-    if (!locs.length || !loc) this.status = this.statusFor('none');
-    else if (!this.app.caps.canOpenSource) this.status = this.statusFor('unavailable');
-    else {
-      const local = this.localBlock(loc);
-      this.status = local ? this.statusFor('blocked', local) : this.statusFor('opening');
-    }
+    // The walk moved: an answer to an earlier open is no longer about what the bar shows.
+    this.latestSeq = 0;
+    this.status = this.unansweredStatus('opening');
     if (this.status.state === 'unavailable') return;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -474,6 +522,7 @@ export class ReviewWalk {
     }
     const seq = ++this.seq;
     this.latestSeq = seq;
+    this.latestFocus = focusEditor;
     // VS Code may tear down a hidden webview when the active editor changes: save first, as every
     // open does (app/actions.ts).
     this.remember();
@@ -484,14 +533,18 @@ export class ReviewWalk {
     if (focusEditor) frame.focus = true;
     this.app.postRequest(frame, (result) => this.onResult(result, seq));
     const local = this.localBlock(loc);
-    this.status = local ? this.statusFor('blocked', local) : this.statusFor('opening');
+    this.status = local ? this.statusFor('blocked', local) : this.statusFor('opening', undefined, focusEditor);
     this.render();
   }
 
   /* ── showing ───────────────────────────────────────────────────────── */
 
-  /** Select and reveal the current claim, announce it, and (`open`) schedule its open. */
-  private show(open: boolean): void {
+  /**
+   * Select and reveal the current claim and announce it. `open`: schedule its open (a step).
+   * `rest`: not asked yet (`unansweredStatus('idle')`). `keep`: the same claim as before, so the bar keeps
+   * what it says about the editor.
+   */
+  private show(mode: 'open' | 'rest' | 'keep'): void {
     const claim = this.current();
     if (!claim) return;
     this.selecting = true;
@@ -500,8 +553,11 @@ export class ReviewWalk {
     } finally {
       this.selecting = false;
     }
-    if (open) this.scheduleOpen();
-    else this.status = this.statusFor(this.currentLocs().length ? (this.app.caps.canOpenSource ? 'idle' : 'unavailable') : 'none');
+    if (mode === 'open') this.scheduleOpen();
+    else if (mode === 'rest') {
+      this.latestSeq = 0;
+      this.status = this.unansweredStatus('idle');
+    }
     this.remember();
     this.render();
     this.app.announce(this.announcement());

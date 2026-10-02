@@ -26,13 +26,22 @@ export type Claim = Sel;
 export type WalkFilter = 'notObserved' | 'findings' | 'changed' | 'all';
 export const WALK_FILTERS: readonly WalkFilter[] = ['notObserved', 'findings', 'changed', 'all'];
 
-/** The walk bar's words for each filter. */
+/**
+ * The walk bar's words for each filter. All names its unit ("All claims 79"), as the other
+ * filters' words already do (M3 review, A11Y-M3-8).
+ */
 export const FILTER_LABEL: Record<WalkFilter, string> = {
   notObserved: 'Not observed',
   findings: 'Findings',
   changed: 'Changed files',
-  all: 'All',
+  all: 'All claims',
 };
+
+/** "Not observed, 7 claims", or "All 79 claims": a filter with its count and the count's unit. */
+export function filterCountText(filter: WalkFilter, n: number): string {
+  const unit = n === 1 ? ' claim' : ' claims';
+  return filter === 'all' ? 'All ' + n + unit : FILTER_LABEL[filter] + ', ' + n + unit;
+}
 
 /** What the live region says for the filter (nothing for All: every claim is in it). */
 const FILTER_SPOKEN: Record<WalkFilter, string> = {
@@ -255,6 +264,11 @@ export type WalkOpenState = 'none' | 'unavailable' | 'idle' | 'opening' | 'done'
 
 export interface WalkOpenStatus {
   state: WalkOpenState;
+  /**
+   * `opening` and `done`: the open asked VS Code to move the keyboard focus to the editor
+   * (Alt+Enter, Alt+click). Absent when the focus stays on the diagram (M3 review, A11Y-M3-3).
+   */
+  focusEditor?: boolean;
   /** The quote the editor is asked for (absent for `none` and `unavailable`). */
   loc?: Loc;
   /** `blocked` and `failed`: the sentence to show, with the reason and that nothing was opened. */
@@ -272,7 +286,7 @@ function quoteOf(s: WalkOpenStatus): string {
 /**
  * The walk bar's editor line: "In the editor beside: train.py · lines 12–14, highlighted. Focus
  * stays here." It claims only what the host answered (VW-10): `opening` says it was asked, and a
- * blocked open says why nothing was opened.
+ * blocked open says why nothing was opened. An open that moved the focus (Alt+Enter) says so.
  */
 export function walkEditorText(s: WalkOpenStatus): string {
   const where = s.loc ? walkLocText(s.loc) + quoteOf(s) : '';
@@ -281,7 +295,7 @@ export function walkEditorText(s: WalkOpenStatus): string {
     case 'unavailable': return 'This view cannot open source files.';
     case 'idle': return 'Enter shows ' + where + ' in the editor beside.';
     case 'opening': return 'Opening in the editor beside: ' + where + '…';
-    case 'done': return 'In the editor beside: ' + where + ', highlighted. Focus stays here.';
+    case 'done': return 'In the editor beside: ' + where + ', highlighted. ' + (s.focusEditor ? 'Focus moved to the editor.' : 'Focus stays here.');
     default: return (s.quotes > 1 ? 'Quote ' + (s.quote + 1) + ' of ' + s.quotes + ': ' : '') + (s.message || 'Not opened.');
   }
 }
@@ -291,9 +305,19 @@ export function walkQuoteText(s: WalkOpenStatus): string {
   switch (s.state) {
     case 'idle': return 'Enter shows these lines in the editor beside.';
     case 'opening': return 'Opening in the editor beside…';
-    case 'done': return 'In the editor beside, highlighted.';
+    case 'done': return s.focusEditor ? 'In the editor beside, highlighted; the focus moved there.' : 'In the editor beside, highlighted.';
     case 'blocked':
     case 'failed': return s.message || 'Not opened.';
     default: return '';
   }
+}
+
+/**
+ * What the live region says for an open the host did not do: its message as it is when it already
+ * says nothing was opened ("…; not opened."), else with "Not opened: " or "Failed: " before it, so
+ * no announcement says "not opened" twice (M3 review, A11Y-M3-8).
+ */
+export function walkResultAnnouncement(outcome: 'blocked' | 'failed', message: string): string {
+  if (/\bnot opened\b/i.test(message)) return message;
+  return (outcome === 'blocked' ? 'Not opened: ' : 'Failed: ') + message;
 }

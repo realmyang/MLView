@@ -60,7 +60,7 @@
       "commandPalette": [
         {
           "command": "mlview.revealInDiagram",
-          "when": "mlview.citedFile"
+          "when": "resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles"
         }
       ],
       "editor/context": [
@@ -71,7 +71,7 @@
         },
         {
           "command": "mlview.revealInDiagram",
-          "when": "mlview.citedFile",
+          "when": "resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles",
           "group": "mlview@1"
         }
       ],

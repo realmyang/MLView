@@ -335,7 +335,10 @@ test('a side panel the reader hid opens to show the claim (as for the walk)', as
 
 for (const [name, opts] of PANELS) {
   for (const [shapeName, shape] of [['vit-cc', VIT_SHAPE], ['yolov5-cc2', YOLO_SHAPE]]) {
-    test(`at ${name}, the ${shapeName} shape: every step and connection revealed from the code is on the canvas, above the sheet and clear of the phase index`, async () => {
+    // M3 review (I2): every connection, not the first 40 (vit-cc has 41, yolov5-cc2 113). A group's
+    // box frames its steps and can be larger than the canvas, so a group is checked as selected
+    // only; every step card is checked on the canvas.
+    test(`at ${name}, the ${shapeName} shape: every step card and every connection revealed from the code is on the canvas, above the sheet and clear of the phase index (groups: selected)`, async () => {
       const document = shapedWorkflow(shape);
       const ctx = await mount(document, { ...opts });
       const failures = [];
@@ -363,7 +366,10 @@ for (const [name, opts] of PANELS) {
           }
         }
         let both = 0;
-        for (const edge of document.edges.slice(0, 40)) {
+        assert.ok(document.edges.length > 40, 'precondition: more connections than the old sweep took');
+        let edgesChecked = 0;
+        for (const edge of document.edges) {
+          edgesChecked++;
           reveal(ctx, 'edge', edge.id);
           const sel = selection(ctx);
           if (!sel || sel.kind !== 'edge' || sel.id !== edge.id) failures.push(`${edge.id}: not selected`);
@@ -385,6 +391,7 @@ for (const [name, opts] of PANELS) {
           const hit = ctx.document.querySelector(`.mlv-edge[data-edge-id="${edge.id}"] .mlv-edge__hit`);
           if (ctx.document.activeElement !== (hit || ctx.canvas)) failures.push(`${edge.id}: not focused`);
         }
+        assert.equal(edgesChecked, document.edges.length, 'every connection was revealed');
         assert.ok(both > 0, 'some connections fit whole');
         for (const finding of document.findings) {
           reveal(ctx, 'issue', finding.id);

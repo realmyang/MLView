@@ -1,12 +1,22 @@
 /**
  * Viewer M3 (roadmap step 14): MLView: Reveal in Diagram, the way from the code back to the diagram.
  *
- * The editor context menu (and the Command Palette) offers the command while an open diagram cites
- * the active editor's file and that file is unchanged: the `mlview.citedFile` context key. Run on a
- * cited line or selection, it finds the claims whose cited lines include it; one is shown at once, a
- * QuickPick lists several, and a place no claim cites offers the nearest claims in the file. The
- * chosen claim is shown in its diagram, and the keyboard focus moves to that panel: the one place
- * the viewer moves the focus by itself, because the reader asked for the diagram.
+ * The editor context menu (and the Command Palette) offers the command on a file an open diagram
+ * cites and that is unchanged since that revision was published: the `when` clause is
+ * `resourcePath in mlview.citedFiles` (with a file or notebook-cell scheme), and the context key
+ * `mlview.citedFiles` lists those files' paths. The list depends only on the open panels and their
+ * validation, so it is set before the reader right-clicks: VS Code's renderer evaluates the clause
+ * against the editor under the pointer at once. (M3 review, F1: a key worked out from the active
+ * editor was still false when a right-click in the editor beside came straight from the diagram,
+ * because the menu was read before the host's `setContext` came back; measured live.) What the
+ * list cannot know (unsaved edits that moved the quoted lines, a notebook opened as text) the
+ * command checks when it runs and explains in one line. A file opened through another path (a
+ * symlinked folder) is matched by the command, but the menu matches the path only.
+ *
+ * Run on a cited line or selection, it finds the claims whose cited lines include it; one is shown
+ * at once, a QuickPick lists several, and a place no claim cites offers the nearest claims in the
+ * file. The chosen claim is shown in its diagram, and the keyboard focus moves to that panel: the
+ * one place the viewer moves the focus by itself, because the reader asked for the diagram.
  *
  * Nothing here reads or interprets code: the claims and their ranges come from the panel's
  * validated document (`CitationIndex`), and a range counts only while the editor's text still has
@@ -20,9 +30,8 @@ import type { Logger } from './log';
 import { splitLines, type StaleReason, type WorkflowEvidence } from './workflowDocument';
 
 export const REVEAL_COMMAND = 'mlview.revealInDiagram';
-export const CITED_FILE_CONTEXT = 'mlview.citedFile';
-/** The context key follows edits to the active file at most this often. */
-export const CITED_KEY_THROTTLE_MS = 150;
+/** The context key: the paths of the cited, unchanged files of every open panel (see `citedPathForms`). */
+export const CITED_FILES_CONTEXT = 'mlview.citedFiles';
 /** At most this many nearest claims are offered for a line no claim cites. */
 export const NEAREST_LIMIT = 30;
 
@@ -56,6 +65,8 @@ export type CitationState =
 export interface RevealPanel {
     /** The displayed revision's title, for the diagram picker. */
     documentTitle(): string;
+    /** The displayed revision's cited files that are unchanged since publishing, as absolute paths on disk. */
+    citedFiles(): readonly string[];
     /** The artifact, relative to its workspace folder. */
     artifactPath(): string;
     citationState(place: EditorPlace): Promise<CitationState>;
@@ -66,8 +77,22 @@ export interface RevealPanel {
     /** Show `ref` of revision `revision` and move the focus to the panel; false when the revision changed. */
     revealClaim(ref: ClaimRef, revision: string): boolean;
 }
-type Timers = { set(callback: () => void, ms: number): ReturnType<typeof setTimeout>; clear(handle: ReturnType<typeof setTimeout>): void };
-const systemTimers: Timers = { set: (callback, ms) => setTimeout(callback, ms), clear: handle => clearTimeout(handle) };
+/**
+ * The spellings VS Code may give `resourcePath` for `fsPath`: the path itself (a text editor, a
+ * notebook editor) and its URI path (`/c:/x/nb.ipynb` on Windows, the path of a notebook cell's
+ * `vscode-notebook-cell` URI), with either case of a drive letter. On macOS and Linux they are one.
+ */
+export function citedPathForms(fsPath: string): string[] {
+    const forms = new Set<string>([fsPath, vscode.Uri.file(fsPath).path]);
+    for (const form of [...forms]) {
+        const drive = /^(\/?)([A-Za-z]):/.exec(form);
+        if (drive) {
+            forms.add(drive[1] + drive[2]!.toLowerCase() + form.slice(drive[0].length - 1));
+            forms.add(drive[1] + drive[2]!.toUpperCase() + form.slice(drive[0].length - 1));
+        }
+    }
+    return [...forms];
+}
 
 /** The selection's lines, one-based. A selection that ends at the start of a line leaves that line out. */
 export function selectionLines(selection: { start: vscode.Position; end: vscode.Position }): { start: number; end: number } {
@@ -123,115 +148,60 @@ function placeText(place: EditorPlace): string {
 type ClaimItem = vscode.QuickPickItem & { ref: ClaimRef };
 type PanelItem = vscode.QuickPickItem & { index: number };
 export class RevealInDiagram implements vscode.Disposable {
-    /** The editor listeners; they exist only while a panel is open. */
-    private listeners: vscode.Disposable[] = [];
     private command: vscode.Disposable | undefined;
-    private keyValue: boolean | undefined;
-    private updates = 0;
-    private timer: ReturnType<typeof setTimeout> | undefined;
+    /** The list last sent with `setContext`, joined; undefined before the first. */
+    private keyValue: string | undefined;
     private disposed = false;
-    constructor(private readonly panels: () => readonly RevealPanel[], private readonly log: Logger, private readonly timers: Timers = systemTimers) { }
-    /** Register the command (always: VS Code needs a contributed command to exist) and start with the key off. */
+    constructor(private readonly panels: () => readonly RevealPanel[], private readonly log: Logger) { }
+    /** Register the command (always: VS Code needs a contributed command to exist) and start with an empty list. */
     register(): vscode.Disposable {
         this.command = vscode.commands.registerCommand(REVEAL_COMMAND, () => this.run());
-        // A restarted extension host may find the key the previous one left on.
-        this.setKey(false);
+        // A restarted extension host may find the list the previous one left.
+        this.setKey([]);
         return this.command;
     }
-    /** A panel opened or closed. The listeners exist while a panel does; the last one turns the key off. */
+    /** A panel opened or closed: the list follows; the last one empties it. */
     panelsChanged(): void {
+        this.update();
+    }
+    /** A panel validated again (a new revision, a changed or restored file, a folder change): the list follows. */
+    citationsChanged(): void {
+        this.update();
+    }
+    /** The paths in the context key now (tests). */
+    get citedPaths(): readonly string[] {
+        return this.keyValue ? this.keyValue.split('\u0000') : [];
+    }
+    /**
+     * Set the key to the cited, unchanged files of every open panel, in every spelling VS Code may
+     * give `resourcePath` (`citedPathForms`). It is sent only when the list changed. No editor
+     * listener is needed: the list does not depend on the active editor.
+     */
+    update(): void {
         if (this.disposed)
             return;
-        if (this.panels().length) {
-            this.attach();
-            void this.update();
+        const paths = new Set<string>();
+        for (const panel of this.panels()) {
+            let files: readonly string[];
+            try {
+                files = panel.citedFiles();
+            }
+            catch (error) {
+                this.log.warn(`could not list the cited files: ${error instanceof Error ? error.message : String(error)}`);
+                continue;
+            }
+            for (const file of files)
+                for (const form of citedPathForms(file))
+                    paths.add(form);
         }
-        else
-            this.detach();
+        this.setKey([...paths].sort());
     }
-    /** A panel validated again (a new revision, a changed or restored file): the key follows. */
-    citationsChanged(): void {
-        if (!this.disposed && this.listeners.length)
-            void this.update();
-    }
-    /** Whether the editor listeners are live (tests). */
-    get attached(): boolean {
-        return this.listeners.length > 0;
-    }
-    private attach(): void {
-        if (this.listeners.length)
-            return;
-        const activeText = (document: vscode.TextDocument): boolean => vscode.window.activeTextEditor?.document === document;
-        const activeNotebook = (notebook: vscode.NotebookDocument): boolean => {
-            const document = vscode.window.activeTextEditor?.document;
-            return !!document && document.uri.scheme === 'vscode-notebook-cell' && notebook.getCells().some(cell => cell.document === document);
-        };
-        this.listeners = [
-            vscode.window.onDidChangeActiveTextEditor(() => { void this.update(); }),
-            // Typing (or saving, or undoing back to the saved text) in the active file can move or
-            // restore the cited lines.
-            vscode.workspace.onDidChangeTextDocument(event => { if (activeText(event.document)) this.scheduleUpdate(); }),
-            vscode.workspace.onDidChangeNotebookDocument(event => { if (activeNotebook(event.notebook)) this.scheduleUpdate(); })
-        ];
-    }
-    private detach(): void {
-        for (const listener of this.listeners.splice(0))
-            listener.dispose();
-        this.cancelTimer();
-        this.updates++;
-        this.setKey(false);
-    }
-    private scheduleUpdate(): void {
-        if (this.timer !== undefined)
-            return;
-        this.timer = this.timers.set(() => {
-            this.timer = undefined;
-            void this.update();
-        }, CITED_KEY_THROTTLE_MS);
-    }
-    private cancelTimer(): void {
-        if (this.timer !== undefined) {
-            this.timers.clear(this.timer);
-            this.timer = undefined;
-        }
-    }
-    private setKey(value: boolean): void {
+    private setKey(paths: string[]): void {
+        const value = paths.join('\u0000');
         if (this.keyValue === value)
             return;
         this.keyValue = value;
-        void Promise.resolve(vscode.commands.executeCommand('setContext', CITED_FILE_CONTEXT, value)).catch((error: unknown) => this.log.warn(`could not set ${CITED_FILE_CONTEXT}: ${error instanceof Error ? error.message : String(error)}`));
-    }
-    /**
-     * Compute the key for the active editor: on while some open panel cites its file, the file is
-     * unchanged since that revision was published, and at least one cited range still has its quote
-     * at the cited lines of the editor's text. Only the latest computation sets it.
-     */
-    async update(): Promise<void> {
-        const seq = ++this.updates;
-        const editor = vscode.window.activeTextEditor;
-        const place = editor ? editorPlace(editor) : undefined;
-        let cited = false;
-        if (place) {
-            for (const panel of this.panels()) {
-                let state: CitationState;
-                try {
-                    state = await panel.citationState(place);
-                }
-                catch (error) {
-                    this.log.warn(`could not look up the cited files: ${error instanceof Error ? error.message : String(error)}`);
-                    continue;
-                }
-                if (seq !== this.updates)
-                    return;
-                if (state.kind === 'cited') {
-                    cited = true;
-                    break;
-                }
-            }
-        }
-        if (seq !== this.updates || this.disposed || !this.listeners.length)
-            return;
-        this.setKey(cited);
+        void Promise.resolve(vscode.commands.executeCommand('setContext', CITED_FILES_CONTEXT, paths)).catch((error: unknown) => this.log.warn(`could not set ${CITED_FILES_CONTEXT}: ${error instanceof Error ? error.message : String(error)}`));
     }
     /** MLView: Reveal in Diagram. */
     async run(): Promise<void> {
@@ -323,7 +293,7 @@ export class RevealInDiagram implements vscode.Disposable {
     dispose(): void {
         if (this.disposed)
             return;
-        this.detach();
+        this.setKey([]);
         this.disposed = true;
         this.command?.dispose();
         this.command = undefined;

@@ -35,7 +35,7 @@ function source() {
           "export { normalizeWorkflow } from './workflow.ts';",
           "export { GraphIndex } from './layout/model.ts';",
           "export * from './render/phaseoverview.ts';",
-          "export { phasesInView, INDEX_W, INDEX_MARGIN, PILL_H, PILL_MAX_W } from './render/phaseindex.ts';",
+          "export { phasesInView, INDEX_W, INDEX_MAX_W, INDEX_MARGIN, PILL_H, PILL_MAX_W } from './render/phaseindex.ts';",
           "export { phasePlan, clearOf, rectsOverlap, VIEW_ANIMATION_MS, READABLE_ZOOM } from './render/canvas.ts';",
           "export { blockName } from './ui/overview.ts';",
         ].join('\n'),
@@ -211,7 +211,12 @@ for (const [name, shape, phases, steps] of [['vit-cc', VIT_SHAPE, 6, 31], ['yolo
       }
       assert.equal(L.header.summary, m.overviewSummary(input));
       assert.match(L.header.summary, new RegExp(`^${phases} phases · ${steps} steps · \\d+ connections: \\d+ inside a phase, \\d+ to the next phase, \\d+ (skip ahead or go back|skips ahead or goes back)\\.$`));
-      assert.equal(L.header.key === null, narrow, `${label}: the key is shown when there is room`);
+      // M3 review (A11Y-M3-8): a key at every width, shorter below 620 px, so ◌, ? and the
+      // brackets are explained on screen beside the code too; it says what a bracket's number counts.
+      assert.equal(L.header.key, narrow ? m.OVERVIEW_KEY_NARROW : m.OVERVIEW_KEY, `${label}: the key`);
+      assert.match(L.header.key, /◌ inferred, \? unresolved/);
+      assert.match(L.header.key, /brackets count connections that skip ahead \(solid\) or (go )?back \(dashed\)/i);
+      if (!narrow) assert.ok(L.header.key.length * m.SUMMARY_CHAR_W <= w - 2 * m.PAD, `${label}: the key is one line`);
     }
   });
 }
@@ -508,6 +513,101 @@ test('overview keys: arrows, Home and End move between blocks and never move the
   }
 });
 
+test('M3 review F5: a legend opened over the overview closes on the first Escape, the overview on the second, as the cascade says', async () => {
+  const ctx = await mount(shapedWorkflow(VIT_SHAPE));
+  try {
+    shiftZero(ctx);
+    const block = ctx.document.activeElement;
+    assert.ok(block.classList.contains('mlv-ovblock'), 'precondition: a block has the focus');
+    press(ctx, 'l');
+    assert.equal(ctx.app.legendOpen, true, 'l opens the legend over the overview');
+    assert.equal(ctx.app.view.overviewOpen, true);
+    assert.equal(ctx.document.activeElement, block, 'the focus is still on the block');
+    let ev = press(ctx, 'Escape');
+    assert.equal(ev.defaultPrevented, true);
+    assert.equal(ctx.app.legendOpen, false, 'the first Escape closes the legend, which is on top');
+    assert.equal(ctx.app.view.overviewOpen, true, 'and leaves the overview open');
+    ev = press(ctx, 'Escape');
+    assert.equal(ev.defaultPrevented, true);
+    assert.equal(ctx.app.view.overviewOpen, false, 'the second Escape leaves the overview');
+    // While the walk runs, Escape on a block still leaves the overview first and ends the walk next.
+    press(ctx, 'r', {}, ctx.canvas);
+    assert.equal(ctx.app.walk.active, true);
+    shiftZero(ctx, ctx.canvas);
+    press(ctx, 'Escape');
+    assert.equal(ctx.app.view.overviewOpen, false);
+    assert.equal(ctx.app.walk.active, true, 'one Escape, one rung: the walk is still running');
+    press(ctx, 'Escape', {}, ctx.canvas);
+    assert.equal(ctx.app.walk.active, false);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('M3 review A11Y-M3-7: a block\'s description says each F label once and separates the titles; a phase index row\'s tooltip is the action, not its name again', async () => {
+  const ctx = await mount(shapedWorkflow(VIT_SHAPE), { width: 1440, bodyH: 2400 });
+  try {
+    shiftZero(ctx);
+    const tagged = $$(ctx, '.mlv-ovitem[data-node-ref]').filter((li) => li.querySelector('.mlv-ovitem__tags'));
+    assert.ok(tagged.length > 0, 'some title carries a finding label');
+    // What a screen reader reads: the text outside aria-hidden.
+    const spoken = (node) => {
+      if (node.nodeType === 3) return node.textContent;
+      if (node.nodeType !== 1 || node.getAttribute('aria-hidden') === 'true') return '';
+      return Array.from(node.childNodes).map(spoken).join('');
+    };
+    for (const li of tagged) {
+      const text = spoken(li);
+      for (const tag of li.querySelectorAll('.mlv-ovitem__tagid')) {
+        const label = tag.textContent;
+        assert.equal(text.split(label).length - 1, 1, `${label} is read once in "${text}"`);
+      }
+      assert.match(text, /, findings? F\d+(, F\d+)*\. $/, 'ends with the labels in words and a separator');
+    }
+    for (const block of $$(ctx, '.mlv-ovblock')) {
+      const list = $(ctx, '#' + block.getAttribute('aria-describedby'));
+      const text = spoken(list);
+      assert.doesNotMatch(text, /[a-z0-9)]\s*[A-Z][a-z]+ \(cell/, 'no two titles run together');
+      for (const li of list.children) assert.match(spoken(li), /[.] ?$/, 'each row ends with a separator');
+    }
+    shiftZero(ctx);
+    // The phase index: the name is the row's accessible name; its tooltip is the action only, and
+    // the full name is on the label, which can still be cut short.
+    for (const row of $$(ctx, '.mlv-phaseindex__row')) {
+      assert.equal(row.title, 'Go to this phase');
+      const label = row.querySelector('.mlv-phaseindex__label');
+      assert.equal(label.title, `Phase ${row.querySelector('.mlv-phaseindex__num').textContent}: ${label.textContent}`);
+      assert.doesNotMatch(row.title, new RegExp(label.textContent));
+    }
+    // The header's Review toggle keeps one name; aria-pressed carries the state.
+    const review = $(ctx, '.mlv-header__review');
+    assert.equal(review.getAttribute('aria-label'), 'Review the claims');
+    press(ctx, 'r', {}, ctx.canvas);
+    assert.equal(review.getAttribute('aria-pressed'), 'true');
+    assert.equal(review.getAttribute('aria-label'), 'Review the claims');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('M3 review A11Y-M3-5: the phase index panel grows to fit its longest name, from 288 px up to 360 px; the jsdom fallback covers the widest', async () => {
+  const m = await source();
+  assert.equal(m.INDEX_W, 288);
+  assert.equal(m.INDEX_MAX_W, 360);
+  const rule = /\.mlv-phaseindex__panel\{([^}]*)\}/.exec(CSS);
+  assert.ok(rule, 'the panel rule is in the shipped stylesheet');
+  assert.match(rule[1], /width:max-content/);
+  assert.match(rule[1], /min-width:min\(288px,100%\)/);
+  assert.match(rule[1], /max-width:min\(360px,100%\)/);
+  const ctx = await mount(shapedWorkflow(VIT_SHAPE), { width: 1440, bodyH: 842 });
+  try {
+    const covered = ctx.app.view.viewport.covered();
+    assert.equal(Math.round(covered.w), 360, 'jsdom lays nothing out: the panel is taken at its widest');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
 test('Enter on a block animates to that phase at reading size in about 240 ms, focus on the canvas; the next arrow starts at its first step', async () => {
   const { VIEW_ANIMATION_MS } = await source();
   const ctx = await mount(shapedWorkflow(VIT_SHAPE));
@@ -640,7 +740,8 @@ test('overview names: each block is a button named by its phase, counts and conn
       const more = rows.find((li) => li.classList.contains('mlv-ovitem--more'));
       if (more) {
         assert.equal(rows[rows.length - 1], more, 'the count is the last row');
-        counted += Number(/^… (\d+) more steps?$/.exec(more.textContent)[1]);
+        // The row ends with a screen-reader full stop (M3 review, A11Y-M3-7).
+        counted += Number(/^… (\d+) more steps?\.$/.exec(more.textContent)[1]);
       }
       for (const li of rows) assert.ok(parseFloat(li.style.width) >= 200, 'a title row is at least 200 px wide at 541 px');
     }
@@ -675,7 +776,7 @@ test('overview marks: ◌ (a drawn dotted ring) for inferred, ? for unresolved, 
     }
     const key = $(ctx, '.mlv-overview__key');
     assert.ok(key.querySelector('.mlv-ovmark'));
-    assert.equal(key.textContent, 'Arrows join a phase to the next; brackets on the right skip ahead (solid) or go back (dashed).  inferred, ? unresolved.');
+    assert.equal(key.textContent, 'Arrows go to the next phase; brackets count connections that skip ahead (solid) or back (dashed).  inferred, ? unresolved.');
     assert.match(CSS, /\.mlv-ovmark\{[^}]*border:1\.5px dotted currentColor/);
   } finally {
     ctx.app.destroy();

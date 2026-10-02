@@ -37,4 +37,4 @@ export {
   REVEAL_REPLAY_MS
 } from './authoredPanel';
 export { CitationIndex, claimsAt, nearestClaims, claimPickText, pickText, linesText } from './citationIndex';
-export { RevealInDiagram, editorPlace, selectionLines, REVEAL_COMMAND, CITED_FILE_CONTEXT, CITED_KEY_THROTTLE_MS, NEAREST_LIMIT } from './revealCommand';
+export { RevealInDiagram, editorPlace, selectionLines, citedPathForms, REVEAL_COMMAND, CITED_FILES_CONTEXT, NEAREST_LIMIT } from './revealCommand';
