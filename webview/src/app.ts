@@ -114,6 +114,13 @@ export interface SelectOptions {
   showClaim?: boolean;
   center?: boolean;
   tab?: RailTab;
+  /**
+   * Viewer M2 review (M2-INT-1): the selection was made from the Findings list or the Outline (a
+   * row, Space, Enter, or `n` / `p` walking the findings). That list keeps its place while it is on
+   * screen, with the selection marked in it. Every other selection (the canvas, search, a link in
+   * the Selection pane, the host) shows the claim in the Selection tab, as in viewer M1.
+   */
+  fromList?: 'issues' | 'outline';
   pulse?: boolean;
   /**
    * A selection made from the rail (issue 6): below the detail threshold the
@@ -224,10 +231,13 @@ export class App implements MLViewApp {
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.onResize()));
     // Viewer M2: Ctrl/Cmd+F and Ctrl/Cmd+K focus the search from anywhere in the viewer, not only
-    // from the canvas (whose keymap answers them first and marks the event handled).
+    // from the canvas (whose keymap answers them first and marks the event handled). Viewer M2
+    // review (M2R-9): not from inside a modal surface (the shortcut sheet, the Refine… popover),
+    // whose focus trap would otherwise lose the focus to a field behind it while it stays open.
     this.disposers.push(on(root, 'keydown', (ev: KeyboardEvent) => {
       if (ev.defaultPrevented || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
       if (ev.key !== 'f' && ev.key !== 'F' && ev.key !== 'k' && ev.key !== 'K') return;
+      if (this.modalOpen(ev.target)) return;
       ev.preventDefault();
       this.focusSearch();
     }));
@@ -302,6 +312,17 @@ export class App implements MLViewApp {
       }
     }
     this.announce(opts.at === 'limitations' ? 'About: the coverage limitations.' : 'About this revision shown.');
+  }
+
+  /**
+   * A modal surface is open, or `target` is inside one: the `?` shortcut sheet or the Refine…
+   * popover (both keep Tab inside themselves). Viewer-wide keys leave the focus where it is then.
+   */
+  modalOpen(target?: EventTarget | null): boolean {
+    if (this.sheet && this.sheet.open) return true;
+    if (composerOpen(this)) return true;
+    const element = target as HTMLElement | null;
+    return !!element && typeof element.closest === 'function' && !!element.closest('.mlv-sheet, .mlv-workflow__composer');
   }
 
   /** Escape's rung for the Refine… popover, the one panel left that opens from the header. */
@@ -489,9 +510,22 @@ export class App implements MLViewApp {
     return true;
   }
 
+  /**
+   * Viewer M2 review (M2R-10): the largest share of the body the open sheet can take. The
+   * stylesheet keeps the canvas at least `min(240px, 45%)` tall, so on a short panel the cap is
+   * under SHEET_FRACTION_MAX (0.68 at 541x798); an unmeasurable body keeps SHEET_FRACTION_MAX.
+   */
+  sheetFractionMax(): number {
+    const body = this.root.querySelector('.mlv-body');
+    const height = body ? body.getBoundingClientRect().height : 0;
+    if (!(height > 0)) return SHEET_FRACTION_MAX;
+    const floor = Math.min(240, 0.45 * height);
+    return Math.max(SHEET_FRACTION_MIN, Math.min(SHEET_FRACTION_MAX, (height - floor) / height));
+  }
+
   /** Viewer M2: the drag handle (or its arrow keys) sets the open sheet's height. */
   setSheetFraction(fraction: number): void {
-    const next = Math.max(SHEET_FRACTION_MIN, Math.min(SHEET_FRACTION_MAX, fraction));
+    const next = Math.max(SHEET_FRACTION_MIN, Math.min(this.sheetFractionMax(), fraction));
     if (Math.abs(next - this.sheetFraction) < 0.001) return;
     this.sheetFraction = next;
     this.rail.setSheetFraction(next);
@@ -629,9 +663,9 @@ export class App implements MLViewApp {
   select(sel: Sel, opts?: SelectOptions): void {
     if (sel.kind !== 'edge') this.edgeAnchor = null;
     this.selection = sel;
-    // Viewer M2: a selection shows its claim in the Selection tab, unless the reader is working in
-    // the Findings list or the Outline (a list they are walking keeps its place).
-    this.railTab = opts && opts.tab ? opts.tab : this.selectionTab();
+    // Viewer M2: a selection shows its claim in the Selection tab, unless it was made from the
+    // Findings list or the Outline on screen (a list the reader is walking keeps its place).
+    this.railTab = opts && opts.tab ? opts.tab : this.selectionTab(opts && opts.fromList);
     let openedRail = false;
     if (sel.kind === 'issue') openedRail = this.showRailForFinding();
     if (opts && opts.showClaim) openedRail = this.showRailForClaim() || openedRail;
@@ -655,7 +689,13 @@ export class App implements MLViewApp {
    * Viewer M2: a collapsed bottom sheet opens on every such selection; Escape collapses it again.
    */
   private showRailForClaim(): boolean {
-    if (this.railOpen) return false;
+    // Viewer M2 review (M2R-5): a claim shown in the open rail means the reader is using it, so the
+    // width rule keeps it open when the panel narrows into the bottom sheet (Enter opening the
+    // source beside it is what narrows the panel).
+    if (this.railOpen) {
+      this.railChosen = true;
+      return false;
+    }
     if (this.railMode === 'docked' && this.railChosen) return false;
     this.railChosen = true;
     this.setRailOpen(true);
@@ -663,13 +703,12 @@ export class App implements MLViewApp {
   }
 
   /**
-   * Viewer M2: the tab a new selection shows. The Selection tab, unless the reader is in the
-   * Findings list or the Outline with the rail on screen: selecting from (or beside) a list they are
-   * walking keeps that list, where the selection is marked.
+   * Viewer M2: the tab a new selection shows. The Selection tab, unless the selection was made from
+   * the Findings list or the Outline while that list is the tab on screen: then the list keeps its
+   * place and marks the selection (a finding expands in the Findings list).
    */
-  private selectionTab(): RailTab {
-    const inList = this.railTab === 'issues' || this.railTab === 'outline';
-    return inList && this.railShown() ? this.railTab : 'inspector';
+  private selectionTab(fromList?: 'issues' | 'outline'): RailTab {
+    return fromList && this.railTab === fromList && this.railShown() ? fromList : 'inspector';
   }
 
   clearSelection(): void {
@@ -720,7 +759,8 @@ export class App implements MLViewApp {
       if (label) this.announce('Selected ' + label);
     } else if (sel.kind === 'issue') {
       const issue = this.index.issueById.get(sel.id);
-      if (issue) this.announce('Finding ' + issue.code + ', ' + issue.severity + ' severity: ' + issue.title);
+      // Viewer M2 review (A11Y-10): the F label the badge and the list print first, the real id after.
+      if (issue) this.announce('Finding ' + (issue.short ? issue.short + ' (' + issue.code + ')' : issue.code) + ', ' + issue.severity + ' severity: ' + issue.title);
     }
   }
 
@@ -748,10 +788,10 @@ export class App implements MLViewApp {
     if (!this.index) return;
     const roots = this.index.roots(laneId);
     if (!roots.length) {
-      this.announce('That stage has no nodes.');
+      this.announce('That phase has no steps.');
       return;
     }
-    this.select({ kind: 'node', id: roots[0] }, { center: true, pulse: true });
+    this.select({ kind: 'node', id: roots[0] }, { center: true, pulse: true, fromList: 'outline' });
   }
 
   zoomToSelection(): void {
@@ -763,8 +803,12 @@ export class App implements MLViewApp {
     this.liveEl.textContent = text;
   }
 
+  /**
+   * A search result was chosen. Viewer M2 review (M2R-3): it shows the claim, as a canvas click
+   * does: the Selection tab, and a collapsed bottom sheet opens (a finding opens the rail anyway).
+   */
   activateHit(hit: SearchHit): void {
-    if (hit.kind === 'node') this.focusNode(hit.id, { center: true, pulse: true });
+    if (hit.kind === 'node') this.focusNode(hit.id, { center: true, pulse: true, showClaim: true });
     else this.focusIssue(hit.id);
   }
 
@@ -778,7 +822,7 @@ export class App implements MLViewApp {
 
   /* ── public API ────────────────────────────────────────────────────── */
 
-  focusNode(id: string, opts?: { center?: boolean; pulse?: boolean }): void {
+  focusNode(id: string, opts?: { center?: boolean; pulse?: boolean; showClaim?: boolean }): void {
     if (!this.index) return;
     if (!this.index.nodeById.has(id)) {
       this.view.toast('Node not found in this graph');
@@ -787,16 +831,17 @@ export class App implements MLViewApp {
     this.view.expandAncestors(id);
     this.select(
       { kind: 'node', id },
-      { center: opts ? opts.center !== false : true, pulse: opts ? !!opts.pulse : false },
+      { center: opts ? opts.center !== false : true, pulse: opts ? !!opts.pulse : false, showClaim: !!(opts && opts.showClaim) },
     );
   }
 
-  focusIssue(id: string): void {
+  /** Select a finding and frame what it cites. `fromList`: chosen in the Findings list, or walked with `n` / `p`. */
+  focusIssue(id: string, opts?: { fromList?: 'issues' }): void {
     if (!this.index) return;
     const issue = this.index.issueById.get(id);
     if (!issue) return;
     for (const nodeId of issue.nodeIds) this.view.expandAncestors(nodeId);
-    this.select({ kind: 'issue', id });
+    this.select({ kind: 'issue', id }, { fromList: opts && opts.fromList });
     // Issue 6; viewer M2: the canvas frames EVERY step the finding cites (and the ends of the
     // connections it cites), zooming to READABLE_ZOOM below the detail threshold, so a finding on
     // three steps no longer shows only the first.
@@ -805,7 +850,7 @@ export class App implements MLViewApp {
 
   /** Viewer M1: Enter (or a double-click) on a finding row selects it and opens its first cited range. */
   openIssue(id: string, focusEditor = false): void {
-    this.focusIssue(id);
+    this.focusIssue(id, { fromList: 'issues' });
     if (!this.selection || this.selection.kind !== 'issue' || this.selection.id !== id) return;
     const loc = this.locOf({ kind: 'issue', id });
     if (loc) this.openLocation(loc, focusEditor);

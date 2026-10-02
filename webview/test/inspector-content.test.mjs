@@ -442,7 +442,12 @@ test('notebook cells are counted from 0 everywhere, as the evidence records them
   const ctx = await mount(notebook);
   try {
     assert.equal(card(ctx, 'crit').querySelector('.mlv-node__title').textContent.includes('(cell 34)'), true, 'the author\'s label is untouched');
-    assert.equal(card(ctx, 'crit').querySelector('.mlv-node__loc').textContent, 'train.ipynb › cell 34, line 2');
+    // Viewer M2 review (A11Y-6): a card with a detail draws two lines of it where the file:line row
+    // was; the place stays in its name and the Selection pane, counted from 0. One without a
+    // detail keeps the row.
+    assert.equal(card(ctx, 'crit').querySelector('.mlv-node__loc'), null);
+    assert.equal(card(ctx, 'crit').querySelector('.mlv-node__sub').getAttribute('data-lines'), '2');
+    assert.equal(card(ctx, 'opt').querySelector('.mlv-node__loc').textContent, 'train.py:30');
     assert.match(card(ctx, 'crit').getAttribute('aria-label'), /train\.ipynb cell 34 line 2/);
 
     clickCard(ctx, 'crit');

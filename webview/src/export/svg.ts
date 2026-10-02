@@ -35,7 +35,7 @@ import { locParts } from '../notebook.js';
 import { kindPath, nodeGlyphKind } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { ARROW_HEAD } from '../render/edges.js';
-import { ariaLabelFor, basisTagText, cardSubline, phaseFindingsText, stepsText } from '../render/nodes.js';
+import { ariaLabelFor, basisTagText, cardDetailLines, cardSubline, phaseFindingsText, stepsText } from '../render/nodes.js';
 import {
   WEIGHT_BADGE_H,
   WEIGHT_MIN,
@@ -46,7 +46,6 @@ import {
 } from '../render/weight.js';
 import { phaseColor, severityColor, Palette } from './palette.js';
 import {
-  ADVANCE_CAPS,
   EXPORT_MONO,
   EXPORT_SANS,
   badge,
@@ -77,12 +76,6 @@ import type { IssueCounts, MLNode, ThemeKind } from '../types.js';
 
 /* ── the regions (VIEW-07) ──────────────────────────────────────────────── */
 
-/**
- * `diagram` is every lane and card at natural size, the one region the ... menu exports since
- * viewer M2; `view` is the visible canvas rectangle. The scope region went with the scope picker.
- */
-export type ExportRegionKind = 'view' | 'diagram';
-
 /* ── geometry, transcribed from styles/node.css and styles/canvas.css ───── */
 
 const CARD_R = 10;
@@ -98,7 +91,10 @@ const FS_TITLE = 13;
 const FS_SUB = 11;
 const FS_LOC = 10.5;
 const FS_CHIP = 10.5;
-const FS_LANE = 11;
+/** Viewer M2 review (A11Y-11): the lane heading at the card title's size. */
+const FS_LANE = 13;
+/** The lane heading's plate: the text colour over the surface at this share (canvas.css). */
+const LANE_PLATE_TINT = 0.05;
 const FS_COUNT = 10.5;
 const FS_GROUP = 12;
 const FS_EDGE_LABEL = 10;
@@ -142,7 +138,6 @@ export interface ExportSvgOptions {
   theme: ThemeKind;
   /** World-space rectangle to emit. Anything not intersecting it is dropped. */
   region: Rect;
-  regionKind: ExportRegionKind;
   /** `<title>` — what a screen reader and a browser tab call the picture. */
   title: string;
   /** `<desc>` — provenance, so a pasted SVG still says where it came from. */
@@ -154,7 +149,6 @@ export interface ExportSvgResult {
   width: number;
   height: number;
   region: Rect;
-  regionKind: ExportRegionKind;
   /** Node ids that got a `<g data-node-id>`, in emission order. */
   nodeIds: string[];
   /** Route ids that got a `<path data-edge-id>`, in emission order. */
@@ -245,8 +239,7 @@ export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
   const head =
     '<svg xmlns="' + SVG_NS + '" width="' + num(region.w) + '" height="' + num(region.h) +
     '" viewBox="' + num(region.x) + ' ' + num(region.y) + ' ' + num(region.w) + ' ' + num(region.h) +
-    '" font-family="' + esc(EXPORT_SANS) + '" data-mlview-export="' + esc(opts.regionKind) +
-    '" data-mlview-theme="' + esc(theme) + '">';
+    '" font-family="' + esc(EXPORT_SANS) + '" data-mlview-export="diagram" data-mlview-theme="' + esc(theme) + '">';
   const meta =
     '<title>' + esc(opts.title) + '</title>' + (opts.desc ? '<desc>' + esc(opts.desc) + '</desc>' : '');
 
@@ -255,7 +248,6 @@ export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
     width: region.w,
     height: region.h,
     region,
-    regionKind: opts.regionKind,
     nodeIds,
     edgeIds,
     edgeDocIds,
@@ -287,33 +279,40 @@ function laneBand(
     '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + LANE_ACCENT_INSET) + '" width="' + LANE_ACCENT_W + '" height="' +
       num(Math.max(0, lane.h - 2 * LANE_ACCENT_INSET)) + '" rx="' + LANE_ACCENT_W / 2 + '" fill="' + esc(colour) + '"/>',
   );
+  // Viewer M2 review (A11Y-11): the heading sits on a plate, numbered, in the text colour at the
+  // card title's size (styles/canvas.css `.mlv-lane__header`).
+  out.push(
+    '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + 1) + '" width="' + num(Math.max(0, lane.w - 2)) + '" height="' +
+      num(Math.max(0, lane.headerH - 1)) + '" rx="' + Math.max(0, LANE_R - 1) + '" fill="' + esc(palette.surface) + '"/>',
+  );
+  out.push(
+    '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + 1) + '" width="' + num(Math.max(0, lane.w - 2)) + '" height="' +
+      num(Math.max(0, lane.headerH - 1)) + '" rx="' + Math.max(0, LANE_R - 1) + '" fill="' + esc(palette.text) +
+      '" fill-opacity="' + LANE_PLATE_TINT + '"/>',
+  );
   const swatchY = lane.y + (lane.headerH - 8) / 2;
   out.push(
     '<rect x="' + num(lane.x + 12) + '" y="' + num(swatchY) + '" width="8" height="8" rx="2" fill="' + esc(colour) + '"/>',
   );
-  const labelText = (lane.label || lane.id).toUpperCase();
-  const labelX = lane.x + 26;
-  const baseline = lane.y + lane.headerH / 2 + 4;
-  out.push(
-    text(labelText, labelX, baseline, {
-      size: FS_LANE,
-      fill: palette.text2,
-      weight: 650,
-      letterSpacing: 0.44,
-    }),
-  );
-  const countX = labelX + labelText.length * (FS_LANE * ADVANCE_CAPS + 0.44) + 10;
-  out.push(
-    text(stepsText(lane.nodeCount), countX, baseline, {
-      size: FS_COUNT,
-      fill: palette.text3,
-    }),
-  );
+  const baseline = lane.y + lane.headerH / 2 + 4.5;
+  const numText = String(phase + 1);
+  const numX = lane.x + 26;
+  out.push(text(numText, numX, baseline, { size: FS_LANE, fill: palette.text2, weight: 650 }));
+  const labelX = numX + width(numText, FS_LANE, false, true) + 6;
   const total = countsTotal(counts);
-  if (total > 0) {
-    // Viewer M2: the numbers name their unit — findings touching this phase (PR #14 rule).
-    const unit = phaseFindingsText(total);
-    const unitW = width(unit, FS_COUNT, false, false);
+  const unit = total > 0 ? '· ' + phaseFindingsText(total) : '';
+  const unitW = unit ? width(unit, FS_COUNT, false, false) : 0;
+  const steps = stepsText(lane.nodeCount);
+  const stepsW = width(steps, FS_COUNT, false, false);
+  // The label gives way first, as the DOM header's flex row lets it.
+  const budget = Math.max(40, lane.x + lane.w - 12 - labelX - stepsW - 10 - (unit ? unitW + 96 : 0));
+  const labelText = ellipsise(lane.label || lane.id, budget, FS_LANE, false, true);
+  out.push(text(labelText, labelX, baseline, { size: FS_LANE, fill: palette.text, weight: 650 }));
+  const countX = labelX + width(labelText, FS_LANE, false, true) + 10;
+  out.push(text(steps, countX, baseline, { size: FS_COUNT, fill: palette.text3 }));
+  if (unit) {
+    // Viewer M2: the numbers name their unit — findings touching this phase (PR #14 rule). Viewer
+    // M2 review (M2R-4): their total leads the phrase, after the per-severity numbers.
     const right = lane.x + lane.w - 12;
     out.push(text(unit, right - unitW, baseline, { size: FS_COUNT, fill: palette.text3 }));
     out.push(cluster(counts, right - unitW - 6, lane.y + lane.headerH / 2, 13, palette, hc));
@@ -325,7 +324,7 @@ function laneBand(
 /* ── nodes ──────────────────────────────────────────────────────────────── */
 
 function nodeCard(
-  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean; findings?: string[]; phase?: number },
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; findings?: string[]; phase?: number },
   colour: string,
   palette: Palette,
   hc: boolean,
@@ -343,8 +342,7 @@ function nodeCard(
     ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
     (visual.phase !== undefined ? ' data-phase-index="' + visual.phase + '"' : '') +
-    (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '') +
-    (visual.filteredOut ? ' opacity="0.18"' : '');
+    (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '');
   const out: string[] = ['<g' + attrs + '>'];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
 
@@ -382,15 +380,23 @@ function nodeCard(
     out.push(text(ellipsise(row, tw, FS_TITLE, false, true), tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: palette.text, weight: 650 }));
   });
   const shift = (titleRows.length - 1) * NODE_TITLE_LINE_H;
-  const sub = ellipsise(cardSubline(n), tw, FS_SUB, false, false);
-  out.push(text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2 }));
-  // The cell reference (or, on a `.py` path, the line number) is reserved
-  // out of the budget first, so a path too long for the card loses the
-  // directory rather than the answer — the DOM card does the same in CSS.
-  const locBits = locParts(n.loc);
-  const tailPx = width(locBits.tail, FS_LOC, true, false);
-  const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
-  out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
+  if (!groupLike && cardDetailLines(n) === 2) {
+    // Viewer M2 review (A11Y-6): two lines of the authored detail where the file:line row was,
+    // as on the DOM card (`render/nodes.ts` cardDetailLines).
+    detailRows(cardSubline(n), tw, 2).forEach((row, i) => {
+      out.push(text(row, tx, box.y + Y_SUB + shift + i * SUB_LINE_H, { size: FS_SUB, fill: palette.text2 }));
+    });
+  } else {
+    const sub = ellipsise(cardSubline(n), tw, FS_SUB, false, false);
+    out.push(text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2 }));
+    // The cell reference (or, on a `.py` path, the line number) is reserved
+    // out of the budget first, so a path too long for the card loses the
+    // directory rather than the answer — the DOM card does the same in CSS.
+    const locBits = locParts(n.loc);
+    const tailPx = width(locBits.tail, FS_LOC, true, false);
+    const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
+    out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
+  }
 
   // Viewer M2: the only chip row left is a collapsed group's count, as on the DOM card.
   const chips = groupLike ? [stepsText(visual.descendants)] : [];
@@ -416,6 +422,31 @@ function nodeCard(
   out.push(basisTagMarkup(n.basis, box.x + TAG_LEFT, box.y + box.h - TAG_H / 2, palette));
   out.push('</g>');
   return out.join('');
+}
+
+/** One 11 px detail line's height on the card (`.mlv-node__sub`, 11 px at line-height 1.35). */
+const SUB_LINE_H = 14.85;
+
+/** Greedy word wrap of `value` into at most `max` lines of `maxPx`, the last one ellipsised. */
+function detailRows(value: string, maxPx: number, max: number): string[] {
+  const words = value.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const rows: string[] = [];
+  let line = '';
+  for (let i = 0; i < words.length; i++) {
+    const next = line ? line + ' ' + words[i] : words[i];
+    if (width(next, FS_SUB, false, false) <= maxPx || !line) {
+      line = next;
+      continue;
+    }
+    rows.push(line);
+    line = words[i];
+    if (rows.length === max - 1) {
+      rows.push(ellipsise(words.slice(i).join(' '), maxPx, FS_SUB, false, false));
+      return rows;
+    }
+  }
+  if (line) rows.push(ellipsise(line, maxPx, FS_SUB, false, false));
+  return rows;
 }
 
 /** The exception dash for a basis, or '' for an observed (unmarked) claim. */
@@ -519,8 +550,7 @@ function edgeMarkup(
   const strokeW = weighted ? Math.max(EDGE_WIDTH, weightStroke(weight)) : EDGE_WIDTH;
   const out: string[] = [
     '<g data-edge-kind="' + esc(r.kind) + '"' + (weighted ? ' data-edge-weight="' + weight + '"' : '') +
-      (visual.basis ? ' data-basis="' + esc(visual.basis) + '"' : '') +
-      (visual.filtered ? ' opacity="0.18"' : '') + '>',
+      (visual.basis ? ' data-basis="' + esc(visual.basis) + '"' : '') + '>',
   ];
   out.push(
     '<path data-edge-id="' + esc(r.id) + '" data-edge-ids="' + esc(r.ids.join(' ')) +

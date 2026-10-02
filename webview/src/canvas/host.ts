@@ -10,7 +10,7 @@
  * implements it.
  */
 
-import type { Issue, MLNode, Viewport } from '../types.js';
+import type { Issue, Viewport } from '../types.js';
 
 /** How long a click on a collapsible box waits for a possible second click. */
 export const DOUBLE_CLICK_MS = 220;
@@ -37,8 +37,6 @@ export const MINIMAP_MIN_CANVAS_H = 350;
 export interface CanvasHost {
   /** The App's issue filter — a marker is drawn only for issues this keeps. */
   keep(issue: Issue): boolean;
-  /** True when the stage filters exclude this node (dimmed, not removed). */
-  isFilteredOut(node: MLNode): boolean;
   /**
    * A node card was clicked: select it and show its claim (viewer M1: a click never opens the
    * source). `ev` is the pointer click, so its second click of a double-click can open it.

@@ -24,7 +24,7 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { IssueCounts, Loc, MLNode, Severity, StaleReason, WorkflowBasis } from '../types.js';
+import type { IssueCounts, Loc, Severity, StaleReason, WorkflowBasis } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -56,7 +56,6 @@ export interface ScenePlanOptions {
   keep: IssuePredicate;
   /** Viewer M1: workspace-relative paths the host reported stale, with the reason. Empty draws no mark. */
   staleFiles: ReadonlyMap<string, StaleReason>;
-  isFilteredOut(node: MLNode): boolean;
 }
 
 export interface ScenePlan {
@@ -106,7 +105,6 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
         phase: index.phaseIndexOf(node.stage),
         descendants: index.descendantCount(box.id),
         ...staleOf(node.evidenceLocs, node.loc, opts.staleFiles),
-        filteredOut: opts.isFilteredOut(node),
       },
     });
   }
@@ -130,7 +128,6 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       targetLabel: dst ? dst.label || dst.qualname : undefined,
       mountSerial: opts.mountSerial,
       placement: opts.labels ? opts.labels.get(route.id) : undefined,
-      filtered: !!((src && opts.isFilteredOut(src)) || (dst && opts.isFilteredOut(dst))),
       // How many connections the route merges. Decided here, in the plan, so the
       // DOM and the SVG export cannot draw two different numbers on the same cable.
       weight: routeWeight(route.ids),

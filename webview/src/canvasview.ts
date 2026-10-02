@@ -27,7 +27,7 @@ import { minimapDots, renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { markerPoint, nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
-import { LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
+import { FRAME_MIN_ZOOM, LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
 import { FlowBinding } from './render/flowbinding.js';
 import { EdgeHover } from './render/edgehover.js';
 import { Tooltip } from './render/tooltip.js';
@@ -270,7 +270,6 @@ export class CanvasView {
       mountSerial: this.mountSerial,
       keep: (issue) => this.host.keep(issue),
       staleFiles: this.staleFiles,
-      isFilteredOut: (node) => this.host.isFilteredOut(node),
     };
   }
 
@@ -278,14 +277,6 @@ export class CanvasView {
   scenePlan(): ScenePlan | null {
     const inputs = this.planInputs();
     return inputs ? planScene(inputs) : null;
-  }
-
-  /** The visible canvas, in WORLD coordinates — the "current view" region. */
-  viewportRect(): { x: number; y: number; w: number; h: number } {
-    const size = this.viewport.size();
-    const vp = this.viewport.vp;
-    const zoom = vp.zoom || 1;
-    return { x: -vp.x / zoom, y: -vp.y / zoom, w: size.w / zoom, h: size.h / zoom };
   }
 
   /** Rebuild the scene DOM from the current frame. Never moves boxes. */
@@ -507,7 +498,7 @@ export class CanvasView {
     this.host.announce(
       'Group ' +
         (node ? node.label : id) +
-        (this.collapsedSet.has(id) ? ' collapsed, ' + hidden + ' nodes hidden.' : ' expanded.'),
+        (this.collapsedSet.has(id) ? ' collapsed, ' + hidden + (hidden === 1 ? ' step' : ' steps') + ' hidden.' : ' expanded.'),
     );
   }
 
@@ -616,30 +607,38 @@ export class CanvasView {
   }
 
   /**
-   * Viewer M2: frame every step a finding cites (issue 6 revealed only the first); a finding that
-   * cites no step frames both ends of each connection it cites. See `ViewportController.frameRect`
-   * for the zoom bounds. The first cited card pulses.
+   * Viewer M2: frame every step a finding cites (issue 6 revealed only the first) and both ends of
+   * every connection it cites (viewer M2 review, M2R-8: the ends were framed only when the finding
+   * cited no step, so a cited connection in another phase could stay off screen). When all of it
+   * does not fit at the frame's floor (FRAME_MIN_ZOOM), the cited steps alone are framed, the
+   * claim's subject; when they do not fit either, `ViewportController.frameRect` centres on the
+   * first cited card. The first cited card pulses.
    */
   frameIssue(id: string): void {
     if (!this.index || !this.frameData) return;
     const issue = this.index.issueById.get(id);
     if (!issue) return;
-    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    type Box = { x: number; y: number; w: number; h: number };
+    const steps: Box[] = [];
+    const ends: Box[] = [];
     for (const nodeId of issue.nodeIds) {
       const rect = this.targetRect({ kind: 'node', id: nodeId });
-      if (rect) rects.push(rect);
+      if (rect) steps.push(rect);
     }
-    if (!rects.length) {
-      for (const edgeId of issue.edgeIds) {
-        const rect = this.targetRect({ kind: 'edge', id: edgeId });
-        if (rect) rects.push(rect);
-      }
+    for (const edgeId of issue.edgeIds) {
+      const rect = this.targetRect({ kind: 'edge', id: edgeId });
+      if (rect) ends.push(rect);
     }
+    const rects = steps.concat(ends);
     if (!rects.length) return;
-    const x = Math.min(...rects.map((r) => r.x));
-    const y = Math.min(...rects.map((r) => r.y));
-    const union = { x, y, w: Math.max(...rects.map((r) => r.x + r.w)) - x, h: Math.max(...rects.map((r) => r.y + r.h)) - y };
-    this.viewport.frameRect(union, rects[0], READABLE_ZOOM);
+    const unionOf = (list: Box[]): Box => {
+      const x = Math.min(...list.map((r) => r.x));
+      const y = Math.min(...list.map((r) => r.y));
+      return { x, y, w: Math.max(...list.map((r) => r.x + r.w)) - x, h: Math.max(...list.map((r) => r.y + r.h)) - y };
+    };
+    const all = unionOf(rects);
+    const target = !steps.length || !ends.length || this.viewport.fitsAt(all, FRAME_MIN_ZOOM) ? all : unionOf(steps);
+    this.viewport.frameRect(target, rects[0], READABLE_ZOOM);
     if (issue.nodeIds[0]) this.pulseNode(this.index.visibleRepresentative(issue.nodeIds[0], this.collapsedSet));
   }
 

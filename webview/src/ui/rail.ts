@@ -55,6 +55,11 @@ export interface RailCallbacks {
   /** The handle was dragged (or moved with the arrow keys) to this share of the body height. */
   onSheetResize(fraction: number): void;
   sheetFraction(): number;
+  /**
+   * Viewer M2 review (M2R-10): the largest share the open sheet can take, which the stylesheet's
+   * canvas floor (`min(240px, 45%)`) caps below 0.75 on a short panel.
+   */
+  sheetFractionMax(): number;
   /** The height the sheet shares with the canvas, for the drag. */
   bodyHeight(): number;
 }
@@ -210,11 +215,16 @@ export class Rail {
     this.applyShape();
   }
 
-  /** The open sheet's height, as a share of the height it shares with the canvas. */
+  /**
+   * The open sheet's height, as a share of the height it shares with the canvas. The handle reports
+   * the height the stylesheet draws: no more than the canvas floor leaves (viewer M2 review, M2R-10).
+   */
   setSheetFraction(fraction: number): void {
     this.root.style.setProperty('--mlv-sheet-fraction', String(fraction));
     if (this.mode === 'sheet') {
-      const percent = Math.round(fraction * 100);
+      const max = this.cb.sheetFractionMax();
+      const percent = Math.round(Math.min(fraction, max) * 100);
+      this.grip.setAttribute('aria-valuemax', String(Math.round(max * 100)));
       this.grip.setAttribute('aria-valuenow', String(percent));
       this.grip.setAttribute('aria-valuetext', this.open ? percent + ' percent of the height' : 'collapsed');
     }
@@ -268,7 +278,6 @@ export class Rail {
     this.grip.setAttribute('aria-label', sheet ? 'Resize the bottom panel' : 'Resize side panel');
     if (sheet) {
       this.grip.setAttribute('aria-valuemin', '25');
-      this.grip.setAttribute('aria-valuemax', '75');
       this.setSheetFraction(this.cb.sheetFraction());
     } else {
       for (const name of ['aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext']) this.grip.removeAttribute(name);
@@ -293,6 +302,8 @@ export class Rail {
     let sheetDrag = false;
     let wasOpen = true;
     let last = 0;
+    /** The open height before the drag, which a drag that ends collapsed keeps for next time. */
+    let restore = 0;
     const move = (ev: PointerEvent) => {
       if (!sheetDrag) {
         this.cb.onResize(startW + (startX - ev.clientX));
@@ -313,7 +324,12 @@ export class Rail {
       document.removeEventListener('pointerup', up);
       if (!sheetDrag) return;
       if (!dragged) this.cb.onSheetToggle();
-      else if (this.open && last < SHEET_COLLAPSE_BELOW) this.cb.onSheetToggle();
+      else if (this.open && last < SHEET_COLLAPSE_BELOW) {
+        // Viewer M2 review (M2R-10): collapsed by dragging down, the sheet reopens at the height it
+        // had before the drag, not at the 25% floor the drag was clamped to on its way down.
+        this.cb.onSheetToggle();
+        this.cb.onSheetResize(restore);
+      }
     };
     on(grip, 'pointerdown', (ev: PointerEvent) => {
       sheetDrag = this.mode === 'sheet';
@@ -322,7 +338,8 @@ export class Rail {
       startW = this.root.getBoundingClientRect().width || 360;
       bodyH = Math.max(1, this.cb.bodyHeight());
       wasOpen = this.open;
-      startFraction = wasOpen ? this.cb.sheetFraction() : 32 / bodyH;
+      restore = this.cb.sheetFraction();
+      startFraction = wasOpen ? Math.min(restore, this.cb.sheetFractionMax()) : 32 / bodyH;
       last = startFraction;
       dragged = false;
       document.addEventListener('pointermove', move as EventListener);

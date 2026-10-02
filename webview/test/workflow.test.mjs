@@ -172,7 +172,9 @@ test('source-less concepts do not fabricate file jumps and epistemic basis stays
   app.focusIssue('loss-risk');
   assert.equal(ctx.document.querySelector('[data-issue-id="loss-risk"] [data-basis="inferred"]') !== null, true);
   const basis = ctx.document.querySelector('[data-issue-id="loss-risk"] [data-basis="inferred"]');
-  assert.equal(basis.getAttribute('aria-label'), 'Basis: inferred');
+  // Viewer M2 review: the same tag a card carries, read out, its meaning on hover; observed is unmarked.
+  assert.equal(basis.textContent, 'inferred');
+  assert.equal(basis.getAttribute('aria-hidden'), null);
   assert.doesNotMatch(basis.getAttribute('title'), /100%/);
   assert.equal(ctx.document.querySelector('[data-node-id="epoch"]').classList.contains('is-lowconf'), false,
     'absence of a calibrated percentage must not fabricate a low-confidence state');

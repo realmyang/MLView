@@ -145,26 +145,38 @@ test('a new revision opens on About; the reader\'s tab is then kept, saved, and 
   ctx.app.destroy();
 });
 
-test('a selection shows its claim in Selection, unless the reader is walking Findings or the Outline', async () => {
+test('a selection shows its claim in Selection, unless it is made from the Findings list or the Outline on screen', async () => {
   const ctx = await mount();
   try {
     click(ctx, card(ctx, 'load'));
     assert.equal(tab(ctx), 'inspector', 'from About, a click shows the claim');
     assert.match(ctx.app.liveEl.textContent, /^Selected .*Load batches/, 'and says what was chosen');
+    // Viewer M2 review (M2-INT-1): a canvas click shows the claim whichever tab was on show, as in
+    // viewer M1; a step with no finding has no row to mark in the Findings list.
     ctx.app.setRailTab('issues');
     click(ctx, card(ctx, 'aug'));
-    assert.equal(tab(ctx), 'issues', 'the Findings list keeps its place');
+    assert.equal(tab(ctx), 'inspector', 'a canvas click leaves the Findings list for the claim');
     assert.equal(ctx.app.getState().selection.id, 'aug');
     assert.match(ctx.app.liveEl.textContent, /^Selected .*Augment/);
+    // A row of the Findings list keeps the list, with the finding expanded in it.
+    ctx.app.setRailTab('issues');
+    click(ctx, $(ctx, '.mlv-issue[data-issue-id="f-amp"]'));
+    assert.equal(tab(ctx), 'issues', 'the Findings list keeps its place');
+    assert.ok($(ctx, '[data-issue-detail="f-amp"]'), 'where the finding is expanded');
+    // So does a row of the Outline, where the selection is marked.
     ctx.app.setRailTab('outline');
-    click(ctx, card(ctx, 'step'));
+    click(ctx, $(ctx, '[data-outline-id="step"] .mlv-outline__row'));
     assert.equal(tab(ctx), 'outline', 'so does the Outline');
+    assert.equal(ctx.app.getState().selection.id, 'step');
     assert.ok($(ctx, '[data-outline-id="step"] .mlv-outline__row.is-selected'), 'where the selection is marked');
-    // A list that is not on screen is not being walked.
+    click(ctx, card(ctx, 'load'));
+    assert.equal(tab(ctx), 'inspector', 'a canvas click from the Outline shows the claim too');
+    // A list that is not on screen is not being walked: `n` with the rail hidden shows the claim.
     ctx.app.setRailTab('issues');
     ctx.app.toggleRail();
-    click(ctx, card(ctx, 'load'));
+    ctx.app.focusIssue('f-amp', { fromList: 'issues' });
     assert.equal(tab(ctx), 'inspector');
+    assert.equal(rail(ctx).hidden, false, 'a finding opens the rail');
   } finally {
     ctx.app.destroy();
   }
@@ -390,8 +402,9 @@ test('1440 px docks the rail; 900 and 541 px use the sheet, with two columns at 
     ctx.resize(900);
     assert.equal(rail(ctx).getAttribute('data-mode'), 'sheet');
     assert.equal($(ctx, '.mlv-body').getAttribute('data-rail'), 'sheet');
-    // The reader was using the docked rail (it showed the claim), so the sheet opens.
-    if (rail(ctx).getAttribute('data-expanded') !== 'true') ctx.app.toggleRail();
+    // The reader was using the docked rail (it showed the claim), so the sheet opens (viewer M2
+    // review, M2R-5: this used to call toggleRail() when it did not, which hid the bug).
+    assert.equal(rail(ctx).getAttribute('data-expanded'), 'true');
     const two = pane(ctx);
     assert.equal(two.getAttribute('data-columns'), '2');
     assert.equal(ctx.window.getComputedStyle(two).display, 'grid');

@@ -76,6 +76,11 @@
     display: block !important;
   }
 
+  /* Two lines of detail where the file:line row was (viewer M2 review, A11Y-6). */
+  .mlv-canvas[data-lod="compact"] .mlv-node__sub[data-lines="2"] {
+    display: -webkit-box !important;
+  }
+
   .mlv-canvas[data-lod="compact"] .mlv-node__chips {
     display: flex !important;
   }

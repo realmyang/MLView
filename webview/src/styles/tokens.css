@@ -33,8 +33,6 @@
  * @contrast: --mlv-sev-high-ink on --mlv-sev-high
  * @contrast: --mlv-sev-medium-ink on --mlv-sev-medium
  * @contrast: --mlv-sev-low-ink on --mlv-sev-low
- * @contrast: --mlv-fg-boundary on --mlv-surface
- * @contrast: --mlv-fg-boundary on --mlv-bg
  *
  * Graphics (WCAG 1.4.11, 3:1), checked by test/stale-contrast.test.mjs against
  * VS Code 1.139's Light Modern, 2026 Light, Dark Modern, 2026 Dark and both
@@ -175,9 +173,6 @@
   --mlv-edge: color-mix(in srgb, var(--mlv-text) 64%, var(--mlv-bg));
   --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 58%, var(--mlv-bg));
   --mlv-scrim: rgba(16, 18, 24, 0.36);
-  /* a scoped view's boundary stub: a DECLARED foreground, never opacity alone. */
-  --mlv-fg-boundary: #6B7284;
-
   /* Viewer M2: phase colour by document ORDER, never by id (render/phase.ts). Eight low-chroma
    * hues that leave red, yellow and orange to severity; used only on the lane's accent rule,
    * the card's left edge and the phase swatches. */
@@ -224,7 +219,6 @@
     --mlv-edge: color-mix(in srgb, var(--mlv-text) 54%, var(--mlv-bg));
     --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 46%, var(--mlv-bg));
     --mlv-scrim: rgba(0, 0, 0, 0.5);
-    --mlv-fg-boundary: #98A0B0;
     --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
     --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
     --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
@@ -269,7 +263,6 @@ body.vscode-dark,
   --mlv-edge: color-mix(in srgb, var(--mlv-text) 54%, var(--mlv-bg));
   --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 46%, var(--mlv-bg));
   --mlv-scrim: rgba(0, 0, 0, 0.5);
-  --mlv-fg-boundary: #98A0B0;
   --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
   --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
   --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
@@ -335,7 +328,6 @@ body.vscode-high-contrast-light,
    * the three rings from one white blob. */
   --mlv-flow-core-width: 2.2;
   --mlv-flow-underlay-opacity: 0.45;
-  --mlv-fg-boundary: var(--mlv-text);
 }
 
 /*

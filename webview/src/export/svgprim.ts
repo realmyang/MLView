@@ -28,14 +28,6 @@ export const EXPORT_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Libe
 const ADVANCE_SANS = 0.51;
 const ADVANCE_SANS_BOLD = 0.55;
 const ADVANCE_MONO = 0.6;
-/**
- * Uppercase is much wider than the mixed-case average, and the lane header is
- * the one place the export sets an all-caps string. Measured in Chromium: the
- * mixed-case factor put "CONFIGURATION" 14 px short and the node count landed
- * on top of the label.
- */
-export const ADVANCE_CAPS = 0.72;
-
 export interface TextOptions {
   size: number;
   fill: string;

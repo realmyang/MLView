@@ -66,14 +66,16 @@ export function renderOutlineTree(panel: HTMLElement, s: OutlineState, cb: Outli
     item.setAttribute('data-outline-lane', lane.id);
     item.tabIndex = -1;
     const row = add(item, el('div', 'mlv-outline__row mlv-outline__row--lane'));
-    add(row, el('span', 'mlv-outline__label', lane.label || lane.id));
+    // Viewer M2 review (A11Y-11): numbered as the canvas lane and the Selection pane number it.
+    add(row, el('span', 'mlv-outline__label', (s.index.phaseIndexOf(lane.id) + 1) + ' · ' + (lane.label || lane.id)));
     const counts = s.index.laneCounts(lane.id, s.keep);
     if (countsTotal(counts) > 0) {
       row.appendChild(severityGlyph(highestSeverity(counts) as Severity, 12, ''));
       // Viewer M2: the count names its unit. A finding touching two phases counts in each (PR #14),
       // so these rows do not add up to the document's total.
       const total = countsTotal(counts);
-      const count = add(row, el('span', 'mlv-outline__stage', total + ' ' + phaseFindingsText(total)));
+      // Under the name, so the name is never cut to make room (viewer M2 review, A11Y-11).
+      const count = add(row, el('span', 'mlv-outline__stage mlv-outline__phasecount', phaseFindingsText(total)));
       count.title = phaseFindingsSpoken(counts);
     }
     on(row, 'click', () => cb.onSelectLane(lane.id));

@@ -35,7 +35,7 @@ export function buildFilterEmptyState(onClear: () => void): HTMLElement {
   const root = el('div', 'mlv-state mlv-state--empty');
   root.setAttribute('role', 'status');
   const inner = add(root, el('div', 'mlv-state__inner'));
-  add(inner, el('h2', 'mlv-state__title', 'No nodes match your filters'));
+  add(inner, el('h2', 'mlv-state__title', 'No steps match your filters'));
   const actions = add(inner, el('div', 'mlv-state__actions'));
   const btn = button('mlv-btn', 'Clear all filters');
   on(btn, 'click', onClear);

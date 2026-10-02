@@ -49,7 +49,7 @@ const EDGE_ROWS: LegendRow[] = [
 ];
 
 const PHASE_ROWS: LegendRow[] = [
-  { group: 'phase', key: 'order', label: 'phase colour', detail: 'Each phase gets a colour by its place in the document, shown on the lane\'s left rule and the card\'s left edge. It means nothing else. Problems are the only other colour on the diagram.' },
+  { group: 'phase', key: 'order', label: 'phase colour', detail: 'Each phase gets a colour by its place in the document, shown on the lane\'s left rule, the swatch before its number and name, and the card\'s left edge. It means nothing else. Problems are the only other colour on the diagram.' },
 ];
 
 const FRESHNESS_ROWS: LegendRow[] = [

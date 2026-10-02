@@ -69,6 +69,12 @@
   pointer-events: none;
 }
 
+/*
+ * Viewer M2 review (A11Y-11): the lane heading sits on a plate and reads like a heading: the phase
+ * number (as the Selection pane's eyebrow numbers it) and the label, in the text colour at the card
+ * title's size. It used to be 11 px muted capitals, smaller and fainter than the cards under it
+ * (9.9 px at 90% zoom). Same 28 px header (`LANE_HEADER_H`), so nothing is laid out again.
+ */
 .mlv-lane__header {
   position: absolute;
   top: 0;
@@ -79,30 +85,39 @@
   gap: var(--mlv-s4);
   height: var(--mlv-lane-header-h, 28px);
   padding: 0 var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  border-radius: calc(var(--mlv-r-lane) - 1px) calc(var(--mlv-r-lane) - 1px) 0 0;
+  background: color-mix(in srgb, var(--mlv-text) 5%, var(--mlv-surface));
+}
+
+/* The phase's colour swatch, first on the plate. */
+.mlv-lane__header::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-lane__num {
+  flex: none;
+  margin-right: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
 }
 
 .mlv-lane__label {
   flex: 0 1 auto;
   min-width: 48px;
   overflow: hidden;
-  color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-11);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-13);
   font-weight: var(--mlv-fw-semi);
   text-overflow: ellipsis;
-  text-transform: uppercase;
-  letter-spacing: var(--mlv-track-caps);
   white-space: nowrap;
-}
-
-.mlv-lane__label::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: var(--mlv-s3);
-  border-radius: 2px;
-  background: var(--mlv-stage, var(--mlv-stage-unknown));
-  vertical-align: baseline;
 }
 
 .mlv-lane__count {
@@ -121,8 +136,13 @@
   flex: none;
 }
 
-/* Viewer M2: what the lane's severity numbers count. It gives way first in a narrow lane; its
- * tooltip and the cluster's accessible name keep the whole sentence. */
+/* Viewer M2: what the lane's severity numbers count, after them with their total ("· 5 findings
+ * touch this phase", viewer M2 review M2R-4). It gives way first in a narrow lane; its tooltip and
+ * the cluster's accessible name keep the whole sentence. */
+.mlv-lane__unit::before {
+  content: "· ";
+}
+
 .mlv-lane__unit {
   flex: 0 100 auto;
   min-width: 0;
@@ -207,30 +227,25 @@
   opacity: 0.5;
 }
 
-/* focus / trace dimming — class toggles only, never a re-render */
-.mlv-canvas.is-tracing .mlv-node:not(.is-lit),
+/*
+ * Focus mode dims what is not in the lineage — class toggles only, never a re-render. Viewer M2
+ * review (A11Y-9): a hover dims nothing. It lights its direct connections (edge.css `.is-lit`) and
+ * rings the cards at their other ends; the rest keep their contrast. The hover used to fade every
+ * other card to 22%, which put 9 of 12 visible titles under 2:1 while the pointer crossed a card,
+ * High Contrast included. Only latched focus mode (F) dims, and makes the dimmed cards inert.
+ */
 .mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
   opacity: 0.22;
   filter: saturate(0.3);
-}
-
-/* Only latched focus mode makes dimmed cards inert. A hover lights one hop, so
- * most cards are dim while it is up; they must still take the pointer, to start
- * their own hover, to be clicked, and to keep the cable picker off the
- * connections under them (`render/edgehover.ts`). */
-.mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
   pointer-events: none;
 }
 
-.mlv-canvas.is-tracing .mlv-edge:not(.is-lit),
 .mlv-canvas.is-focusing .mlv-edge:not(.is-lit) {
   opacity: 0.16;
 }
 
-.mlv-node.is-filtered {
-  opacity: 0.18;
-  box-shadow: none;
-  pointer-events: none;
+.mlv-canvas.is-tracing .mlv-node.is-lit {
+  box-shadow: 0 0 0 max(1.5px, calc(1px / var(--mlv-z, 1))) var(--mlv-text-2);
 }
 
 /* tooltip / hover card */

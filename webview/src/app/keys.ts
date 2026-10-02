@@ -33,7 +33,9 @@ function commandPort(app: App): CommandPort {
     clearSelection: () => app.clearSelection(),
     focusSearch: () => app.focusSearch(),
     visibleIssues: () => filteredIssues(app),
-    focusIssue: (id) => app.focusIssue(id),
+    // `n` / `p` walk the findings in the Findings list's order: that list keeps its place while it
+    // is the tab on screen, and expands each finding in turn (viewer M2 review, M2-INT-1).
+    focusIssue: (id) => app.focusIssue(id, { fromList: 'issues' }),
     // Viewer M1: Enter opens beside the panel and keeps focus here, so the keys keep working;
     // Alt+Enter moves focus to the editor.
     openSelection: (focusEditor) => {

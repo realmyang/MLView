@@ -35,12 +35,13 @@ async function runOne(size) {
   if (ids.size !== size) throw new Error(`hidden truncation: represented ${ids.size}/${size} node IDs`);
   for (const node of fixture.nodes) if (!ids.has(node.id)) throw new Error(`hidden truncation: missing ${node.id}`);
   const select = elapsed(() => app.focusNode(`node-${Math.max(Math.floor(size / 2), Math.floor(size / 20))}`, { center: false, pulse: false }));
-  const scopeTarget = fixture.nodes.find((node) => node.parent) || fixture.nodes.at(-1);
-  const scope = elapsed(() => app.setScope(`unit:${scopeTarget.label}`, { depth: 1 }));
-  const scoped = app.getScope();
-  const reset = elapsed(() => app.setScope(null));
+  // Viewer M2 removed the scope picker (no "scope to 5" or "reset all" timing any more) and the
+  // export request message: an export starts from the header's ... menu, as a reader starts it.
   const postedBefore = bridge.posted.length;
-  const exportSvg = elapsed(() => bridge.send({ v: 1, type: 'requestExport', kind: 'svg', scope: 'all' }));
+  const exportSvg = elapsed(() => {
+    root.querySelector('.mlv-btn--more').click();
+    root.ownerDocument.querySelector('[data-export-action="svg"]').click();
+  });
   const exportMessage = bridge.posted.slice(postedBefore).find((message) => message.type === 'exportFile');
   if (!exportMessage || !exportMessage.base64) throw new Error('SVG export did not produce an exportFile payload');
   const updated = benchmarkWorkflow(size, 'synthetic-r2');
@@ -56,8 +57,7 @@ async function runOne(size) {
   return {
     size,
     features: benchmarkFeatures(fixture),
-    timingsMs: { mount: mount.ms, select: select.ms, scope: scope.ms, reset: reset.ms, exportSvg: exportSvg.ms, update: update.ms, dispose: dispose.ms },
-    scopeNodes: scoped.nodes,
+    timingsMs: { mount: mount.ms, select: select.ms, exportSvg: exportSvg.ms, update: update.ms, dispose: dispose.ms },
     domElements,
     exportBytes: Math.floor(exportMessage.base64.length * 3 / 4),
     memoryMiB: { before, afterUpdate, afterDispose },

@@ -374,7 +374,7 @@ export type UiToHost =
       base64: string;
       data: string;
       suggestedName: string;
-      scope: 'view' | 'all' | 'scope';
+      scope: 'all';
       requestId?: string;
     }
   | { v: 1; type: 'copy'; text: string; requestId?: string }

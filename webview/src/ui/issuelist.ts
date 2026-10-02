@@ -10,6 +10,7 @@ import { locSpoken } from '../notebook.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { basisChip } from './evidence.js';
+import { basisSpoken } from '../render/edges.js';
 import type { GraphIndex } from '../layout/model.js';
 import { allElsewhere, STALE_TEXT } from '../freshness.js';
 import type { Issue, Loc, RelatedLoc, StaleReason } from '../types.js';
@@ -164,7 +165,8 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
     'aria-label',
     (issue.short ? issue.short + ', ' : '') + issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
       (issue.loc.file ? ', ' + locSpoken(issue.loc) : '') +
-      (issue.basis ? ', basis ' + issue.basis : ''),
+      // Viewer M2 review: the basis only when it is not observed, as on the canvas.
+      basisSpoken(issue.basis),
   );
   if (selected) row.classList.add('is-selected');
   const stale = issueStaleReasons(issue, s.staleReason);
@@ -181,8 +183,10 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   const meta = add(text, el('div', 'mlv-issue__meta'));
   add(meta, el('span', '', issue.code));
   if (issue.loc.file) meta.appendChild(locSpan('', issue.loc));
-  // MLV-P6: on EVERY row, so a missing chip never reads as "sure".
-  meta.appendChild(basisChip(issue));
+  // Viewer M2 review (M2R-7, A11Y-4): only the exceptions are marked, as on the canvas; the legend
+  // says an unmarked claim is observed.
+  const chip = basisChip(issue);
+  if (chip) meta.appendChild(chip);
   if (stale.length) meta.appendChild(staleChip(stale));
   on(row, 'click', (ev: MouseEvent) => cb.onSelectIssue(issue.id, ev));
   li.appendChild(row);

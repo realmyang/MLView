@@ -36,7 +36,6 @@ export interface Palette {
   link: string;
   accent: string;
   edge: string;
-  fgBoundary: string;
   sevHigh: string;
   sevMedium: string;
   sevLow: string;
@@ -70,7 +69,6 @@ export const PALETTE_TOKENS: Record<string, string> = {
   link: '--mlv-link',
   accent: '--mlv-accent',
   edge: '--mlv-edge',
-  fgBoundary: '--mlv-fg-boundary',
   sevHigh: '--mlv-sev-high',
   sevMedium: '--mlv-sev-medium',
   sevLow: '--mlv-sev-low',
@@ -111,7 +109,6 @@ const LIGHT: Palette = {
   link: '#2B57C4',
   accent: '#3B6CF6',
   edge: '#8C93A3',
-  fgBoundary: '#6B7284',
   sevHigh: '#D0342C',
   sevMedium: '#E8A317',
   sevLow: '#2F5FD0',
@@ -138,7 +135,6 @@ const DARK_OVERRIDES: Partial<Palette> = {
   link: '#8FB0FF',
   accent: '#6E96FF',
   edge: '#79808F',
-  fgBoundary: '#98A0B0',
   sevHigh: '#FF6169',
   sevMedium: '#F2B03C',
   sevLow: '#6E96FF',
@@ -169,7 +165,6 @@ const HC_OVERRIDES: Partial<Palette> = {
   text3: '#FFFFFF',
   link: '#6BB7FF',
   edge: '#FFFFFF',
-  fgBoundary: '#FFFFFF',
   laneTint: 0,
   groupTint: 0,
 };

@@ -1,6 +1,7 @@
 /**
  * The header's ... menu (viewer M2): the view toggles, the whole-diagram fit, the exports and the
- * shortcut sheet, plus whatever a narrow header has no room for (search and the revision).
+ * shortcut sheet, plus whatever the header has no room for: search and the revision below 620 px,
+ * and, in a row too narrow for its controls, the revision and the "not observed" toggle.
  *
  * The standard menu-button pattern, as the export menu it replaces used it (VW-03): the trigger is
  * an item of the header's roving toolbar, and the panel is mounted on the app root, so its items
@@ -18,6 +19,7 @@ export type ExportActionId = 'svg' | 'png' | 'copy-svg';
 export type MoreItemId =
   | 'search'
   | 'about'
+  | 'exceptions'
   | 'legend'
   | 'flow'
   | 'minimap'
@@ -35,15 +37,16 @@ interface ItemSpec {
   keys?: string;
   /** A checkbox item: `aria-checked` says whether the thing is on. */
   check?: boolean;
-  /** Shown only when the header itself has no room for this control (a narrow panel). */
-  narrowOnly?: boolean;
+  /** Shown only while the header has no room for its own control (`MoreMenuState.folded`). */
+  folded?: boolean;
   /** Starts a new group (a separator above it). */
   group?: boolean;
 }
 
 const ITEMS: ItemSpec[] = [
-  { id: 'search', label: 'Search steps and findings', icon: 'search', keys: 'Ctrl+K', narrowOnly: true },
-  { id: 'about', label: 'About this revision', icon: 'info', narrowOnly: true },
+  { id: 'search', label: 'Search steps and findings', icon: 'search', keys: 'Ctrl+K', folded: true },
+  { id: 'about', label: 'About this revision', icon: 'info', folded: true },
+  { id: 'exceptions', label: 'Not observed', icon: 'notobserved', check: true, folded: true },
   { id: 'legend', label: 'Legend', icon: 'legend', keys: 'L', check: true, group: true },
   { id: 'flow', label: 'Connection flow animation', icon: 'flow', keys: 'A', check: true },
   { id: 'minimap', label: 'Overview map', icon: 'minimap', check: true },
@@ -59,10 +62,17 @@ const ITEMS: ItemSpec[] = [
 const EXPORTS: readonly string[] = ['svg', 'png', 'copy-svg'];
 
 export interface MoreMenuState {
-  /** The header is narrow: search and the revision live in this menu. */
-  narrow: boolean;
-  /** The narrow header's `about` item: "About revision r2 · host" (the chip has no room there). */
+  /**
+   * Viewer M2 review: the header controls this menu stands in for, because the row has no room
+   * for them (search and the revision below 620 px; the revision and "not observed" in a row too
+   * narrow for its controls, `Chrome.fitRow`).
+   */
+  folded: { search: boolean; about: boolean; exceptions: boolean };
+  /** The `about` item: "About revision r2 · host" (the chip has no room for it). */
   aboutLabel: string;
+  /** The `exceptions` item: "7 not observed (3 steps, 4 connections)", its count with the units. */
+  exceptionsLabel: string;
+  exceptionsOn: boolean;
   legendOpen: boolean;
   flowOn: boolean;
   minimapShown: boolean;
@@ -142,7 +152,7 @@ export class MoreMenu {
       item.setAttribute('role', spec.check ? 'menuitemcheckbox' : 'menuitem');
       item.setAttribute('data-more-item', spec.id);
       if (EXPORTS.indexOf(spec.id) >= 0) item.setAttribute('data-export-action', spec.id);
-      if (spec.narrowOnly) item.setAttribute('data-narrow-only', '1');
+      if (spec.folded) item.setAttribute('data-folded', '1');
       item.appendChild(uiIcon(spec.icon, 14));
       add(item, el('span', 'mlv-moremenu__label', spec.label));
       if (spec.keys) add(item, el('kbd', 'mlv-moremenu__keys', spec.keys)).setAttribute('aria-hidden', 'true');
@@ -195,12 +205,17 @@ export class MoreMenu {
   update(s: MoreMenuState): void {
     for (const [id, item] of this.items) {
       const spec = ITEMS.find((x) => x.id === id)!;
-      const shown = !spec.narrowOnly || s.narrow;
+      const shown = !spec.folded || (id === 'search' ? s.folded.search : id === 'about' ? s.folded.about : s.folded.exceptions);
       item.hidden = !shown;
       if (id === 'about') {
         const label = item.querySelector('.mlv-moremenu__label');
         if (label) label.textContent = s.aboutLabel;
         item.title = 'Show About: the request, coverage, limitations and provenance';
+      }
+      if (id === 'exceptions') {
+        const label = item.querySelector('.mlv-moremenu__label');
+        if (label) label.textContent = s.exceptionsLabel;
+        item.title = s.exceptionsOn ? 'The observed claims are faded; choose to show them again' : 'Fade the observed claims so these stand out';
       }
       if (id === 'rail') {
         const label = item.querySelector('.mlv-moremenu__label');
@@ -208,7 +223,7 @@ export class MoreMenu {
         item.title = s.railMode === 'sheet' ? 'Open or collapse the bottom panel' : 'Show or hide the side panel';
       }
       if (spec.check) {
-        const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'minimap' ? s.minimapShown : s.railOpen;
+        const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'minimap' ? s.minimapShown : id === 'exceptions' ? s.exceptionsOn : s.railOpen;
         item.setAttribute('aria-checked', on_ ? 'true' : 'false');
       }
       if (id === 'zoomsel') item.disabled = !s.hasSelection;

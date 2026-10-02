@@ -172,12 +172,6 @@ export interface EdgeVisual {
    */
   placement?: LabelPlacement;
   /**
-   * VIEW-07: true when a stage filter dims one of the endpoints. The DOM adds
-   * `.is-filtered`; the SVG export drops the same opacity inline, so the two
-   * renderers dim the same cables.
-   */
-  filtered?: boolean;
-  /**
    * How many connections this cable stands for (`render/plan.ts`, from the route's own merge).
    * Absent or 1 draws an ordinary connection.
    */
@@ -375,7 +369,8 @@ function round(value: number): number {
  * unreachable and undescribed from the keyboard before this (FEATURES 2.2, 2.10).
  */
 export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, basis?: WorkflowBasis): string {
-  const kind = r.back ? 'loop back edge' : r.kind && r.kind !== 'unknown' ? r.kind + ' edge' : 'edge';
+  // Viewer M2 review (A11Y-10): "connection", the word the diagram prints, never "edge".
+  const kind = r.back ? 'loop-back connection' : r.kind && r.kind !== 'unknown' ? r.kind + ' connection' : 'connection';
   const label = r.label ? ' labelled ' + r.label : '';
   const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
   // The merged count is also the cable's drawn weight (`render/weight.ts`).

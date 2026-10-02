@@ -73,7 +73,7 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['a'], action: 'flow', description: 'Turn the connection flow animation on or off' },
   // Viewer M2: a flow stops after two passes, so nothing moves while you read.
   { keys: ['Shift+A'], action: 'replayFlow', description: 'Play the connection flow again (it stops after two passes)' },
-  { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },
+  { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected step' },
   { keys: ['1', '2', '3'], action: 'toggleSeverity', description: 'Toggle the high / medium / low filters' },
   { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side panel; open or collapse the bottom panel' },
   { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4'], action: 'railTab', description: 'About / Findings / Selection / Outline' },

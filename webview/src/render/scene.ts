@@ -85,7 +85,6 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
   const edgeEls = new Map<string, SVGElement>();
   for (const visual of plan.edges) {
     const element = buildEdge(visual);
-    if (visual.filtered) element.classList.add('is-filtered');
     opts.wireEdge(element, visual.route);
     layers.edgeGroup.appendChild(element);
     edgeEls.set(visual.route.id, element);

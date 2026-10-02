@@ -108,9 +108,26 @@ html.mlv-fills-page > body > .mlv-root {
   color: var(--mlv-on-accent);
 }
 
+/*
+ * Viewer M2 review (A11Y-2): the reset `.mlv-root button { color: inherit }` (0,1,1) outranked
+ * `.mlv-btn--primary` (0,1,0), so Refine… drew the header's text colour on the accent (2.82:1 on
+ * Dark Modern, 1.78:1 on Light Modern). This rule outranks the reset.
+ */
+.mlv-root .mlv-btn--primary {
+  color: var(--mlv-on-accent);
+}
+
 .mlv-btn--primary:hover {
   background: var(--mlv-accent-solid);
   filter: brightness(1.08);
+}
+
+/* In high contrast the accent is the background colour; the theme's button border draws the edge. */
+body.vscode-high-contrast .mlv-root .mlv-btn--primary,
+body.vscode-high-contrast-light .mlv-root .mlv-btn--primary,
+:root[data-theme="hc"] .mlv-root .mlv-btn--primary,
+.mlv-root[data-theme="hc"] .mlv-btn--primary {
+  border-color: var(--vscode-button-border, var(--vscode-contrastBorder, var(--mlv-text)));
 }
 
 .mlv-btn--icon {
@@ -160,21 +177,15 @@ html.mlv-fills-page > body > .mlv-root {
   padding: 2px var(--mlv-s4);
 }
 
+/*
+ * A toggle that is off: struck through, with a dashed border. Viewer M2 review (A11Y-12): no
+ * opacity, which took the count to 3.33:1 (Dark Modern) and 2.63:1 (Light Modern); the count of
+ * hidden findings stays readable in the text colour.
+ */
 .mlv-chip--btn[aria-pressed="false"] {
-  opacity: 0.5;
+  border-style: dashed;
+  border-color: var(--mlv-text-3);
   text-decoration: line-through;
-}
-
-.mlv-chip--stage {
-  color: var(--mlv-text);
-}
-
-.mlv-chip--stage::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: var(--mlv-stage, var(--mlv-stage-unknown));
 }
 
 .mlv-mono {

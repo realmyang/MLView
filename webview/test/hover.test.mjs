@@ -495,7 +495,7 @@ test('turning focus mode off with the pointer on a card brings back its hover', 
   ctx.app.destroy();
 });
 
-test('a card the hover dims still takes the pointer; only focus mode makes dimmed cards inert', async () => {
+test('a hover dims nothing; only focus mode dims, and makes the dimmed cards inert (viewer M2 review, A11Y-9)', async () => {
   // jsdom applies no CSS, so the rule is read from the shipped stylesheet.
   const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
   const declarations = (selector) => {
@@ -509,10 +509,13 @@ test('a card the hover dims still takes the pointer; only focus mode makes dimme
     }
     return out;
   };
-  const tracing = declarations('.mlv-canvas.is-tracing .mlv-node:not(.is-lit)');
+  // The M2 direction: "Direct connections light; nothing dims." A hover used to fade every other
+  // card to 22%, which took 9 of 12 visible titles under 2:1 (Dark Modern, Light Modern and Dark
+  // High Contrast) whenever the pointer crossed a card.
+  const fading = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].includes('.is-tracing') && /(^|[;\s])(opacity|filter)\s*:/.test(m[2]));
+  assert.deepEqual(fading.map((m) => m[1].trim()), [], 'no hover rule fades or desaturates anything');
+  assert.match(declarations('.mlv-canvas.is-tracing .mlv-node.is-lit')['box-shadow'] || '', /var\(--mlv-text-2\)/, 'the lit neighbours are ringed');
   const focusing = declarations('.mlv-canvas.is-focusing .mlv-node:not(.is-lit)');
-  assert.equal(tracing.opacity, '.22', 'a hover still dims');
-  assert.equal(tracing['pointer-events'], undefined, 'a dimmed card can still be hovered and clicked');
   assert.equal(focusing.opacity, '.22');
   assert.equal(focusing['pointer-events'], 'none');
 });

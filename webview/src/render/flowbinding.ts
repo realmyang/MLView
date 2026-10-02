@@ -101,8 +101,6 @@ export class FlowBinding {
       edges: () => host.edges(),
       nodes: () => host.nodes(),
       routes: () => host.routes(),
-      // Composition rule C2 limited streams to a projection's core; viewer M2 removed projections.
-      streamEligible: () => true,
     });
     // Re-read the preference when the OS flips it mid-session: the charge must
     // stop being BUILT, not merely be frozen by the blanket clamp (11.13 rule 3).

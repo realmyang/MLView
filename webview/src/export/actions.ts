@@ -17,7 +17,7 @@
  * a button that appears to work.
  */
 
-import { buildExportSvg, ExportRegionKind, ExportSvgResult } from './svg.js';
+import { buildExportSvg, ExportSvgResult } from './svg.js';
 import { rasterize, utf8ToBase64 } from './raster.js';
 import type { Palette } from './palette.js';
 import type { ScenePlan } from '../render/plan.js';
@@ -43,46 +43,22 @@ export interface ExportRequest {
   palette: Palette;
   theme: ThemeKind;
   graph: MLGraph;
-  regionKind: ExportRegionKind;
-  /** The visible canvas rectangle in world coordinates. */
-  viewRect: Rect;
   generatedAt?: string;
 }
 
-/** The world rectangle a region names: the whole frame, or the visible part of it. */
+/**
+ * The world rectangle the export draws: the whole frame, every lane and card at natural size.
+ * Viewer M2 left the ... menu one region; the host calls it `all`, this renderer `diagram`.
+ */
 export function regionRect(request: ExportRequest): Rect {
   const frame = request.plan.frame;
-  const whole: Rect = { x: 0, y: 0, w: frame.width, h: frame.height };
-  if (request.regionKind === 'view') return clampTo(request.viewRect, whole);
-  return whole;
-}
-
-function clampTo(rect: Rect, whole: Rect): Rect {
-  const x = Math.max(whole.x, Math.min(rect.x, whole.x + whole.w));
-  const y = Math.max(whole.y, Math.min(rect.y, whole.y + whole.h));
-  const w = Math.max(1, Math.min(rect.w, whole.x + whole.w - x));
-  const h = Math.max(1, Math.min(rect.h, whole.y + whole.h - y));
-  return { x, y, w, h };
-}
-
-
-export function regionLabel(kind: ExportRegionKind): string {
-  return kind === 'view' ? 'current view' : 'whole diagram';
-}
-
-/**
- * The same three regions in the HOST's vocabulary: the host-side amendment
- * calls the whole diagram `all`, this renderer calls it `diagram`. One mapping,
- * stated once, rather than two words drifting apart in five call sites.
- */
-export function hostRegionWord(kind: ExportRegionKind): 'view' | 'all' {
-  return kind === 'diagram' ? 'all' : 'view';
+  return { x: 0, y: 0, w: frame.width, h: frame.height };
 }
 
 /** Build the picture. Everything downstream is a delivery of this one result. */
 export function renderExport(request: ExportRequest): ExportSvgResult {
   const graph = request.graph;
-  const title = 'MLView — ' + subjectOf(graph) + ' — ' + regionLabel(request.regionKind);
+  const title = 'MLView — ' + subjectOf(graph) + ' — whole diagram';
   const desc =
     graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
     ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha +
@@ -92,7 +68,6 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
     palette: request.palette,
     theme: request.theme,
     region: regionRect(request),
-    regionKind: request.regionKind,
     title,
     desc,
   });
@@ -101,7 +76,7 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
 /** `mlview-vision_pipeline-evaluation-diagram.svg`, and nothing a shell hates. */
 export function exportFileName(request: ExportRequest, ext: string): string {
   const bits = ['mlview', subjectOf(request.graph)];
-  bits.push(request.regionKind);
+  bits.push('diagram');
   return bits.map(slug).filter((s) => !!s).join('-') + '.' + ext;
 }
 
@@ -130,7 +105,7 @@ function slug(value: string): string {
  * `base64 === data`, always, so either validator accepts the frame and either
  * reader decodes the same bytes.
  */
-function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string, region: ExportRegionKind): UiToHost {
+function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string): UiToHost {
   return {
     v: 1,
     type: 'exportFile',
@@ -139,7 +114,7 @@ function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string, re
     base64,
     data: base64,
     suggestedName: name,
-    scope: hostRegionWord(region),
+    scope: 'all',
   };
 }
 
@@ -174,7 +149,7 @@ export function saveSvg(host: ExportHost, result: ExportSvgResult, name: string)
   const connections = result.edgeIds.length;
   host.announce('Saving SVG…');
   host.request(
-    exportFileMessage('svg', name, base64, result.regionKind),
+    exportFileMessage('svg', name, base64),
     exportAnswer(host, (saved) => 'Exported ' + cards + ' cards and ' + connections + ' connections as ' + saved + '.', name),
   );
 }
@@ -190,7 +165,7 @@ export async function savePng(host: ExportHost, result: ExportSvgResult, name: s
   const size = raster.width + '×' + raster.height;
   host.announce('Saving PNG…');
   host.request(
-    exportFileMessage('png', name, raster.base64, result.regionKind),
+    exportFileMessage('png', name, raster.base64),
     exportAnswer(host, (saved) => 'Exported ' + size + ' PNG as ' + saved + '.', name),
   );
   return true;

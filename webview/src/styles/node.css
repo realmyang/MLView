@@ -78,6 +78,16 @@
   line-height: var(--mlv-lh-tight);
 }
 
+/* Viewer M2 review (A11Y-6): two lines of the authored detail where the file:line row was. */
+.mlv-node__sub[data-lines="2"] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .mlv-node__loc {
   /* A `.mlv-loc` too (NB): the flex box shrinks the path and never the cell.
    * `overflow: hidden` stays for the box itself; the ellipsis now belongs to

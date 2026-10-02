@@ -7,7 +7,7 @@
 
 import { normalizeSeverity } from './markers.js';
 import { sanitizeFilters } from './protocol.js';
-import type { Filters, Issue, MLNode, Severity } from './types.js';
+import type { Filters, Issue, Severity } from './types.js';
 
 export const ALL_SEVERITIES: Severity[] = ['low', 'medium', 'high'];
 
@@ -58,14 +58,6 @@ export class FilterModel {
 
   /** True when this finding should be counted, listed and marked. */
   keep = (issue: Issue): boolean => this.current.severities.indexOf(normalizeSeverity(issue.severity)) >= 0;
-
-  /**
-   * True when the filters exclude this node — dimmed, never removed. Viewer M2 removed the phase
-   * chips, the only filter that dimmed cards, so nothing does; the canvas still asks.
-   */
-  hidesNode(_node: MLNode): boolean {
-    return false;
-  }
 
   toggleSeverity(sev: Severity): void {
     const next = this.current.severities.slice();

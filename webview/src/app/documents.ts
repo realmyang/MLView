@@ -41,14 +41,15 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
   renderRail(app);
   app.view.applySelection(app.selection);
   if (announce) {
+    // Viewer M2 review (A11Y-10): the nouns the diagram prints (steps, findings), each count with
+    // its unit; the high-severity count only when there is one.
+    const plural = (n: number, one: string, many: string) => n + ' ' + (n === 1 ? one : many);
+    const high = graph.stats.issues.high;
     app.announce(
-      'Workflow loaded: ' +
-        graph.nodes.length +
-        ' nodes, ' +
-        graph.issues.length +
-        ' findings, ' +
-        graph.stats.issues.high +
-        ' high severity.',
+      'Workflow loaded: ' + plural(graph.nodes.length, 'step', 'steps') + ', ' +
+        plural(graph.edges.length, 'connection', 'connections') + ', ' +
+        plural(graph.issues.length, 'finding', 'findings') +
+        (high ? ' (' + high + ' high severity)' : '') + '.',
     );
   }
   app.saveSoon();

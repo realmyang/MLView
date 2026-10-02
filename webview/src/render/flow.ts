@@ -276,13 +276,6 @@ export interface FlowHost {
   edges(): Map<string, SVGElement>;
   nodes(): Map<string, HTMLElement>;
   routes(): RoutedEdge[];
-  /**
-   * Composition rule C2 (CONTRACTS 11.14): a charge may stream along an edge
-   * only when the document is unprojected, or when BOTH endpoints are `core`.
-   * A boundary node's other connections are cut, so a charge animating into it
-   * would lie about where the value goes.
-   */
-  streamEligible(route: RoutedEdge): boolean;
 }
 
 /**
@@ -454,7 +447,6 @@ export class FlowController {
       const hop = hops.edges.get(route.id);
       if (hop === undefined) continue;
       if (!streamsInLineage(route)) continue;
-      if (!this.host.streamEligible(route)) continue;
       const g = edges.get(route.id);
       if (!g) continue;
       chosen.push({ route, g, hop });

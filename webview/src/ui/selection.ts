@@ -8,6 +8,10 @@
  *   numbered quotes with line numbers, a freshness badge each and Open · "Comes from" and "Feeds"
  *   as sentences · Challenge and Refine… · one limitations link
  *
+ * A group's pane (viewer M2 review, M2R-6) reads like a step's, for what the group stands for: the
+ * findings of every step inside it (what its badge counts), the steps it contains, and the
+ * connections that cross its edge.
+ *
  * A connection's pane: its label, from → to, its kind in words, its basis, its findings, its quotes.
  * A finding's pane: severity, F-label and id, title, description, What to change, the steps and
  * connections it cites, and its quotes (supporting and counter-evidence).
@@ -70,7 +74,7 @@ const plural = (n: number, one: string, many: string): string => n + ' ' + (n ==
  * Viewer M1: a short sentence for the two bases that need one, after a tag naming the basis.
  * `observed` gets nothing: the common case carries no mark (viewer M2).
  */
-export function basisSentence(basis: string | undefined, noun: 'step' | 'connection' | 'finding'): string {
+export function basisSentence(basis: string | undefined, noun: 'step' | 'group' | 'connection' | 'finding'): string {
   if (basis === 'inferred') return 'Reasoned from the cited code and stated assumptions; the quotes do not show all of it directly.';
   if (basis === 'unresolved') return 'The evidence does not settle this claim. It does not mean the ' + noun + ' is missing.';
   return '';
@@ -87,7 +91,7 @@ export function renderSelectionPane(panel: HTMLElement, s: SelectionPaneState, c
     root.setAttribute('data-kind', 'connection');
     edgePane(root, s.edge, s, cb);
   } else if (s.node) {
-    root.setAttribute('data-kind', 'step');
+    root.setAttribute('data-kind', s.index.isGroup(s.node.id) ? 'group' : 'step');
     nodePane(root, s.node, s, cb);
   } else {
     add(root, el('p', 'mlv-empty-note', 'Select a step, a connection or a finding to read its claim beside its evidence.'));
@@ -106,6 +110,8 @@ function columns(root: HTMLElement, s: SelectionPaneState): { claim: HTMLElement
 
 function nodePane(root: HTMLElement, node: MLNode, s: SelectionPaneState, cb: SelectionPaneCallbacks): void {
   const index = s.index;
+  const group = index.isGroup(node.id);
+  const noun = group ? 'group' : 'step';
   const { claim, evidence } = columns(root, s);
   // Eyebrow: phase number and label · kind · parent group. Never the phase id (it stays on
   // `data-stage`), never the adapter's `unknown` kind.
@@ -124,17 +130,22 @@ function nodePane(root: HTMLElement, node: MLNode, s: SelectionPaneState, cb: Se
   if (parent) eyebrowPart(eyebrow, 'mlv-insp__parent', 'in ' + (parent.label || parent.id));
 
   add(claim, el('h4', 'mlv-insp__title', node.label || node.qualname));
-  appendBasis(claim, node.basis, 'step');
+  appendBasis(claim, node.basis, noun);
   // Viewer M1: the claim itself, in full, before anything else.
   if (node.detail) add(claim, el('p', 'mlv-insp__detail', node.detail));
 
-  appendFindings(claim, index.issuesOf(node.id, s.keep), 'Findings on this step', s, cb);
+  // A group stands for its steps: their findings (what its badge counts, each once), and the steps.
+  if (group) {
+    appendFindings(claim, index.subtreeIssues(node.id, s.keep), 'Findings in this group', s, cb);
+    appendMembers(claim, node, s, cb);
+  } else appendFindings(claim, index.issuesOf(node.id, s.keep), 'Findings on this step', s, cb);
+  const flow = () => (group ? appendGroupFlow(claim, node, s, cb) : appendFlow(claim, node, s, cb));
   if (s.columns === 1) {
-    appendQuotes(evidence, node.evidenceLocs || [], s, cb, 'step');
-    appendFlow(claim, node, s, cb);
+    appendQuotes(evidence, node.evidenceLocs || [], s, cb, noun);
+    flow();
   } else {
-    appendFlow(claim, node, s, cb);
-    appendQuotes(evidence, node.evidenceLocs || [], s, cb, 'step');
+    flow();
+    appendQuotes(evidence, node.evidenceLocs || [], s, cb, noun);
   }
   appendActions(evidence, cb);
   appendLimitations(evidence, s, cb);
@@ -185,7 +196,8 @@ function issuePane(root: HTMLElement, issue: Issue, s: SelectionPaneState, cb: S
     short.title = issue.short + ' is this finding\'s number in this revision; its id is ' + issue.code + '.';
   }
   add(eyebrow, el('span', 'mlv-mono', issue.code));
-  eyebrow.appendChild(basisChip(issue));
+  const chip = basisChip(issue);
+  if (chip) eyebrow.appendChild(chip);
 
   add(claim, el('h4', 'mlv-insp__title', issue.title));
   appendBasis(claim, issue.basis, 'finding');
@@ -255,7 +267,7 @@ function eyebrowPart(eyebrow: HTMLElement, cls: string, text: string): HTMLEleme
  * The basis once, for an exception only: its tag word, then what it means. A finding's pane names
  * its basis in the eyebrow's chip already, so its sentence has no tag.
  */
-function appendBasis(parent: HTMLElement, basis: string | undefined, noun: 'step' | 'connection' | 'finding'): void {
+function appendBasis(parent: HTMLElement, basis: string | undefined, noun: 'step' | 'group' | 'connection' | 'finding'): void {
   const sentence = basisSentence(basis, noun);
   if (!sentence) return;
   const p = add(parent, el('p', 'mlv-insp__basis'));
@@ -299,7 +311,8 @@ function appendFindings(parent: HTMLElement, issues: Issue[], title: string, s: 
     on(title, 'click', () => cb.onShowIssue(issue.id));
     head.appendChild(title);
     add(head, el('span', 'mlv-mono', issue.code));
-    head.appendChild(basisChip(issue));
+    const chip = basisChip(issue);
+    if (chip) head.appendChild(chip);
     if (issue.message) add(box, el('p', 'mlv-insp__line', issue.message));
     const suggestion = suggestionBlock(issue, 'h6');
     if (suggestion) box.appendChild(suggestion);
@@ -313,8 +326,8 @@ function appendFindings(parent: HTMLElement, issues: Issue[], title: string, s: 
   }
 }
 
-/** A step's or connection's quotes, with the previous / next walk M1 added. */
-function appendQuotes(parent: HTMLElement, locations: Loc[], s: SelectionPaneState, cb: SelectionPaneCallbacks, noun: 'step' | 'connection'): void {
+/** A step's, group's or connection's quotes, with the previous / next walk M1 added. */
+function appendQuotes(parent: HTMLElement, locations: Loc[], s: SelectionPaneState, cb: SelectionPaneCallbacks, noun: 'step' | 'group' | 'connection'): void {
   appendQuoteList(parent, locations, s, cb, {
     noun,
     nav: true,
@@ -334,7 +347,7 @@ function appendQuotes(parent: HTMLElement, locations: Loc[], s: SelectionPaneSta
 }
 
 interface QuoteListOptions {
-  noun: 'step' | 'connection' | 'finding';
+  noun: 'step' | 'group' | 'connection' | 'finding';
   /** The previous / next buttons (a step's and a connection's own evidence). */
   nav?: boolean;
   /** A label per quote (a finding's supporting or counter-evidence). */
@@ -487,6 +500,81 @@ function appendFlow(parent: HTMLElement, node: MLNode, s: SelectionPaneState, cb
   for (const edge of incoming) sentence(edge, 'in');
   // A self-edge is in both lists; say it once.
   for (const edge of outgoing) if (edge.source !== edge.target) sentence(edge, 'out');
+}
+
+/** The steps a group contains (its direct members), each a link that selects it. */
+function appendMembers(parent: HTMLElement, node: MLNode, s: SelectionPaneState, cb: SelectionPaneCallbacks): void {
+  const index = s.index;
+  const members = index.laneChildren(node.id).filter((id) => index.nodeById.has(id));
+  if (!members.length) return;
+  const section = add(parent, el('section', 'mlv-insp__section'));
+  section.setAttribute('data-section', 'members');
+  section.appendChild(heading('Steps in this group', plural(members.length, 'step', 'steps')));
+  const list = add(section, el('ul', 'mlv-insp__links'));
+  for (const id of members) {
+    const li = add(list, el('li'));
+    li.appendChild(stepLink(id, index.nodeById.get(id), cb));
+    const inner = index.descendantCount(id);
+    if (inner) add(li, el('span', 'mlv-insp__aside', ' · group of ' + plural(inner, 'step', 'steps')));
+  }
+}
+
+/**
+ * A group's connections: the ones that cross its edge, as "Comes from" and "Feeds" sentences that
+ * also name the step inside (they are what a collapsed group's card draws). Connections between
+ * two steps inside the group are the steps' own.
+ */
+function appendGroupFlow(parent: HTMLElement, node: MLNode, s: SelectionPaneState, cb: SelectionPaneCallbacks): void {
+  const index = s.index;
+  const inside = new Set<string>();
+  const walk = (id: string) => {
+    inside.add(id);
+    for (const child of index.laneChildren(id)) walk(child);
+  };
+  walk(node.id);
+  const incoming: MLEdge[] = [];
+  const outgoing: MLEdge[] = [];
+  for (const edge of index.graph.edges) {
+    const from = inside.has(edge.source);
+    const to = inside.has(edge.target);
+    if (from && to) {
+      // The group's own loop is a connection of the group; any other is between its steps.
+      if (edge.source === node.id && edge.target === node.id) incoming.push(edge);
+      continue;
+    }
+    if (to) incoming.push(edge);
+    else if (from) outgoing.push(edge);
+  }
+  if (!incoming.length && !outgoing.length) return;
+  const section = add(parent, el('section', 'mlv-insp__section mlv-insp__flow'));
+  section.setAttribute('data-section', 'connections');
+  section.appendChild(heading('Connections across its edge', plural(incoming.length + outgoing.length, 'connection', 'connections')));
+  const list = add(section, el('ul', 'mlv-insp__sentences'));
+  const sentence = (edge: MLEdge, direction: 'in' | 'out') => {
+    const li = add(list, el('li'));
+    li.setAttribute('data-direction', direction);
+    const otherId = direction === 'in' ? edge.source : edge.target;
+    const innerId = direction === 'in' ? edge.target : edge.source;
+    if (otherId === node.id && innerId === node.id) {
+      add(li, el('span', '', 'Loops back to this group'));
+    } else {
+      add(li, el('span', '', direction === 'in' ? 'Comes from ' : 'Feeds '));
+      li.appendChild(stepLink(otherId, index.nodeById.get(otherId), cb));
+      if (innerId !== node.id) {
+        add(li, el('span', '', direction === 'in' ? ' into ' : ' from '));
+        li.appendChild(stepLink(innerId, index.nodeById.get(innerId), cb));
+      }
+    }
+    add(li, el('span', '', ': '));
+    const link = button('mlv-link mlv-insp__flow-edge', edge.label || 'an unlabelled connection', 'Select the connection ' + connectionName(index, edge));
+    link.setAttribute('data-edge-id', edge.id);
+    on(link, 'click', () => cb.onShowEdge(edge.id));
+    li.appendChild(link);
+    const basis = edge.basis === 'inferred' ? ' (inferred, not observed)' : edge.basis === 'unresolved' ? ' (unresolved)' : '';
+    add(li, el('span', basis ? 'mlv-insp__flow-basis' : '', basis + '.'));
+  };
+  for (const edge of incoming) sentence(edge, 'in');
+  for (const edge of outgoing) sentence(edge, 'out');
 }
 
 function appendActions(parent: HTMLElement, cb: SelectionPaneCallbacks): void {

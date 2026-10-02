@@ -85,16 +85,17 @@ export function buildAppUi(app: App): void {
     // rows (and can collapse an expanded finding above), so the second click may land on a
     // detached or different row; the opener opens the row the first click selected.
     onSelectIssue: (id, ev) => {
-      app.focusIssue(id);
+      app.focusIssue(id, { fromList: 'issues' });
       app.doubleClick.arm(ev, () => app.openIssue(id, false));
     },
     onOpenIssue: (id, focusEditor) => app.openIssue(id, focusEditor),
+    // The Outline's rows keep the Outline on screen (viewer M2 review, M2-INT-1).
     onSelectNode: (id, ev) => {
-      app.select({ kind: 'node', id }, { center: true, reveal: true });
-      app.doubleClick.arm(ev, () => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true }));
+      app.select({ kind: 'node', id }, { center: true, reveal: true, fromList: 'outline' });
+      app.doubleClick.arm(ev, () => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, fromList: 'outline' }));
     },
-    onOpenNode: (id, focusEditor) => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, focusEditor }),
-    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { reveal: true }),
+    onOpenNode: (id, focusEditor) => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, focusEditor, fromList: 'outline' }),
+    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { reveal: true, fromList: 'outline' }),
     // Viewer M2: the Selection pane's links to a cited step, a connection's ends, a finding.
     onShowNode: (id) => app.focusNode(id, { center: true, pulse: true }),
     onShowEdge: (id) => app.select({ kind: 'edge', id }, { reveal: true }),
@@ -112,6 +113,7 @@ export function buildAppUi(app: App): void {
     onSheetCollapse: () => app.collapseSheet(true),
     onSheetResize: (fraction) => app.setSheetFraction(fraction),
     sheetFraction: () => app.sheetFraction,
+    sheetFractionMax: () => app.sheetFractionMax(),
     bodyHeight: () => shell.body.getBoundingClientRect().height,
   });
   // Viewer M2: after the canvas in the document, so the canvas stays within the header's tab
@@ -146,8 +148,8 @@ export function canvasHost(app: App): CanvasHost {
     app.select({ kind: 'edge', id }, { showClaim: true, open: true, focusEditor });
   return {
     keep: app.filters.keep,
-    isFilteredOut: (node) => app.filters.hidesNode(node),
-    // Viewer M1: a click selects and shows the claim; Enter and a double-click open the cited
+    // Viewer M1: a click selects and shows the claim (viewer M2 review, M2-INT-1: in the Selection
+    // tab, whichever tab was on show); Enter and a double-click open the cited
     // source beside the panel with focus kept here; Alt+Enter moves focus to the editor. The
     // click arms the double-click opener, so the second click opens even when the first one
     // moved the card (a rail opening, a refit) or put the bottom sheet under the pointer.

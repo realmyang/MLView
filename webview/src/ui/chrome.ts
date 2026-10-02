@@ -9,11 +9,23 @@
  *
  * The row never wraps. How much of it shows depends on the panel's width (`headerLayout`):
  *
- *   full   >= 1200 px  everything; the "not observed" breakdown in brackets
- *   wide   >= 1000 px  the breakdown folds into the tooltip
+ *   full   >= 1200 px  everything; "7 not observed (3 steps, 4 connections)"
+ *   wide   >= 1000 px  the breakdown folds into the tooltip; "7 claims not observed"
  *   mid    >=  620 px  search becomes an icon that opens the field; the chip shows the revision only
  *   narrow  <  620 px  the title, the severity toggles, "not observed", ... and Refine… stay;
  *                      search and the revision move into the ... menu
+ *
+ * Every count on the row names its unit on screen (the owner's rule): the severity toggles are
+ * followed by the word "findings", and "not observed" says "claims" or its breakdown.
+ *
+ * Viewer M2 review (M2R-2, A11Y-8): how wide the controls are depends on the document (two-digit
+ * counts, three severities) and on whether the search field is open, so the layout alone could
+ * not keep Refine… inside the panel. After every change `fitRow` measures the row and, while it
+ * overflows, folds in this order: the revision chip (About stays in the ... menu), the "not
+ * observed" toggle (into the ... menu, with its count and units), then the title (kept for screen
+ * readers) and, only while the search field is open at mid or narrow widths, the severity toggles
+ * (back when it closes). The roving tab stop is re-derived after each fold. A layout engine is
+ * needed to measure; jsdom folds nothing.
  *
  * The status bar (about 22 px) carries the step and connection counts, the coverage status with the
  * limitation count, the source freshness (muted when every cited file is unchanged, a warning only
@@ -121,6 +133,18 @@ export function coverageText(document: WorkflowDocument): string {
   return 'Coverage: ' + document.coverage.status + (n ? ' · ' + plural(n, 'limitation', 'limitations') : '');
 }
 
+/**
+ * How far `fitRow` may fold the row: the revision chip, then "not observed", then the title; and,
+ * only while the search field is open, the severity toggles (they come back when it closes).
+ */
+export const HEADER_FIT_MAX = 4;
+
+/** "7 claims not observed": the lead the chip shows where its breakdown is not on screen. */
+export function notObservedLead(c: NotObservedCounts): string {
+  const total = c.steps + c.connections + c.findings;
+  return total + (total === 1 ? ' claim' : ' claims') + ' not observed';
+}
+
 let chromeSeq = 0;
 
 export class Chrome {
@@ -142,6 +166,8 @@ export class Chrome {
   private search: HTMLElement;
   private searchBtn: HTMLButtonElement;
   private sevButtons = new Map<Severity, HTMLButtonElement>();
+  /** The word after the severity toggles, "findings": the unit their numbers count. */
+  private sevUnit: HTMLElement;
   private exceptionsBtn: HTMLButtonElement;
   private counts: HTMLElement;
   private coverage: HTMLButtonElement;
@@ -149,6 +175,16 @@ export class Chrome {
   private roving: RovingGroup | null = null;
   private cb: ChromeCallbacks;
   private layout: HeaderLayout = 'full';
+  /** The last width `setWidth` saw: a resize inside one layout still changes what fits. */
+  private width = 0;
+  /** How much `fitRow` folded the row (0 to HEADER_FIT_MAX). */
+  private fitLevel = 0;
+  /** A document is shown (the revision chip has something to say). */
+  private hasDocument = false;
+  /** There are claims that are not observed, so the "not observed" toggle exists. */
+  private hasExceptions = false;
+  /** The severities that have findings in view, so a toggle (a severity with none has none). */
+  private sevShown = new Set<Severity>();
   private searchOpen = false;
   private lastAboutLabel = 'About this revision';
   /** The state of the last update, which the ... menu's toggles flip. */
@@ -223,6 +259,11 @@ export class Chrome {
       this.sevButtons.set(sev, b);
       this.toolbar.appendChild(b);
     }
+    // Viewer M2 review (M2-INT-2): the unit of the toggles' numbers, on screen at every width. Each
+    // toggle's own name already says it ("2 medium findings"), so this word is not read again.
+    this.sevUnit = add(this.toolbar, el('span', 'mlv-header__unit', 'findings'));
+    this.sevUnit.setAttribute('aria-hidden', 'true');
+    this.sevUnit.hidden = true;
 
     // Viewer M2: how many claims are not observed, by unit, as a toggle that fades the observed
     // ones (through fill and stroke only, so their text stays readable). Hidden when every claim
@@ -270,32 +311,48 @@ export class Chrome {
     this.more.destroy();
   }
 
-  /** The tab stop after the Refine… button was rebuilt (`workflow.ts`). */
+  /** The Refine… button was rebuilt (`workflow.ts`): measure the row again and re-derive the tab stop. */
   syncRoving(): void {
-    if (this.roving) this.roving.sync();
+    this.fitRow();
   }
 
-  /** Viewer M2: the panel's width decides which controls the header keeps. */
+  /**
+   * Viewer M2: the panel's width decides which controls the header keeps. Viewer M2 review: any
+   * change of width, even inside one layout, measures the row again (`fitRow`).
+   */
   setWidth(width: number): HeaderLayout {
     const next = headerLayout(width);
-    if (next !== this.layout) {
+    const changed = next !== this.layout;
+    if (changed) {
       this.layout = next;
       this.header.setAttribute('data-layout', next);
       this.status.setAttribute('data-layout', next);
       this.syncSearch();
-      this.syncRoving();
+    }
+    if (changed || width !== this.width) {
+      this.width = width;
+      this.fitRow();
     }
     return next;
+  }
+
+  /** How much the row is folded to fit (0: nothing beyond what the layout hides). */
+  get headerFit(): number {
+    return this.fitLevel;
   }
 
   get headerLayout(): HeaderLayout {
     return this.layout;
   }
 
-  /** Open (or close) the search field; at the full and wide widths it is always shown. */
+  /**
+   * Open (or close) the search field; at the full and wide widths it is always shown. The row is
+   * measured again (an open field needs room) and the tab stop re-derived (the icon goes).
+   */
   setSearchOpen(open: boolean): void {
     this.searchOpen = open;
     this.syncSearch();
+    this.fitRow();
   }
 
   private syncSearch(): void {
@@ -303,12 +360,77 @@ export class Chrome {
     const open = !collapsed || this.searchOpen || !!this.searchInput.value;
     this.header.setAttribute('data-search', open ? 'open' : 'closed');
     this.searchBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    this.syncControls();
+  }
+
+  /**
+   * Viewer M2 review (M2R-1): the `hidden` attribute on every control the current shape leaves
+   * out, so the roving tab stop, the ... menu and a test agree with what the stylesheet draws. The
+   * revision chip: no document, below 620 px, or folded. The search icon: only at `mid` with the
+   * field closed. "Not observed": nothing to count, or folded.
+   */
+  private syncControls(): void {
+    this.provenance.hidden = !this.hasDocument || this.layout === 'narrow' || this.fitLevel >= 1;
+    const searchFolded = (this.layout === 'mid' || this.layout === 'narrow') && this.header.getAttribute('data-search') !== 'open';
+    this.searchBtn.hidden = !(this.layout === 'mid' && searchFolded);
+    this.exceptionsBtn.hidden = !this.hasExceptions || this.fitLevel >= 2;
+    for (const [sev, b] of this.sevButtons) b.hidden = !this.sevShown.has(sev) || this.fitLevel >= 4;
+    this.sevUnit.hidden = this.sevShown.size === 0 || this.fitLevel >= 4;
+    this.header.setAttribute('data-fit', String(this.fitLevel));
+  }
+
+  /**
+   * Viewer M2 review (M2R-2, A11Y-8): fold the row until it fits the panel. Each step is measured
+   * in place (the header's scroll width against its own width); nothing is painted in between, so
+   * the folding never shows. Without a layout engine (jsdom, a detached root) nothing is folded.
+   * Then the ... menu and the roving tab stop follow what is on the row.
+   */
+  private fitRow(): void {
+    this.fitLevel = 0;
+    this.syncControls();
+    const width = this.header.clientWidth;
+    // The severity toggles are never folded away while the field is closed: the menu has no copy.
+    const max = this.header.getAttribute('data-search') === 'open' && (this.layout === 'mid' || this.layout === 'narrow') ? HEADER_FIT_MAX : HEADER_FIT_MAX - 1;
+    if (width > 0) {
+      while (this.fitLevel < max && this.header.scrollWidth > this.header.clientWidth) {
+        this.fitLevel++;
+        this.syncControls();
+      }
+    }
+    this.updateMenu();
+    if (this.roving) this.roving.sync();
+  }
+
+  /** The ... menu's items for the current state and what the row folded into it. */
+  private updateMenu(): void {
+    const s = this.state;
+    if (!s) return;
+    const exceptions = s.notObserved;
+    const folded = this.hasExceptions && this.fitLevel >= 2;
+    this.more.update({
+      folded: {
+        search: this.layout === 'narrow',
+        about: this.layout === 'narrow' || this.fitLevel >= 1,
+        exceptions: folded,
+      },
+      aboutLabel: this.lastAboutLabel,
+      exceptionsLabel: this.hasExceptions ? notObservedText(exceptions) : '',
+      exceptionsOn: s.exceptionsOn,
+      legendOpen: s.legendOpen,
+      flowOn: s.flowOn,
+      minimapShown: !s.minimapCollapsed,
+      railOpen: s.railOpen,
+      railMode: s.railMode,
+      hasSelection: s.hasSelection,
+      canExport: !!s.graph,
+    });
   }
 
   private pick(id: MoreItemId, byKeyboard: boolean): void {
     const cb = this.cb;
     if (id === 'search') cb.onSearchOpen();
     else if (id === 'about') cb.onAbout(byKeyboard);
+    else if (id === 'exceptions') cb.onToggleExceptions(!(this.state && this.state.exceptionsOn));
     else if (id === 'legend') cb.onToggleLegend(!(this.state && this.state.legendOpen));
     else if (id === 'flow') cb.onToggleFlow(!(this.state && this.state.flowOn));
     else if (id === 'minimap') cb.onToggleMinimap(!(this.state && this.state.minimapCollapsed));
@@ -327,14 +449,20 @@ export class Chrome {
 
     const exceptions = s.notObserved;
     const exceptionTotal = exceptions.steps + exceptions.connections + exceptions.findings;
-    this.exceptionsBtn.hidden = !g || exceptionTotal === 0;
+    this.hasExceptions = !!g && exceptionTotal > 0;
     if (exceptionTotal > 0) {
       const text = notObservedText(exceptions);
       const open = text.indexOf(' (');
       clear(this.exceptionsBtn);
       this.exceptionsBtn.appendChild(uiIcon('notobserved', 14));
-      add(this.exceptionsBtn, el('span', 'mlv-chip__lead', open > 0 ? text.slice(0, open) : text));
-      if (open > 0) add(this.exceptionsBtn, el('span', 'mlv-chip__detail', text.slice(open)));
+      // Viewer M2 review (M2-INT-2, A11Y-5): the count names its unit on screen at every width,
+      // the owner's rule. The full row has room for the breakdown; a narrower one says "claims".
+      if (this.layout === 'full' && open > 0) {
+        add(this.exceptionsBtn, el('span', 'mlv-chip__lead', text.slice(0, open)));
+        add(this.exceptionsBtn, el('span', 'mlv-chip__detail', text.slice(open)));
+      } else {
+        add(this.exceptionsBtn, el('span', 'mlv-chip__lead', notObservedLead(exceptions)));
+      }
       this.exceptionsBtn.setAttribute('aria-label', text);
       this.exceptionsBtn.setAttribute('aria-pressed', s.exceptionsOn ? 'true' : 'false');
       this.exceptionsBtn.title = text + (s.exceptionsOn
@@ -350,38 +478,31 @@ export class Chrome {
       const count = b.querySelector('.mlv-chip__count');
       if (count) count.textContent = String(n);
       // A toggle for a severity with no findings would filter nothing; it is not drawn.
-      b.hidden = !g || n === 0;
+      if (g && n > 0) this.sevShown.add(sev);
+      else this.sevShown.delete(sev);
       // Viewer M2: the number names its unit in the tooltip and the accessible name.
       b.title = plural(n, sev + ' finding', sev + ' findings') + (active ? '. Press to hide them.' : ', hidden. Press to show them.');
       b.setAttribute('aria-label', b.title);
     }
+    // The unit after the toggles: "finding" only when the one number shown is 1.
+    const shown = SEVERITY_ORDER.filter((sev) => this.sevShown.has(sev));
+    this.sevUnit.textContent = shown.length === 1 && s.visibleCounts[shown[0]] === 1 ? 'finding' : 'findings';
 
-    this.more.update({
-      narrow: this.layout === 'narrow',
-      aboutLabel: this.lastAboutLabel,
-      legendOpen: s.legendOpen,
-      flowOn: s.flowOn,
-      minimapShown: !s.minimapCollapsed,
-      railOpen: s.railOpen,
-      railMode: s.railMode,
-      hasSelection: s.hasSelection,
-      canExport: !!g,
-    });
     this.syncSearch();
     this.renderStatus(s);
-    if (this.roving) this.roving.sync();
+    this.fitRow();
   }
 
   private renderHeader(s: ChromeState, doc: WorkflowDocument | null): void {
     if (!doc) {
       this.title.textContent = '';
       this.title.removeAttribute('title');
-      this.provenance.hidden = true;
+      this.hasDocument = false;
       return;
     }
     this.title.textContent = doc.title;
     this.title.title = doc.title;
-    this.provenance.hidden = false;
+    this.hasDocument = true;
     const host = doc.producer.host;
     const model = doc.producer.model ? ' (' + doc.producer.model + ')' : '';
     this.provHost.textContent = host + ' · ';
@@ -410,7 +531,11 @@ export class Chrome {
     this.counts.textContent = plural(g.nodes.length, 'step', 'steps') + ' · ' + plural(g.edges.length, 'connection', 'connections');
     if (doc) {
       this.coverage.hidden = false;
-      this.coverage.textContent = coverageText(doc);
+      // Viewer M2 review (M2R-11): beside the code the item drops its "Coverage:" lead, so the
+      // limitations keep their count and unit next to a stale-file warning; its name keeps it all.
+      const full = coverageText(doc);
+      this.coverage.textContent = this.layout === 'narrow' ? full.replace(/^Coverage: /, '') : full;
+      this.coverage.setAttribute('aria-label', full);
       const status = doc.coverage.status;
       const meaning = status === 'scoped'
         ? '"scoped": the assistant lists no remaining work within the stated scope.'
@@ -421,6 +546,8 @@ export class Chrome {
     // Freshness: a warning icon and words only for changed or missing files; muted text otherwise.
     clear(this.fresh);
     const f = s.freshness;
+    // Viewer M2 review (M2R-11): a warning keeps its width; the coverage item gives way instead.
+    this.fresh.setAttribute('data-stale', f && f.state === 'stale' ? 'true' : 'false');
     if (f && f.state === 'stale') {
       const item = add(this.fresh, el('span', 'mlv-status__fresh is-warn'));
       item.appendChild(uiIcon('warning', 12));

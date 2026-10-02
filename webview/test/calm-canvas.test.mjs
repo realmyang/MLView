@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { loadBundle, recordingBridge, WEBVIEW_ROOT } from './helpers.mjs';
+import { cascadeWinner, loadBundle, recordingBridge, WEBVIEW_ROOT } from './helpers.mjs';
 
 const STYLES = join(WEBVIEW_ROOT, 'src', 'styles');
 const css = async (name) => (await readFile(join(STYLES, name), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
@@ -317,6 +317,31 @@ async function mount(document = doc(), { bodyClass = '' } = {}) {
   const key = (value, init = {}) => app.view.canvasEl.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...init }));
   return { ...ctx, bridge, app, q, card, edge, key, canvas: app.view.canvasEl };
 }
+
+test('A11Y-2 (viewer M2 review): Refine… draws button.foreground on button.background at 4.5:1, and keeps an edge in high contrast', async () => {
+  // jsdom lets the later rule win whatever its specificity, so the winner is resolved by hand: the
+  // reset `.mlv-root button { color: inherit }` outranked `.mlv-btn--primary` and the label drew
+  // the header's text colour on the accent (2.82:1 Dark Modern, 1.78:1 Light Modern).
+  const dist = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const themes = await themeVars();
+  const ctx = await mount();
+  const refine = ctx.q('.mlv-workflow__refine');
+  assert.ok(refine.classList.contains('mlv-btn--primary'));
+  const color = cascadeWinner(dist, refine, 'color');
+  assert.equal(color.value, 'var(--mlv-on-accent)', 'the winning colour rule is ' + color.selector);
+  assert.equal(cascadeWinner(dist, refine, 'background').value, 'var(--mlv-accent-solid)');
+  for (const { label, vars } of Object.values(themes)) {
+    const ratio = contrast(colour('var(--mlv-on-accent)', vars), colour('var(--mlv-accent-solid)', vars));
+    assert.ok(ratio >= 4.5, `${label}: Refine… label ${ratio.toFixed(2)}:1`);
+  }
+  // High contrast: the accent is the canvas colour, so the border must be the theme's contrast edge.
+  ctx.document.getElementById('mlview-root').setAttribute('data-theme', 'hc');
+  const border = cascadeWinner(dist, refine, 'border-color');
+  const hc = themes['hc-dark'].vars;
+  const edge = colour(border.value, hc);
+  assert.ok(contrast(edge, colour('var(--mlv-bg)', hc)) >= 3, `Dark High Contrast: the button edge (${border.value}) is visible`);
+  ctx.app.destroy();
+});
 
 test('observed claims carry no basis mark; inferred and unresolved ones carry a line style and a word', async () => {
   const ctx = await mount();

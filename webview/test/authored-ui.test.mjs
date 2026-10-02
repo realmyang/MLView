@@ -181,7 +181,7 @@ test('the header names host and revision, its tooltip the model, and limitations
 test('authored readers see finding wording, no adapter chips and no duplicated message', async () => {
   const ctx = await mount();
   ctx.app.focusIssue('loss-risk');
-  assert.match(ctx.app.liveEl.textContent, /^Finding loss-risk, medium severity: Loss is aggregated late$/);
+  assert.match(ctx.app.liveEl.textContent, /^Finding F1 \(loss-risk\), medium severity: Loss is aggregated late$/);
   ctx.app.setRailTab('issues');
   const list = ctx.root.querySelector('.mlv-issues[role="listbox"]');
   assert.equal(list.getAttribute('aria-label'), 'medium severity findings');

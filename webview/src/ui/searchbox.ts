@@ -69,6 +69,9 @@ export function renderSearchResults(list: HTMLElement, input: HTMLInputElement, 
     row.type = 'button';
     row.id = optionId(list, i);
     row.setAttribute('role', 'option');
+    // An option is reached with the field's arrow keys (aria-activedescendant), never by Tab: the
+    // header keeps one tab stop besides the field (viewer M2 review, M2R-1).
+    row.tabIndex = -1;
     row.setAttribute('aria-selected', i === cursor ? 'true' : 'false');
     if (hit.severity) row.appendChild(severityGlyph(hit.severity, 12, ''));
     add(row, el('span', 'mlv-result__label', hit.label));

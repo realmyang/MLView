@@ -11,11 +11,11 @@ import { basisSpoken } from './edges.js';
 import { stampPhase } from './phase.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
-import { titleLines } from '../layout/cardmetrics.js';
+import { drawsLocRow, titleLines } from '../layout/cardmetrics.js';
 
 /**
  * An authored sublabel is the model's `detail`, up to 8000 characters. The card
- * shows one ellipsised line of it (CSS), so the DOM keeps only a prefix far
+ * shows one or two clamped lines of it (CSS), so the DOM keeps only a prefix far
  * longer than any card can draw; the Selection pane shows the whole text (viewer M1,
  * `MLNode.detail`), and the card's accessible name its first sentence.
  */
@@ -32,7 +32,6 @@ export interface NodeVisual {
   staleQuotes?: { stale: number; total: number };
   /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
   staleElsewhere?: boolean;
-  filteredOut: boolean;
   /** Viewer M2: the short labels (F1…Fn) of the findings the badge counts, in document order. */
   findings?: string[];
   /** Viewer M2: the phase's document position, the key of its colour. */
@@ -132,7 +131,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   const top = highestSeverity(v.counts);
   // VIEWUI-14: the same "finding" wording as the card's own severity badge.
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
-  if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
+  if (v.descendants > 0) bits.push(v.descendants + (v.descendants === 1 ? ' nested step' : ' nested steps'));
   if (v.stale) bits.push(staleWords(v));
   // Viewer M1: the claim's first sentence, so the name says what the step does. The Selection pane
   // has the whole text.
@@ -180,6 +179,19 @@ export function detailSpoken(detail: string): string {
   return (space > DETAIL_SPOKEN_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, '') + '…';
 }
 
+/**
+ * Viewer M2 review (A11Y-6, the roadmap's step 7): a card with an authored detail draws two
+ * lines of it where the layout reserved the file:line row, instead of one detail line and a
+ * file:line row whose path was cut to a few characters at reading zoom ("exampl… › cell 1").
+ * The location stays in the card's accessible name, the hover card and the Selection pane. The
+ * height is the one `cardmetrics.cardHeight` reserved (two 11 px lines fit the detail and
+ * file:line rows), so nothing is laid out again. A card without a detail keeps its kind word and
+ * its file:line row. The SVG export draws the same face.
+ */
+export function cardDetailLines(node: MLNode): 1 | 2 {
+  return node.detail && node.detail.trim() && drawsLocRow(node) ? 2 : 1;
+}
+
 /** A full node card, positioned absolutely inside the world layer. */
 export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLElement {
   const n = v.node;
@@ -213,7 +225,6 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
 
   if (top) card.classList.add('has-issues');
   if (v.stale) card.classList.add('is-stale');
-  if (v.filteredOut) card.classList.add('is-filtered');
   if (groupLike) card.classList.add('is-collapsed-group');
 
   add(card, el('div', 'mlv-node__rail'));
@@ -234,11 +245,14 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // on a 2000-node document.
   const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
   title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
-  // Issue 14: the sublabel is prose, cut once by the CSS end ellipsis.
-  add(text, el('div', 'mlv-node__sub', cardSubline(n).slice(0, SUB_DOM_CHARS)));
-  // `notebooks/leak.ipynb › cell 3, line 4` on the card. `locSpan` splits the
+  // Issue 14: the sublabel is prose, cut once by the CSS ellipsis; two lines in place of the
+  // file:line row when the author wrote a detail (viewer M2 review, A11Y-6).
+  const detailLines = groupLike ? 1 : cardDetailLines(n);
+  const sub = add(text, el('div', 'mlv-node__sub', cardSubline(n).slice(0, SUB_DOM_CHARS)));
+  if (detailLines === 2) sub.setAttribute('data-lines', '2');
+  // `notebooks/leak.ipynb › cell 3, line 4` on a card without a detail. `locSpan` splits the
   // path from the cell so a card too narrow for both loses the path, never the cell.
-  if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
+  else if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // Viewer M2: the only chip row left is a collapsed group's count (layout/cardmetrics.ts).
   if (groupLike) {
@@ -278,12 +292,14 @@ export function stepsText(n: number): string {
 }
 
 /**
- * The visible label of a lane's finding counts (viewer M2): the severity cluster's numbers count
- * findings touching this phase. A finding that touches two phases counts in each (PR #14), so the
- * lanes are not a partition of the document's findings.
+ * The visible label of a lane's finding counts (viewer M2): how many findings touch this phase,
+ * with the unit. A finding that touches two phases counts in each (PR #14), so the lanes are not a
+ * partition of the document's findings. Viewer M2 review (M2R-4): the total leads the phrase; the
+ * phrase used to follow the last per-severity number, so "2 3 findings touch this phase" read as
+ * three findings where there were five.
  */
 export function phaseFindingsText(total: number): string {
-  return total === 1 ? 'finding touches this phase' : 'findings touch this phase';
+  return total + (total === 1 ? ' finding touches this phase' : ' findings touch this phase');
 }
 
 /** The same, as a full sentence for the accessible name and the tooltip. */
@@ -369,9 +385,15 @@ export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean
   band.style.setProperty('--mlv-lane-header-h', lane.headerH + 'px');
   if (absent) band.classList.add('is-absent');
 
+  // Viewer M2 review (A11Y-11): a heading on a plate, numbered as the Selection pane's eyebrow
+  // numbers phases ("1 · Data"), in the text colour at the card title's size.
   const header = add(band, el('div', 'mlv-lane__header'));
+  if (phase !== undefined) {
+    const num = add(header, el('span', 'mlv-lane__num', String(phase + 1)));
+    num.title = 'Phase ' + (phase + 1);
+  }
   const label = add(header, el('span', 'mlv-lane__label', lane.label));
-  label.title = lane.label;
+  label.title = phase !== undefined ? 'Phase ' + (phase + 1) + ': ' + lane.label : lane.label;
   add(header, el('span', 'mlv-lane__count', stepsText(lane.nodeCount)));
   add(header, el('span', 'mlv-lane__spacer'));
   // Viewer M2: the counts say what they count. A finding touching two phases counts in each.
@@ -379,6 +401,7 @@ export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean
   const cluster = severityCluster(counts, 13, spoken);
   if (cluster) {
     header.appendChild(cluster);
+    // After the per-severity numbers, their total with its unit (M2R-4).
     const unit = add(header, el('span', 'mlv-lane__unit', phaseFindingsText(countsTotal(counts))));
     unit.setAttribute('aria-hidden', 'true');
     unit.title = spoken;

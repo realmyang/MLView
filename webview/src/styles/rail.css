@@ -795,6 +795,32 @@
   letter-spacing: var(--mlv-track-caps);
 }
 
+/*
+ * Viewer M2 review (A11Y-11): a phase row's "2 findings touch this phase" goes under the phase's
+ * name, in sentence case, so the name is never cut to make room for it.
+ */
+.mlv-outline__row--lane {
+  flex-wrap: wrap;
+}
+
+.mlv-outline__row--lane .mlv-outline__label {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mlv-outline__phasecount {
+  flex: 1 0 100%;
+  font-weight: var(--mlv-fw-regular);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* A finding's basis tag in the rail (viewer M2 review): the canvas tag, in the flow of its row. */
+.mlv-basis-tag--rail {
+  flex: none;
+  vertical-align: middle;
+}
+
 .mlv-relations {
   margin-top: var(--mlv-s6);
   padding-top: var(--mlv-s4);

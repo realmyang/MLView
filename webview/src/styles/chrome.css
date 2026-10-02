@@ -11,6 +11,8 @@
  * an ellipsis; what else stays depends on `data-layout`, which the App sets from the panel's
  * width: full >= 1200 px, wide >= 1000, mid >= 620, narrow below (541 px is the measured
  * beside-the-code panel). Hidden controls are in the ... menu, so nothing is lost, only moved.
+ * When the controls still do not fit (two-digit counts, an open search field, a panel under
+ * 541 px), `Chrome.fitRow` folds more and says how much in `data-fit` (viewer M2 review).
  */
 .mlv-header {
   position: relative;
@@ -130,9 +132,10 @@
   color: var(--mlv-text-2);
 }
 
-/* A toggle, not a filter: off is the normal state, never struck through (base.css). */
+/* A toggle, not a filter: off is the normal state, never struck through or dashed (base.css). */
 .mlv-chip--exceptions[aria-pressed="false"] {
-  opacity: 1;
+  border-style: solid;
+  border-color: var(--mlv-border);
   text-decoration: none;
 }
 
@@ -146,9 +149,24 @@
   color: var(--mlv-text-2);
 }
 
-/* The breakdown in brackets shows only at the full width; the tooltip and the name keep it. */
-.mlv-header:not([data-layout="full"]) .mlv-chip--exceptions .mlv-chip__detail {
-  display: none;
+/* Viewer M2 review: "findings" after the severity toggles, the unit of their numbers. */
+.mlv-header__unit {
+  flex: none;
+  margin-left: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+/* The row folded its title to fit (data-fit 3, under about 420 px): it stays the document's h1
+ * for a screen reader and on hover of the panel's tab, out of the row. */
+.mlv-header[data-fit="3"] .mlv-header__title,
+.mlv-header[data-fit="4"] .mlv-header__title {
+  position: absolute;
+  width: 1px;
+  min-width: 0;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .mlv-header .mlv-btn--icon {
@@ -225,7 +243,19 @@
 
 .mlv-header[data-layout="narrow"] .mlv-search {
   flex: 1 1 auto;
-  min-width: 120px;
+  min-width: 96px;
+}
+
+/* The tightest rows (data-fit 3 and 4) close up the gaps. */
+.mlv-header[data-fit="3"],
+.mlv-header[data-fit="4"] {
+  gap: var(--mlv-s2);
+  padding: 0 var(--mlv-s3);
+}
+
+.mlv-header[data-fit="3"] .mlv-header__bar,
+.mlv-header[data-fit="4"] .mlv-header__bar {
+  gap: var(--mlv-s2);
 }
 
 .mlv-search__glyph {
@@ -510,6 +540,23 @@
 
 .mlv-status__fresh.is-warn {
   flex: none;
+}
+
+/*
+ * Viewer M2 review (M2R-11): a stale-file warning is never cut. At 541 px "1 of 18 cited files
+ * changed" lost its last word to the coverage item; now the warning keeps its width and the
+ * coverage item gives way first, then the counts.
+ */
+.mlv-status__freshness[data-stale="true"] {
+  flex: none;
+}
+
+.mlv-status[data-layout="narrow"] .mlv-status__coverage {
+  flex-shrink: 1000;
+}
+
+.mlv-status[data-layout="narrow"] .mlv-status__counts {
+  flex-shrink: 1;
 }
 
 /* Beside the code the zoom keeps its readout; + and - (and the wheel) still zoom. */

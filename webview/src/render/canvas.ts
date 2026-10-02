@@ -357,6 +357,12 @@ export class ViewportController {
    * least FRAME_MIN_ZOOM. A rectangle too large even at that floor is centred on `anchor` (the first
    * cited card), so the reader starts where the finding starts.
    */
+  /** Whether `rect` fits the visible area at `zoom` or more, with the frame's margin (`frameRect`). */
+  fitsAt(rect: Rect, zoom: number, margin = 48): boolean {
+    const { w, h } = this.visibleArea();
+    return Math.min((w - margin) / Math.max(1, rect.w), (h - margin) / Math.max(1, rect.h)) >= zoom;
+  }
+
   frameRect(rect: Rect, anchor: Rect, readable: number, margin = 48): void {
     const { w, h } = this.visibleArea();
     const fits = Math.min((w - margin) / Math.max(1, rect.w), (h - margin) / Math.max(1, rect.h));

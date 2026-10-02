@@ -134,7 +134,7 @@ test('at 900 px search folds behind an icon and the chip keeps the revision; sti
   assert.equal(ctx.document.activeElement, $(ctx, '.mlv-search .mlv-input'));
   $(ctx, '.mlv-search .mlv-input').dispatchEvent(new ctx.window.Event('blur'));
   assert.equal($(ctx, '.mlv-header').getAttribute('data-search'), 'closed');
-  // The ... menu has no narrow-only items at this width.
+  // The ... menu stands in for nothing at this width: the row has room for every control.
   openMenu(ctx);
   assert.deepEqual(menuItems(ctx), ['legend', 'flow', 'minimap', 'rail', 'fit', 'zoomsel', 'svg', 'png', 'copy-svg', 'shortcuts']);
   ctx.app.destroy();
@@ -289,7 +289,7 @@ test('each ... item does what it says: legend, flow, overview map, rail, fit, ex
   assert.ok($(ctx, '.mlv-sheet') && !$(ctx, '.mlv-sheet').hidden, 'the shortcut sheet opens');
   // Every item names itself; the exports are the whole diagram, and nothing else is offered.
   assert.deepEqual($$(ctx, '.mlv-moremenu__item').map((item) => item.querySelector('.mlv-moremenu__label').textContent), [
-    'Search steps and findings', 'About revision r7 · claude-code', 'Legend', 'Connection flow animation', 'Overview map', 'Side panel',
+    'Search steps and findings', 'About revision r7 · claude-code', '3 not observed (1 step, 1 connection, 1 finding)', 'Legend', 'Connection flow animation', 'Overview map', 'Side panel',
     'Fit the whole diagram', 'Zoom to the selection', 'Export SVG…', 'Export PNG…', 'Copy SVG', 'Keyboard shortcuts',
   ]);
   assert.equal($(ctx, '[data-more-item="zoomsel"]').disabled, true, 'nothing selected, nothing to zoom to');

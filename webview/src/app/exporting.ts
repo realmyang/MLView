@@ -30,8 +30,6 @@ function exportRequest(app: App): ExportRequest | null {
     palette: resolvePalette(app.root, app.themes.kind),
     theme: app.themes.kind,
     graph: app.graph,
-    regionKind: 'diagram',
-    viewRect: app.view.viewportRect(),
     generatedAt: new Date().toISOString().slice(0, 10),
   };
 }
