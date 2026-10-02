@@ -101,6 +101,8 @@ export function wireNodeEvents(element: HTMLElement, id: string, isGroup: boolea
       port.openNode(id, ev.altKey);
     } else if (ev.key === ' ' && port.isGroup(id)) {
       ev.preventDefault();
+      // As for Enter: the canvas's own Space would toggle the group a second time.
+      ev.stopPropagation();
       port.toggleCollapse(id);
     }
   });

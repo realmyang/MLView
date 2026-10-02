@@ -468,6 +468,15 @@ check; the geometry golden is byte-identical):
   was not established; the restore is now explicit and pinned by a test.
 - Not changed: the first-view thresholds; the deferral above (A11Y-7) stands.
 
+An independent live re-check of these fixes passed all eight items. It also found two
+faults older than M2. Space on a focused, selected group toggled it twice, so
+nothing happened: the card's handler and the canvas's both answered the key.
+The card now stops the event, as it already did for Enter, and a test pins it.
+Not fixed yet: after Enter opens a notebook that was not open, the next Escape
+can take keyboard focus away from the diagram (the workbench gets it). It
+happens on the build before M2 too, and is carried to M3, whose review walk
+depends on focus staying put after a jump.
+
 ## Unreleased — viewer M1: verification loop and cleanup
 
 Step 1 of the viewer's first milestone: check a claim against its source

@@ -67,6 +67,25 @@ test('collapsing the hovered group clears the trace and the stale tooltip', asyn
   ctx.app.destroy();
 });
 
+test('Space on a focused group header collapses it once, and again expands it', async () => {
+  const ctx = await mount();
+  const space = (element) => element.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+  const header = () => ctx.document.querySelector('[data-node-id="loop"] .mlv-group__header');
+  // Right after a click the group is selected and its header has the focus: the state the canvas's
+  // own Space also acts on.
+  header().dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  await wait(450);
+  assert.equal(JSON.stringify(ctx.app.getState().selection), JSON.stringify({ kind: 'node', id: 'loop' }), 'precondition: the click selected the group');
+  header().focus();
+  space(header());
+  assert.ok(ctx.app.getState().collapsed.includes('loop'), 'one Space collapses the group (it used to toggle twice)');
+  const card = ctx.document.querySelector('[data-node-id="loop"]');
+  (card.querySelector('.mlv-group__header') || card).focus();
+  space(card.querySelector('.mlv-group__header') || card);
+  assert.ok(!ctx.app.getState().collapsed.includes('loop'), 'a second Space expands it');
+  ctx.app.destroy();
+});
+
 test('a revision arriving under a hovered card leaves no dimming and no tooltip', async () => {
   const ctx = await mount();
   const card = ctx.document.querySelector('[data-node-id="read"]');
