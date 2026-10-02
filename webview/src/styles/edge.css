@@ -1,5 +1,8 @@
-/* Edge layer: one stroke style per kind — dash pattern and arrowhead, never
- * colour alone, so the four kinds survive a greyscale screenshot (R1.3). */
+/* Edge layer. Viewer M2: the dash pattern encodes CERTAINTY, not kind — solid for an observed
+ * connection, dashed for inferred, dotted for unresolved — so the exceptions survive a greyscale
+ * screenshot and no reader has to learn a kind key. The kind is told in words (hover card,
+ * Inspector, accessible name). One stroke colour (tokens.css --mlv-edge) at about 3:1 or better
+ * against the canvas in every theme, at full opacity. */
 
 .mlv-edge {
   pointer-events: none;
@@ -18,102 +21,54 @@
  * `.mlv-edge__path`: it is a KEY, not a routed edge, and a decoy in the scene's
  * own class would answer `document.querySelectorAll('.mlv-edge__path')` -- the
  * query that checks every drawn cable carries a unique motion-path id. Listing
- * both selectors on every kind rule is what keeps the key showing the real
- * stroke, dash and opacity rather than a hand-copied imitation.
+ * both selectors on every stroke rule is what keeps the key showing the real
+ * stroke and dash rather than a hand-copied imitation.
+ *
+ * The width never drops under 1 px on screen (1px / --mlv-z, written by render/canvas.ts), so a
+ * zoomed-out diagram keeps visible connections and visible dashes.
  */
 .mlv-edge__path,
 .mlv-legend__edge {
   fill: none;
   stroke: var(--mlv-edge);
-  stroke-width: 1.5;
+  stroke-width: max(1.5px, calc(1px / var(--mlv-z, 1)));
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: stroke var(--mlv-dur-1) var(--mlv-ease);
 }
 
-.mlv-edge--data .mlv-edge__path,
-.mlv-edge--data .mlv-legend__edge {
-  stroke-width: 1.5;
+/* Inferred: dashed. Unresolved: dotted. Dash lengths are held constant on screen. */
+.mlv-edge[data-basis="inferred"] .mlv-edge__path,
+.mlv-edge[data-basis="inferred"] .mlv-legend__edge {
+  stroke-dasharray: calc(6px / var(--mlv-z, 1)) calc(4px / var(--mlv-z, 1));
+  stroke-linecap: butt;
 }
 
-.mlv-edge--call .mlv-edge__path,
-.mlv-edge--call .mlv-legend__edge {
-  stroke-dasharray: 4 3;
-  opacity: 0.75;
-}
-
-.mlv-edge--control .mlv-edge__path,
-.mlv-edge--control .mlv-legend__edge {
-  stroke-dasharray: 1 4;
+.mlv-edge[data-basis="unresolved"] .mlv-edge__path,
+.mlv-edge[data-basis="unresolved"] .mlv-legend__edge {
+  stroke-dasharray: calc(1.5px / var(--mlv-z, 1)) calc(3.5px / var(--mlv-z, 1));
   stroke-linecap: round;
-  opacity: 0.65;
-}
-
-.mlv-edge--config .mlv-edge__path,
-.mlv-edge--config .mlv-legend__edge {
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
-  opacity: 0.5;
-}
-
-.mlv-edge--unknown .mlv-edge__path,
-.mlv-edge--unknown .mlv-legend__edge {
-  stroke-dasharray: 3 3;
-  opacity: 0.6;
 }
 
 /*
- * Campaign 3, issue 9: the contract's recommended vocabulary adds three kinds,
- * each with its own dash AND arrowhead so they survive greyscale too:
- * state = long dash + filled diamond, loop = dash-dot + open chevron,
- * output = heavier solid + hollow triangle.
- */
-.mlv-edge--state .mlv-edge__path,
-.mlv-edge--state .mlv-legend__edge {
-  stroke-dasharray: 8 3;
-  opacity: 0.85;
-}
-
-.mlv-edge--loop .mlv-edge__path,
-.mlv-edge--loop .mlv-legend__edge {
-  stroke-dasharray: 6 2.5 1.5 2.5;
-  opacity: 0.75;
-}
-
-.mlv-edge--output .mlv-edge__path,
-.mlv-edge--output .mlv-legend__edge {
-  stroke-width: 2;
-}
-
-/*
- * The arrowheads. `<marker>` content does not inherit from the path that
- * references it, so each head is painted here from the same edge token: a
- * filled head in `--mlv-edge`, an open one stroked in it. Unstyled, a filled
- * head was the UA's black and an open one (`fill="none"`, no stroke) did not
- * draw at all.
+ * The arrowhead. `<marker>` content does not inherit from the path that
+ * references it, so the head is painted here from the same edge token. One
+ * filled head for every connection (viewer M2).
  */
 .mlv-arrow {
   fill: var(--mlv-edge);
   stroke: none;
 }
 
-.mlv-arrow.mlv-arrow--open {
-  fill: none;
-  stroke: var(--mlv-edge);
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .mlv-edge.is-hover .mlv-edge__path,
 .mlv-edge.is-lit .mlv-edge__path {
   stroke: var(--mlv-text-2);
-  stroke-width: 2;
+  stroke-width: max(2px, calc(1.5px / var(--mlv-z, 1)));
 }
 
 .mlv-edge.is-selected .mlv-edge__path {
   stroke: var(--mlv-accent);
-  stroke-width: 2.5;
+  stroke-width: max(2.5px, calc(2px / var(--mlv-z, 1)));
 }
 
 .mlv-edge.has-issue .mlv-edge__path {
@@ -121,36 +76,6 @@
   opacity: 0.85;
 }
 
-.mlv-edge__arrow {
-  fill: var(--mlv-edge);
-  stroke: none;
-}
-
-.mlv-edge--call .mlv-edge__arrow,
-.mlv-edge--control .mlv-edge__arrow {
-  fill: none;
-  stroke: var(--mlv-edge);
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.mlv-edge--config .mlv-edge__arrow {
-  display: none;
-}
-
-.mlv-edge.is-hover .mlv-edge__arrow,
-.mlv-edge.is-lit .mlv-edge__arrow {
-  fill: var(--mlv-text-2);
-}
-
-.mlv-edge--call.is-hover .mlv-edge__arrow,
-.mlv-edge--control.is-hover .mlv-edge__arrow,
-.mlv-edge--call.is-lit .mlv-edge__arrow,
-.mlv-edge--control.is-lit .mlv-edge__arrow {
-  fill: none;
-  stroke: var(--mlv-text-2);
-}
 
 .mlv-edge-label {
   font-family: var(--mlv-font-mono);
@@ -260,17 +185,9 @@
   opacity: 0.45;
 }
 
-.mlv-bundle--call .mlv-bundle__trunk,
-.mlv-bundle--call .mlv-bundle__spur,
-.mlv-bundle--config .mlv-bundle__trunk,
-.mlv-bundle--config .mlv-bundle__spur {
-  stroke-dasharray: 4 3;
-}
-
-.mlv-bundle--control .mlv-bundle__trunk,
-.mlv-bundle--control .mlv-bundle__spur {
-  stroke-dasharray: 1 4;
-}
+/* Viewer M2: a trunk is always solid. Dashes mean inferred and dotted means unresolved, and a
+ * trunk stands for many connections; the exceptions among them stay drawn as their own cables
+ * (the `is-bundled` rule below). */
 
 .mlv-bundle.has-issue .mlv-bundle__trunk,
 .mlv-bundle.has-issue .mlv-bundle__spur {
@@ -319,6 +236,29 @@
 .mlv-canvas .mlv-edge.is-bundled .mlv-edge__path,
 .mlv-canvas .mlv-edge.is-bundled .mlv-edge-label {
   opacity: 0;
+}
+
+/* Viewer M2: an inferred or unresolved connection is never hidden in a trunk. Decluttering may
+ * fold the observed connections; it may not hide the claims the reader most needs to check. */
+.mlv-canvas .mlv-edge.is-bundled[data-basis="inferred"] .mlv-edge__path,
+.mlv-canvas .mlv-edge.is-bundled[data-basis="unresolved"] .mlv-edge__path {
+  opacity: 1;
+}
+
+/* Viewer M2: exceptions mode fades the observed connections through their stroke only; labels
+ * keep their colour. */
+.mlv-canvas[data-exceptions="on"] .mlv-edge[data-basis="observed"]:not(.is-hover):not(.is-selected):not(.is-lit) .mlv-edge__path {
+  stroke-opacity: 0.3;
+}
+
+.mlv-canvas[data-exceptions="on"] .mlv-bundle__trunk,
+.mlv-canvas[data-exceptions="on"] .mlv-bundle__spur {
+  stroke-opacity: 0.3;
+}
+
+.mlv-canvas[data-exceptions="on"] .mlv-edge[data-basis="inferred"] .mlv-edge__path,
+.mlv-canvas[data-exceptions="on"] .mlv-edge[data-basis="unresolved"] .mlv-edge__path {
+  stroke: var(--mlv-text);
 }
 
 /* Below the LOD threshold the badge is one more piece of text nobody can read

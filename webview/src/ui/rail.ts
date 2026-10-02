@@ -9,6 +9,7 @@ import { add, button, clear, el, fileLine, on } from '../dom.js';
 import { locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
 import { basisChip } from './evidence.js';
+import { stampPhase } from '../render/phase.js';
 import { issueStaleReasons, renderIssuePanel, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
 import { allElsewhere, staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
@@ -285,6 +286,7 @@ export class Rail {
     const phase = node.phaseLabel || stageLabel(s.index, node.stage);
     const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', phase));
     stageChip.setAttribute('data-stage', node.stage);
+    stampPhase(stageChip, s.index.phaseIndexOf(node.stage));
     stageChip.title = 'Phase: ' + phase;
     // VIEWUI-14: an absent kind reads as `unknown` and the level is the
     // adapter's `unit`/`op`, neither of which the author wrote.
@@ -453,6 +455,8 @@ export class Rail {
     box.setAttribute('data-issue-id', issue.id);
     const head = add(box, el('div', 'mlv-insp__issue-head'));
     head.appendChild(severityGlyph(issue.severity, 14, ''));
+    // Viewer M2: the short label the badges print, beside the real id that Refine uses.
+    if (issue.short) add(head, el('span', 'mlv-insp__short', issue.short)).title = issue.short + ' is this finding\'s number in this revision; its id is ' + issue.code + '.';
     add(head, el('span', 'mlv-mono', issue.code));
     add(head, el('span', '', issue.title));
     head.appendChild(basisChip(issue));

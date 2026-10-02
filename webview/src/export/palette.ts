@@ -43,18 +43,17 @@ export interface Palette {
   sevHighInk: string;
   sevMediumInk: string;
   sevLowInk: string;
-  stageConfig: string;
-  stageData: string;
-  stagePreprocess: string;
-  stageModel: string;
-  stageObjective: string;
-  stageTrain: string;
-  stageEval: string;
-  stageDeliver: string;
   stageUnknown: string;
-  /** Opacity of a lane band's stage wash, as a number in 0..1. */
+  /**
+   * Viewer M2: a card's border, about 3:1 against the canvas (`--mlv-node-edge`, a mix of the
+   * text colour into the background).
+   */
+  nodeEdge: string;
+  /** Viewer M2: the phase tones by document order (`--mlv-phase-0` … `--mlv-phase-7`). */
+  phases: string[];
+  /** Opacity of a lane band's neutral wash (text colour over the background), in 0..1. */
   laneTint: number;
-  /** Opacity of a group box's stage wash. */
+  /** Opacity of a group box's wash. */
   groupTint: number;
 }
 
@@ -78,16 +77,21 @@ export const PALETTE_TOKENS: Record<string, string> = {
   sevHighInk: '--mlv-sev-high-ink',
   sevMediumInk: '--mlv-sev-medium-ink',
   sevLowInk: '--mlv-sev-low-ink',
-  stageConfig: '--mlv-stage-config',
-  stageData: '--mlv-stage-data',
-  stagePreprocess: '--mlv-stage-preprocess',
-  stageModel: '--mlv-stage-model',
-  stageObjective: '--mlv-stage-objective',
-  stageTrain: '--mlv-stage-train',
-  stageEval: '--mlv-stage-eval',
-  stageDeliver: '--mlv-stage-deliver',
   stageUnknown: '--mlv-stage-unknown',
+  nodeEdge: '--mlv-node-edge',
 };
+
+/** Viewer M2: the phase tone tokens, in order. */
+export const PHASE_TOKENS = ['--mlv-phase-0', '--mlv-phase-1', '--mlv-phase-2', '--mlv-phase-3', '--mlv-phase-4', '--mlv-phase-5', '--mlv-phase-6', '--mlv-phase-7'];
+
+/**
+ * Viewer M2: how much of the text colour styles/tokens.css mixes into the background for a
+ * connection (`--mlv-edge`) and a card border (`--mlv-node-edge`). High contrast uses the
+ * contrast border instead. The export recomputes the mix from the resolved text and background
+ * when the live value is not a literal.
+ */
+export const EDGE_MIX: Record<ThemeKind, number> = { light: 0.64, dark: 0.54, hc: 1 };
+export const NODE_EDGE_MIX: Record<ThemeKind, number> = { light: 0.58, dark: 0.46, hc: 1 };
 
 /** The two numeric tokens, kept apart because they are opacities, not paints. */
 export const TINT_TOKENS: Record<string, string> = {
@@ -114,17 +118,11 @@ const LIGHT: Palette = {
   sevHighInk: '#FFFFFF',
   sevMediumInk: '#3A2500',
   sevLowInk: '#FFFFFF',
-  stageConfig: '#667085',
-  stageData: '#0E7C85',
-  stagePreprocess: '#6A48E8',
-  stageModel: '#3B6CF6',
-  stageObjective: '#B05F17',
-  stageTrain: '#14895F',
-  stageEval: '#A3308B',
-  stageDeliver: '#6E7484',
   stageUnknown: '#7A8090',
-  laneTint: 0.05,
-  groupTint: 0.05,
+  nodeEdge: '',
+  phases: ['#00796B', '#6A4FB3', '#8D6E2F', '#B0457E', '#558B2F', '#0B7F99', '#546E7A', '#1F6FB2'],
+  laneTint: 0.025,
+  groupTint: 0,
 };
 
 /** Only what `[data-theme="dark"]` actually redeclares; the rest is inherited. */
@@ -147,26 +145,20 @@ const DARK_OVERRIDES: Partial<Palette> = {
   sevHighInk: '#1A0405',
   sevMediumInk: '#2A1A00',
   sevLowInk: '#0B1020',
-  stageConfig: '#8B93A7',
-  stageData: '#2DC5D0',
-  stagePreprocess: '#9E86FF',
-  stageModel: '#6E96FF',
-  stageObjective: '#F0954A',
-  stageTrain: '#34C08A',
-  stageEval: '#E169C9',
-  stageDeliver: '#8B93A7',
   stageUnknown: '#8B93A7',
-  laneTint: 0.1,
-  groupTint: 0.09,
+  phases: ['#4DB6AC', '#A48BE0', '#C9A56B', '#D98CB3', '#9CCC65', '#4FC3D9', '#90A4AE', '#6FA8DC'],
+  laneTint: 0.035,
+  groupTint: 0,
 };
 
 /**
  * High contrast drops every wash and every hue that is not load-bearing. It
- * does NOT redeclare the stage or severity hues, so those stay exactly as the
- * light branch declares them — which is why this is an override map rather than
- * a third full table.
+ * does NOT redeclare the severity hues, so those stay exactly as the light
+ * branch declares them — which is why this is an override map rather than a
+ * third full table. Phases have no hue there: every tone is the contrast border.
  */
 const HC_OVERRIDES: Partial<Palette> = {
+  phases: ['#FFFFFF', '#FFFFFF', '#FFFFFF', '#FFFFFF', '#FFFFFF', '#FFFFFF', '#FFFFFF', '#FFFFFF'],
   bg: '#000000',
   surface: '#000000',
   surface2: '#000000',
@@ -183,31 +175,73 @@ const HC_OVERRIDES: Partial<Palette> = {
 };
 
 export const EXPORT_PALETTES: Record<ThemeKind, Palette> = {
-  light: LIGHT,
-  dark: { ...LIGHT, ...DARK_OVERRIDES },
-  hc: { ...LIGHT, ...HC_OVERRIDES },
+  light: derive({ ...LIGHT }, 'light'),
+  dark: derive({ ...LIGHT, ...DARK_OVERRIDES }, 'dark'),
+  hc: derive({ ...LIGHT, ...HC_OVERRIDES }, 'hc'),
 };
 
 export function paletteFor(theme: ThemeKind): Palette {
-  return EXPORT_PALETTES[theme] || EXPORT_PALETTES.light;
+  const base = EXPORT_PALETTES[theme] || EXPORT_PALETTES.light;
+  return { ...base, phases: base.phases.slice() };
 }
 
-/** The eight canonical stage ids, mapped to their palette field. */
-const STAGE_FIELD: Record<string, keyof Palette> = {
-  config: 'stageConfig',
-  data: 'stageData',
-  preprocess: 'stagePreprocess',
-  model: 'stageModel',
-  objective: 'stageObjective',
-  train: 'stageTrain',
-  eval: 'stageEval',
-  deliver: 'stageDeliver',
-};
+/**
+ * Viewer M2: a phase's colour by its document position, never by its id. Phase i takes tone
+ * i mod 8, as on the canvas (`render/phase.ts`).
+ */
+export function phaseColor(palette: Palette, phaseIndex: number | undefined): string {
+  if (phaseIndex === undefined || !palette.phases.length) return palette.stageUnknown;
+  const n = palette.phases.length;
+  return palette.phases[((phaseIndex % n) + n) % n] || palette.stageUnknown;
+}
 
-/** A stage id's colour. An id this renderer never heard of gets the neutral hue. */
-export function stageColor(palette: Palette, stage: string | undefined): string {
-  const field = stage ? STAGE_FIELD[stage] : undefined;
-  return field ? (palette[field] as string) : palette.stageUnknown;
+/** The colours the stylesheet derives with color-mix(), recomputed from the resolved text and background. */
+function derive(palette: Palette, theme: ThemeKind): Palette {
+  if (theme === 'hc') {
+    palette.edge = palette.border;
+    palette.nodeEdge = palette.border;
+    return palette;
+  }
+  palette.edge = mixHex(palette.text, palette.bg, EDGE_MIX[theme]) || palette.edge;
+  palette.nodeEdge = mixHex(palette.text, palette.bg, NODE_EDGE_MIX[theme]) || palette.border;
+  return palette;
+}
+
+/** `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()` or `rgba()` as [r, g, b] (alpha ignored), or null. */
+export function parseColor(value: string): [number, number, number] | null {
+  const text = value.trim().toLowerCase();
+  const hex = /^#([0-9a-f]{3,8})$/.exec(text);
+  if (hex) {
+    const h = hex[1];
+    if (h.length === 3 || h.length === 4) return [0, 1, 2].map((i) => parseInt(h[i] + h[i], 16)) as [number, number, number];
+    if (h.length === 6 || h.length === 8) return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+    return null;
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(text);
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])].map((v) => Math.max(0, Math.min(255, v))) as [number, number, number];
+  return null;
+}
+
+function toHex(rgb: number[]): string {
+  return '#' + rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+/** `a` mixed into `b` at `share` (0..1), as color-mix(in srgb, a share, b) computes it; '' when either is unreadable. */
+export function mixHex(a: string, b: string, share: number): string {
+  const ca = parseColor(a);
+  const cb = parseColor(b);
+  if (!ca || !cb) return '';
+  return toHex(ca.map((v, i) => v * share + cb[i] * (1 - share)));
+}
+
+/**
+ * A `color-mix(in srgb, <colour> <p>%, <colour>)` whose colours are literals (what a custom
+ * property holds once its var() references are substituted), as a hex literal; '' otherwise.
+ */
+export function resolveColorMix(value: string): string {
+  const m = /^color-mix\(\s*in srgb\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s*\)$/i.exec(value.trim());
+  if (!m) return '';
+  return mixHex(m[1], m[3], Number(m[2]) / 100);
 }
 
 export function severityColor(palette: Palette, severity: string | null): string {
@@ -243,10 +277,23 @@ export function resolvePalette(root: Element | null, theme: ThemeKind): Palette 
     return out;
   }
   if (!style || typeof style.getPropertyValue !== 'function') return out;
+  const resolved = new Set<string>();
   for (const field of Object.keys(PALETTE_TOKENS)) {
-    const value = clean(style.getPropertyValue(PALETTE_TOKENS[field]));
-    if (value) (out as unknown as Record<string, string>)[field] = value;
+    const value = literal(style.getPropertyValue(PALETTE_TOKENS[field]));
+    if (value) {
+      (out as unknown as Record<string, string>)[field] = value;
+      resolved.add(field);
+    }
   }
+  PHASE_TOKENS.forEach((token, i) => {
+    const value = literal(style.getPropertyValue(token));
+    if (value) out.phases[i] = value;
+  });
+  // The derived colours follow the theme's own text and background when the live value could
+  // not be read as a literal.
+  const derived = derive({ ...out }, theme);
+  if (!resolved.has('edge')) out.edge = derived.edge;
+  if (!resolved.has('nodeEdge')) out.nodeEdge = derived.nodeEdge;
   for (const field of Object.keys(TINT_TOKENS)) {
     const value = clean(style.getPropertyValue(TINT_TOKENS[field]));
     const n = value ? Number(value) : NaN;
@@ -259,6 +306,13 @@ function ownerView(root: Element | null): (Window & typeof globalThis) | null {
   if (!root) return null;
   const doc = root.ownerDocument;
   return doc ? (doc.defaultView as (Window & typeof globalThis) | null) : null;
+}
+
+/** A literal, or a color-mix() of literals computed to one; '' for anything unresolved. */
+function literal(raw: string | null | undefined): string {
+  const value = (raw || '').trim();
+  if (value.toLowerCase().startsWith('color-mix(')) return resolveColorMix(value);
+  return clean(value);
 }
 
 /** A usable literal, or '' when the engine handed back something unresolved. */

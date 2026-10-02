@@ -171,6 +171,15 @@ export class FlowBinding {
   }
 
   /**
+   * Viewer M2 (Shift+A): run the flow on screen again. A flow settles after two passes so nothing
+   * moves while the reader reads; this restarts it from its first pass. False when nothing is lit,
+   * the layer is off, or motion is reduced (there is no motion to replay).
+   */
+  replay(): boolean {
+    return this.controller.replay();
+  }
+
+  /**
    * A stream — a hovered card's direct routes, or a focused node's lineage —
    * plus the one thing the animation cannot say for itself: that it was
    * suppressed for density and that scoping brings it back.

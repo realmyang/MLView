@@ -17,6 +17,15 @@ function evidenceLoc(evidence: Map<string, WorkflowEvidence>, ids: string[]): Lo
   return { file: item.file, absFile: '', line: item.line, col: 0, endLine: item.endLine, endCol: 0, snippet: item.quote, cell: item.cell, evidenceId: item.id };
 }
 
+/**
+ * Viewer M2: a finding's short label, `F1` for the first finding in the document. The owner
+ * accepted that these renumber between revisions; the real id stays in tooltips, the Inspector
+ * and the Refine and Challenge prompts.
+ */
+export function findingLabel(position: number): string {
+  return 'F' + (position + 1);
+}
+
 /** `generator.version` when the producer named no model. */
 export const UNSPECIFIED_MODEL = 'unspecified model';
 
@@ -62,14 +71,14 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
     issueIds: edgeIssueIds.get(edge.id) || [],
   }));
-  const issues: Issue[] = (document.findings || []).map((finding) => {
+  const issues: Issue[] = (document.findings || []).map((finding, position) => {
     const loc = evidenceLoc(evidence, finding.evidence);
     const related = (finding.evidence || []).map((id) => ({ item: evidence.get(id), role: 'Supporting evidence' }))
       .concat((finding.counterEvidence || []).map((id) => ({ item: evidence.get(id), role: 'Counter-evidence' })))
       .filter((x): x is { item: WorkflowEvidence; role: string } => !!x.item)
       .map(({ item, role }) => ({ ...evidenceLoc(evidence, [item.id]), role }));
     return {
-      id: finding.id, code: finding.id, severity: finding.severity, basis: finding.basis, title: finding.title,
+      id: finding.id, code: finding.id, short: findingLabel(position), severity: finding.severity, basis: finding.basis, title: finding.title,
       message: finding.message, fixHint: finding.suggestion || '', loc, relatedLocs: related,
       nodeIds: finding.nodeIds || [], edgeIds: finding.edgeIds || [], stage: nodes.find((n) => finding.nodeIds.includes(n.id))?.stage || '',
     };

@@ -11,7 +11,7 @@
  * one file, and the pen is the half nothing about the diagram depends on.
  */
 
-import { SEVERITY_INK, SEVERITY_SHAPE, SEVERITY_ORDER, countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
+import { SEVERITY_INK, SEVERITY_SHAPE, SEVERITY_ORDER, badgeText, countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { severityColor, severityInk, Palette } from './palette.js';
 import type { Rect } from '../render/canvas.js';
 import type { IssueCounts } from '../types.js';
@@ -101,11 +101,12 @@ export function severityGlyphMarkup(severity: string, x: number, y: number, size
 }
 
 /** The node badge: highest glyph, plus the total when there is more than one. */
-export function badge(counts: IssueCounts, right: number, top: number, palette: Palette, hc: boolean): string {
+export function badge(counts: IssueCounts, right: number, top: number, palette: Palette, hc: boolean, labels: readonly string[] = []): string {
   const sev = highestSeverity(counts);
   if (!sev) return '';
   const total = countsTotal(counts);
-  const countText = total > 1 ? String(total) : '';
+  // Viewer M2: the short labels (`F2 F5`), as the DOM badge prints them; else the total.
+  const countText = labels.length ? badgeText(labels) : total > 1 ? String(total) : '';
   const w = 8 + 18 + (countText ? width(countText, 10.5, false, true) + 4 : 0);
   const x = right - w;
   const out = [

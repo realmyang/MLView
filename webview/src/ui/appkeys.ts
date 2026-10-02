@@ -97,6 +97,12 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     overview: () => ctx.view().overview(),
     toggleLegend: () => ctx.toggleLegend(),
     toggleFlow: () => ctx.toggleFlow(),
+    // Viewer M2: a flow settles after two passes; Shift+A runs it again from its first pass.
+    replayFlow: () => {
+      if (!ctx.view().flow.replay()) return false;
+      ctx.announce('Playing the connection flow again.');
+      return true;
+    },
 
     collapseSelection: () => {
       const sel = ctx.selection();

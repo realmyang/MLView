@@ -47,12 +47,26 @@
   pointer-events: auto;
 }
 
-/* lanes */
+/* lanes — viewer M2: a neutral wash and a 3 px accent rule in the phase colour, never a
+ * phase-coloured fill. The rule is a pseudo-element, so the lane box (which the geometry golden
+ * hashes) does not change; export/svg.ts draws the same rule. */
 .mlv-lane {
   position: absolute;
   border: 1px solid var(--mlv-border);
   border-radius: var(--mlv-r-lane);
-  background: color-mix(in srgb, var(--mlv-stage) calc(var(--mlv-lane-tint) * 100%), transparent);
+  background: color-mix(in srgb, var(--mlv-text) calc(var(--mlv-lane-tint) * 100%), transparent);
+}
+
+.mlv-lane::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+  pointer-events: none;
 }
 
 .mlv-lane__header {
@@ -68,11 +82,16 @@
 }
 
 .mlv-lane__label {
+  flex: 0 1 auto;
+  min-width: 48px;
+  overflow: hidden;
   color: var(--mlv-text-2);
   font-size: var(--mlv-fs-11);
   font-weight: var(--mlv-fw-semi);
+  text-overflow: ellipsis;
   text-transform: uppercase;
   letter-spacing: var(--mlv-track-caps);
+  white-space: nowrap;
 }
 
 .mlv-lane__label::before {
@@ -87,25 +106,50 @@
 }
 
 .mlv-lane__count {
+  flex: none;
   color: var(--mlv-text-3);
   font-size: var(--mlv-fs-10);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .mlv-lane__spacer {
   flex: 1 1 auto;
 }
 
-/* group boxes */
-.mlv-group {
-  position: absolute;
-  border: 1px dashed color-mix(in srgb, var(--mlv-stage) 45%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--mlv-stage) calc(var(--mlv-group-tint) * 100%), transparent);
+.mlv-lane__header .mlv-cluster {
+  flex: none;
 }
 
-.mlv-group[data-depth="1"] { border-style: dashed; }
-.mlv-group[data-depth="2"] { border-style: dotted; }
+/* Viewer M2: what the lane's severity numbers count. It gives way first in a narrow lane; its
+ * tooltip and the cluster's accessible name keep the whole sentence. */
+.mlv-lane__unit {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* group boxes — viewer M2: a neutral solid frame. Dashed and dotted now mean inferred and
+ * unresolved, so a group's frame uses them only for the group's own basis, never for depth. */
+.mlv-group {
+  position: absolute;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mlv-text) calc(var(--mlv-group-tint) * 100%), transparent);
+}
+
+.mlv-group[data-basis="inferred"] {
+  border: calc(1.5px / var(--mlv-z, 1)) dashed var(--mlv-text-2);
+}
+
+.mlv-group[data-basis="unresolved"] {
+  border: calc(1.5px / var(--mlv-z, 1)) dotted var(--mlv-text-2);
+}
 
 .mlv-group__header {
   display: flex;
@@ -123,7 +167,7 @@
 }
 
 .mlv-group__header:hover {
-  background: color-mix(in srgb, var(--mlv-stage) 10%, transparent);
+  background: var(--mlv-surface-2);
 }
 
 .mlv-group__chevron {
@@ -288,5 +332,5 @@
 }
 
 .mlv-group__chevron-btn:hover {
-  background: color-mix(in srgb, var(--mlv-stage) 18%, transparent);
+  background: var(--mlv-surface-2);
 }

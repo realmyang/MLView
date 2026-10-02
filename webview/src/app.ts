@@ -40,7 +40,6 @@ import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflo
 import { FreshnessState } from './freshness.js';
 import { HostNotice } from './ui/hostnotice.js';
 import { DoubleClickOpener } from './ui/doubleclick.js';
-import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
@@ -124,6 +123,8 @@ export class App implements MLViewApp {
    */
   pendingScope: { spec: string; depth?: number } | null = null;
   flowOn = true;
+  /** Viewer M2: whether the observed claims are faded (the toolbar's "not observed" toggle). */
+  exceptionsOn = false;
   caps: Capabilities;
   /* VW-05: `this.themes.kind` is the one answer to "which theme"; the app keeps no copy. */
 
@@ -360,15 +361,22 @@ export class App implements MLViewApp {
     if (this.graph) this.view.handleResize();
   }
 
-  /** Issue 9: tell the legend which authored edge kinds draw the catch-all stroke. */
+  /**
+   * Viewer M2: tell the legend which connection kinds this diagram uses, as the author wrote
+   * them, since the line style no longer shows the kind. Most used first.
+   */
   private legendOtherKinds(): void {
-    const kinds = new Set<string>();
+    const kinds = new Map<string, number>();
     let unspecified = 0;
     for (const edge of (this.scopes.full || this.graph)?.edges || []) {
       if (edge.kind === 'unknown') unspecified++;
-      else if (KNOWN_EDGE_KINDS.indexOf(edge.kind) < 0) kinds.add(edge.kind);
+      else {
+        const word = edge.authoredKind || edge.kind;
+        kinds.set(word, (kinds.get(word) || 0) + 1);
+      }
     }
-    this.legend.setOtherKinds(Array.from(kinds).sort(), unspecified);
+    const list = Array.from(kinds, ([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
+    this.legend.setKinds(list, unspecified);
   }
 
   /**
@@ -406,6 +414,18 @@ export class App implements MLViewApp {
   setRailWidth(width: number): void {
     this.railWidth = Math.max(280, Math.min(560, Math.round(width)));
     this.rail.root.style.width = this.railWidth + 'px';
+  }
+
+  /**
+   * Viewer M2: fade the observed claims, or stop fading them. Fill and stroke only (node.css,
+   * edge.css), so the faded text keeps its contrast. Per view; not saved.
+   */
+  setExceptions(next: boolean): void {
+    this.exceptionsOn = next;
+    if (next) this.view.canvasEl.setAttribute('data-exceptions', 'on');
+    else this.view.canvasEl.removeAttribute('data-exceptions');
+    renderChrome(this);
+    this.announce(next ? 'Observed claims faded; inferred and unresolved claims stand out.' : 'Observed claims shown normally.');
   }
 
   setFlow(next: boolean): void {

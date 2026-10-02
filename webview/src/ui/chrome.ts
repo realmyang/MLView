@@ -7,6 +7,7 @@ import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
+import { stampPhase } from '../render/phase.js';
 import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
 import type { ChipSpec } from './chromechips.js';
 import { UNSPECIFIED_MODEL } from '../workflow.js';
@@ -28,6 +29,8 @@ export interface ChromeCallbacks {
   onToggleFlow(next: boolean): void;
   /** Open or close the legend (VIEW-10); persisted as ViewState.legendOpen. */
   onToggleLegend(next: boolean): void;
+  /** Viewer M2: fade the observed claims so the inferred and unresolved ones stand out. */
+  onToggleExceptions(next: boolean): void;
   /**
    * VIEW-12: the keyboard's minimap toggle. The panel itself is `aria-hidden`
    * and its chevron is pointer-only, so this button is the only accessible way
@@ -59,6 +62,32 @@ export interface ChromeState {
   freshness?: { text: string; title: string } | null;
   /** Viewer M1: the host is checking a change on disk. */
   checking?: boolean;
+  /** Viewer M2: the claims in view that are not observed, by unit. */
+  notObserved?: NotObservedCounts;
+  /** Viewer M2: whether the observed claims are faded. */
+  exceptionsOn?: boolean;
+}
+
+/** Viewer M2: inferred or unresolved claims, counted by what they are. */
+export interface NotObservedCounts {
+  steps: number;
+  connections: number;
+  findings: number;
+}
+
+const plural = (n: number, one: string, many: string): string => n + ' ' + (n === 1 ? one : many);
+
+/**
+ * "7 not observed (3 connections, 4 findings)" — the count with its unit and its breakdown,
+ * omitting a part that is zero. Every claim the author marked inferred or unresolved counts once.
+ */
+export function notObservedText(c: NotObservedCounts): string {
+  const total = c.steps + c.connections + c.findings;
+  const parts: string[] = [];
+  if (c.steps) parts.push(plural(c.steps, 'step', 'steps'));
+  if (c.connections) parts.push(plural(c.connections, 'connection', 'connections'));
+  if (c.findings) parts.push(plural(c.findings, 'finding', 'findings'));
+  return total + ' not observed (' + parts.join(', ') + ')';
 }
 
 let chromeSeq = 0;
@@ -89,6 +118,7 @@ export class Chrome {
   private scopeBtn: HTMLButtonElement;
   private flowBtn: HTMLButtonElement;
   private legendBtn: HTMLButtonElement;
+  private exceptionsBtn: HTMLButtonElement;
   private minimapBtn: HTMLButtonElement;
   private roving: RovingGroup | null = null;
   /** Where the App mounts the scope breadcrumb: first element after the brand. */
@@ -168,6 +198,18 @@ export class Chrome {
       this.sevButtons.set(sev, b);
       this.toolbar.appendChild(b);
     }
+
+    // Viewer M2: how many claims are not observed, by unit, as a toggle that fades the observed
+    // ones (through fill and stroke only, so their text stays readable). Hidden when every claim
+    // is observed: an "all observed" mark would read as a check result. After the severity
+    // chips, so beside the code it joins the icon row instead of adding one; under 1000 px the
+    // breakdown in brackets folds away (chrome.css) and the tooltip and the name keep it.
+    this.exceptionsBtn = el('button', 'mlv-chip mlv-chip--btn mlv-chip--exceptions') as HTMLButtonElement;
+    this.exceptionsBtn.type = 'button';
+    this.exceptionsBtn.setAttribute('aria-pressed', 'false');
+    this.exceptionsBtn.hidden = true;
+    on(this.exceptionsBtn, 'click', () => cb.onToggleExceptions(this.exceptionsBtn.getAttribute('aria-pressed') !== 'true'));
+    this.toolbar.appendChild(this.exceptionsBtn);
 
     // A real aria-pressed toggle whose title names the CURRENT state, so the
     // one thing that moves on the canvas is one keystroke from being stopped.
@@ -269,8 +311,23 @@ export class Chrome {
 
     clear(this.statsEl);
     if (g) {
-      this.statsEl.appendChild(stat(String(g.nodes.length), g.nodes.length === 1 ? 'node' : 'nodes'));
-      this.statsEl.appendChild(stat(String(g.edges.length), g.edges.length === 1 ? 'edge' : 'edges'));
+      this.statsEl.appendChild(stat(String(g.nodes.length), g.nodes.length === 1 ? 'step' : 'steps'));
+      this.statsEl.appendChild(stat(String(g.edges.length), g.edges.length === 1 ? 'connection' : 'connections'));
+    }
+    const exceptions = s.notObserved;
+    const exceptionTotal = exceptions ? exceptions.steps + exceptions.connections + exceptions.findings : 0;
+    this.exceptionsBtn.hidden = !g || exceptionTotal === 0;
+    if (exceptions && exceptionTotal > 0) {
+      const text = notObservedText(exceptions);
+      const open = text.indexOf(' (');
+      clear(this.exceptionsBtn);
+      add(this.exceptionsBtn, el('span', 'mlv-chip__lead', open > 0 ? text.slice(0, open) : text));
+      if (open > 0) add(this.exceptionsBtn, el('span', 'mlv-chip__detail', text.slice(open)));
+      this.exceptionsBtn.setAttribute('aria-label', text);
+      this.exceptionsBtn.setAttribute('aria-pressed', s.exceptionsOn ? 'true' : 'false');
+      this.exceptionsBtn.title = text + (s.exceptionsOn
+        ? '. The observed claims are faded; press to show them again.'
+        : '. Press to fade the observed claims so these stand out.');
     }
 
     for (const sev of SEVERITY_ORDER) {
@@ -279,6 +336,10 @@ export class Chrome {
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
       const count = b.querySelector('.mlv-chip__count');
       if (count) count.textContent = String(s.visibleCounts[sev]);
+      // Viewer M2: the number names its unit in the tooltip and the accessible name.
+      const n = s.visibleCounts[sev];
+      b.title = plural(n, sev + ' finding', sev + ' findings') + (active ? '. Press to hide them.' : ', hidden. Press to show them.');
+      b.setAttribute('aria-label', b.title);
     }
     const scopeLabelEl = this.scopeBtn.querySelector('.mlv-btn__label');
     if (scopeLabelEl) scopeLabelEl.textContent = s.scopeLabel;
@@ -326,6 +387,8 @@ export class Chrome {
       const chip = el('button', 'mlv-chip mlv-chip--btn mlv-chip--stage') as HTMLButtonElement;
       chip.type = 'button';
       chip.setAttribute('data-stage', stage.id);
+      // Viewer M2: the chip's swatch is the phase's colour by document order, as on the canvas.
+      stampPhase(chip, stage.order);
       chip.setAttribute('data-stage-filter', stage.id);
       chip.setAttribute('aria-pressed', on_ ? 'true' : 'false');
       // Viewer M1: say what a click does. A click hides a shown phase and shows a hidden one;
@@ -438,8 +501,11 @@ export class Chrome {
       add(this.status, el('span', '', 'Waiting for a workflow…'));
       return;
     }
-    add(this.status, el('span', '', g.nodes.length + ' nodes · ' + g.edges.length + ' edges'));
+    // Viewer M2: every count names its unit.
+    add(this.status, el('span', '', plural(g.nodes.length, 'step', 'steps') + ' · ' + plural(g.edges.length, 'connection', 'connections')));
     const sev = add(this.status, el('span', 'mlv-stats'));
+    const totalFindings = SEVERITY_ORDER.reduce((n, s2) => n + s.visibleCounts[s2], 0);
+    add(sev, el('span', 'mlv-stats__label', plural(totalFindings, 'finding', 'findings')));
     for (const s2 of SEVERITY_ORDER) {
       const wrap = add(sev, el('span', 'mlv-stat'));
       wrap.appendChild(severityGlyph(s2, 11, s2 + ' severity'));
@@ -450,7 +516,7 @@ export class Chrome {
     const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
     add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
     const notes = (g.diagnostics || []).length;
-    if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
+    if (notes) add(this.status, el('span', '', plural(notes, 'coverage limitation', 'coverage limitations')));
     // Viewer M1: freshness in place. Nothing when every cited file is unchanged; a warning icon
     // and words (never colour alone) when some are not; muted text while a change is checked.
     if (s.freshness) {
@@ -467,7 +533,7 @@ export class Chrome {
   }
 }
 
-/** One `12 nodes` pill for the toolbar's stat row. */
+/** One `12 steps` pill for the toolbar's stat row. */
 function stat(value: string, label: string): HTMLElement {
   const wrap = el('span', 'mlv-stat');
   add(wrap, el('span', 'mlv-stat__value', value));

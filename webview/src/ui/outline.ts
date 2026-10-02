@@ -20,6 +20,8 @@
 import { add, el, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, countsTotal, highestSeverity } from '../markers.js';
+import { basisSpoken } from '../render/edges.js';
+import { basisTagText, phaseFindingsSpoken, phaseFindingsText } from '../render/nodes.js';
 import type { Severity } from '../types.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 
@@ -68,7 +70,11 @@ export function renderOutlineTree(panel: HTMLElement, s: OutlineState, cb: Outli
     const counts = s.index.laneCounts(lane.id, s.keep);
     if (countsTotal(counts) > 0) {
       row.appendChild(severityGlyph(highestSeverity(counts) as Severity, 12, ''));
-      add(row, el('span', 'mlv-outline__stage', String(countsTotal(counts))));
+      // Viewer M2: the count names its unit. A finding touching two phases counts in each (PR #14),
+      // so these rows do not add up to the document's total.
+      const total = countsTotal(counts);
+      const count = add(row, el('span', 'mlv-outline__stage', total + ' ' + phaseFindingsText(total)));
+      count.title = phaseFindingsSpoken(counts);
     }
     on(row, 'click', () => cb.onSelectLane(lane.id));
     const kids = s.index.roots(lane.id);
@@ -131,9 +137,11 @@ function renderRelationships(panel: HTMLElement, s: OutlineState, cb: OutlineCal
       const direction = selected
         ? edge.target === selected ? 'Incoming' : edge.source === selected ? 'Outgoing' : 'Related'
         : 'Directed';
-      row.setAttribute('aria-label', `${direction}: ${source?.label || edge.source} to ${target?.label || edge.target}; ${edge.label || edge.kind}; basis ${edge.basis || 'not specified'}`);
+      // Viewer M2: the basis is said once, and only for the exceptions; the label carries none.
+      const basis = basisSpoken(edge.basis);
+      row.setAttribute('aria-label', `${direction}: ${source?.label || edge.source} to ${target?.label || edge.target}; ${edge.label || edge.kind}${basis ? ';' + basis.slice(1) : ''}`);
       add(row, el('span', 'mlv-relations__path', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
-      add(row, el('span', 'mlv-relations__detail', (edge.label || edge.kind || 'connection') + ' · ' + (edge.basis ? 'basis ' + edge.basis : 'basis not specified')));
+      add(row, el('span', 'mlv-relations__detail', (edge.label || edge.kind || 'connection') + (basisTagText(edge.basis) ? ' · ' + basisTagText(edge.basis) : '')));
       on(row, 'click', () => cb.onSelectEdge(edge.id));
     }
     if (focusList) (list.querySelector('button') as HTMLButtonElement | null)?.focus();
@@ -185,7 +193,9 @@ function branch(ids: string[], s: OutlineState, cb: OutlineCallbacks): HTMLEleme
       add(row, el('span', 'mlv-outline__chevron mlv-outline__chevron--none'));
     }
     add(row, el('span', 'mlv-outline__label', node.label || node.qualname));
-    add(row, el('span', 'mlv-outline__stage', node.basis || node.kind));
+    // Viewer M2: an inferred or unresolved step says so; an observed one carries no mark.
+    const tag = basisTagText(node.basis);
+    if (tag) add(row, el('span', 'mlv-outline__stage', tag)).setAttribute('data-basis', node.basis || '');
     const glyph = severityFor(s, id);
     if (glyph) row.appendChild(glyph);
     on(row, 'click', (ev: MouseEvent) => cb.onSelectNode(id, ev));

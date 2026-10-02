@@ -52,6 +52,7 @@ export function buildAppUi(app: App): void {
     onScope: () => toggleScopePicker(app),
     onToggleFlow: (next) => app.setFlow(next),
     onToggleLegend: (next) => app.setLegend(next),
+    onToggleExceptions: (next) => app.setExceptions(next),
     onToggleMinimap: (next) => app.setMinimapCollapsed(next),
   });
 

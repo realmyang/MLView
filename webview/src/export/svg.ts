@@ -34,8 +34,8 @@ import { SVG_NS } from '../dom.js';
 import { locParts } from '../notebook.js';
 import { kindPath, nodeGlyphKind } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
-import { ARROW_HEADS, edgeKindClass } from '../render/edges.js';
-import { ariaLabelFor, cardSubline } from '../render/nodes.js';
+import { ARROW_HEAD } from '../render/edges.js';
+import { ariaLabelFor, basisTagText, cardSubline, phaseFindingsText, stepsText } from '../render/nodes.js';
 import {
   WEIGHT_BADGE_H,
   WEIGHT_MIN,
@@ -44,7 +44,7 @@ import {
   weightBadgeWidth,
   weightStroke,
 } from '../render/weight.js';
-import { stageColor, severityColor, Palette } from './palette.js';
+import { phaseColor, severityColor, Palette } from './palette.js';
 import {
   ADVANCE_CAPS,
   EXPORT_MONO,
@@ -125,6 +125,16 @@ const CHIP_RECT_H = 15;
 const CHIP_MIN_H = NODE_H + NODE_CHIP_ROW_H;
 
 const LANE_R = 14;
+/** The lane's accent rule (styles/canvas.css `.mlv-lane::before`). */
+const LANE_ACCENT_W = 3;
+const LANE_ACCENT_INSET = 6;
+/** Viewer M2: the basis tag at a card's bottom-left (styles/node.css `.mlv-basis-tag`). */
+const TAG_H = 14;
+const TAG_LEFT = 10;
+const FS_TAG = 10;
+/** The exception dashes, as styles/edge.css and node.css draw them at zoom 1. */
+const DASH_INFERRED = '6 4';
+const DASH_UNRESOLVED = '1.5 3.5';
 const GROUP_R = 12;
 const GROUP_HEADER_H = 34;
 
@@ -157,7 +167,7 @@ export interface ExportSvgResult {
   laneIds: string[];
   /** Edge labels actually drawn (a decluttered-away label is not one). */
   labels: number;
-  /** Stage colours that appear in the file, for the gate's "stage colours" check. */
+  /** Phase colours that appear in the file (viewer M2: by document order), for the gate's colour check. */
   stageColors: string[];
 }
 
@@ -192,9 +202,9 @@ export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
     const rect: Rect = { x: lane.x, y: lane.y, w: lane.w, h: lane.h };
     if (!intersects(rect, region)) continue;
     laneIds.push(lane.id);
-    const colour = stageColor(palette, lane.id);
+    const colour = phaseColor(palette, laneVisual.phase);
     noteStage(colour);
-    backdrop.push(laneBand(lane, laneVisual.counts, colour, palette, hc));
+    backdrop.push(laneBand(lane, laneVisual.counts, colour, laneVisual.phase, palette, hc));
   }
 
   const cards: string[] = [];
@@ -203,10 +213,10 @@ export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
     const rect: Rect = { x: box.x - 8, y: box.y - 8, w: box.w + 16, h: box.h + 16 };
     if (!intersects(rect, region)) continue;
     nodeIds.push(planned.visual.node.id);
-    const colour = stageColor(palette, planned.visual.node.stage);
+    const colour = phaseColor(palette, planned.visual.phase);
     noteStage(colour);
     const markup = planned.expandedGroup
-      ? groupFrame(planned.visual, colour, palette, hc)
+      ? groupFrame(planned.visual, palette, hc)
       : nodeCard(planned.visual, colour, palette, hc);
     if (planned.expandedGroup) backdrop.push(markup);
     else cards.push(markup);
@@ -263,14 +273,21 @@ function laneBand(
   lane: { id: string; label: string; x: number; y: number; w: number; h: number; headerH: number; nodeCount: number },
   counts: IssueCounts,
   colour: string,
+  phase: number,
   palette: Palette,
   hc: boolean,
 ): string {
-  const out: string[] = ['<g data-lane-id="' + esc(lane.id) + '" data-stage="' + esc(lane.id) + '">'];
+  const out: string[] = ['<g data-lane-id="' + esc(lane.id) + '" data-stage="' + esc(lane.id) + '" data-phase-index="' + phase + '">'];
+  // Viewer M2: a neutral wash and a 3 px accent rule in the phase colour, never a phase-coloured
+  // fill (styles/canvas.css `.mlv-lane`, `.mlv-lane::before`).
   out.push(
     '<rect x="' + num(lane.x) + '" y="' + num(lane.y) + '" width="' + num(lane.w) + '" height="' + num(lane.h) +
-      '" rx="' + LANE_R + '" fill="' + esc(colour) + '" fill-opacity="' + num(palette.laneTint) +
+      '" rx="' + LANE_R + '" fill="' + esc(palette.text) + '" fill-opacity="' + num(palette.laneTint) +
       '" stroke="' + esc(palette.border) + '" stroke-width="1"/>',
+  );
+  out.push(
+    '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + LANE_ACCENT_INSET) + '" width="' + LANE_ACCENT_W + '" height="' +
+      num(Math.max(0, lane.h - 2 * LANE_ACCENT_INSET)) + '" rx="' + LANE_ACCENT_W / 2 + '" fill="' + esc(colour) + '"/>',
   );
   const swatchY = lane.y + (lane.headerH - 8) / 2;
   out.push(
@@ -289,14 +306,19 @@ function laneBand(
   );
   const countX = labelX + labelText.length * (FS_LANE * ADVANCE_CAPS + 0.44) + 10;
   out.push(
-    text(lane.nodeCount + (lane.nodeCount === 1 ? ' node' : ' nodes'), countX, baseline, {
+    text(stepsText(lane.nodeCount), countX, baseline, {
       size: FS_COUNT,
       fill: palette.text3,
     }),
   );
   const total = countsTotal(counts);
   if (total > 0) {
-    out.push(cluster(counts, lane.x + lane.w - 12, lane.y + lane.headerH / 2, 13, palette, hc));
+    // Viewer M2: the numbers name their unit — findings touching this phase (PR #14 rule).
+    const unit = phaseFindingsText(total);
+    const unitW = width(unit, FS_COUNT, false, false);
+    const right = lane.x + lane.w - 12;
+    out.push(text(unit, right - unitW, baseline, { size: FS_COUNT, fill: palette.text3 }));
+    out.push(cluster(counts, right - unitW - 6, lane.y + lane.headerH / 2, 13, palette, hc));
   }
   out.push('</g>');
   return out.join('');
@@ -305,7 +327,7 @@ function laneBand(
 /* ── nodes ──────────────────────────────────────────────────────────────── */
 
 function nodeCard(
-  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean },
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean; findings?: string[]; phase?: number },
   colour: string,
   palette: Palette,
   hc: boolean,
@@ -315,22 +337,27 @@ function nodeCard(
   const groupLike = box.collapsed;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
-  const dashed = visual.stale;
+  // Viewer M2: only inferred and unresolved cards are marked, by a dashed or dotted border and a
+  // tag. The canvas also hatches an unresolved card; a standalone SVG cannot without a pattern
+  // reference, so the export keeps the border and the tag.
+  const dash = basisDash(n.basis);
 
   const attrs =
     ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
+    (visual.phase !== undefined ? ' data-phase-index="' + visual.phase + '"' : '') +
+    (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '') +
     (n.viewRole ? ' data-view-role="' + esc(n.viewRole) + '"' : '') +
     (visual.filteredOut ? ' opacity="0.18"' : '');
   const out: string[] = ['<g' + attrs + '>'];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
 
-  const stroke = top ? severityColor(palette, top) : palette.border;
+  const stroke = visual.stale ? palette.sevMedium : top ? severityColor(palette, top) : dash ? palette.text2 : palette.nodeEdge;
   out.push(
     '<rect x="' + num(box.x) + '" y="' + num(box.y) + '" width="' + num(box.w) + '" height="' + num(box.h) +
       '" rx="' + CARD_R + '" fill="' + esc(palette.surface) + '" stroke="' + esc(stroke) +
-      '" stroke-width="1"' + (top ? ' stroke-opacity="0.75"' : '') +
-      (dashed ? ' stroke-dasharray="5 4"' : '') + '/>',
+      '" stroke-width="' + (dash ? 1.5 : 1) + '"' + (top && !visual.stale ? ' stroke-opacity="0.75"' : '') +
+      (dash ? ' stroke-dasharray="' + dash + '" stroke-linecap="round"' : '') + '/>',
   );
   out.push(
     '<rect x="' + num(box.x + 0.5) + '" y="' + num(box.y + 1) + '" width="' + RAIL_W +
@@ -340,11 +367,12 @@ function nodeCard(
   /* icon tile + kind glyph */
   const iconX = box.x + RAIL_W + PAD_L;
   const iconY = box.y + PAD_T;
+  // Viewer M2: the icon tile is neutral; the phase colour is only on the rail.
   out.push(
     '<rect x="' + num(iconX) + '" y="' + num(iconY) + '" width="' + ICON_BOX + '" height="' + ICON_BOX +
-      '" rx="6" fill="' + esc(colour) + '" fill-opacity="0.12"/>',
+      '" rx="6" fill="' + esc(palette.surface2) + '"/>',
   );
-  out.push(glyphPath(kindPath(nodeGlyphKind(n, groupLike)), iconX + 5, iconY + 5, 16 / 16, colour, 1.3));
+  out.push(glyphPath(kindPath(nodeGlyphKind(n, groupLike)), iconX + 5, iconY + 5, 16 / 16, palette.text2, 1.3));
 
   /* text block */
   const tx = box.x + TEXT_X;
@@ -369,7 +397,7 @@ function nodeCard(
   out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
 
   // Viewer M2: the only chip row left is a collapsed group's count, as on the DOM card.
-  const chips = groupLike ? [visual.descendants + ' nodes'] : [];
+  const chips = groupLike ? [stepsText(visual.descendants)] : [];
   if (chips.length && box.h - shift >= CHIP_MIN_H) {
     const chipTop = box.y + box.h - CHIP_BOTTOM;
     let cx = tx;
@@ -385,17 +413,35 @@ function nodeCard(
     }
   }
 
-  if (top && !groupLike) out.push(badge(visual.counts, box.x + box.w + 6, box.y - 6, palette, hc));
+  if (top && !groupLike) out.push(badge(visual.counts, box.x + box.w + 6, box.y - 6, palette, hc, visual.findings || []));
   else if (groupLike && countsTotal(visual.counts) > 0) {
     out.push(cluster(visual.counts, box.x + box.w + 6, box.y + 4, 14, palette, hc));
   }
+  out.push(basisTagMarkup(n.basis, box.x + TAG_LEFT, box.y + box.h - TAG_H / 2, palette));
   out.push('</g>');
   return out.join('');
 }
 
+/** The exception dash for a basis, or '' for an observed (unmarked) claim. */
+function basisDash(basis: string | undefined): string {
+  return basis === 'inferred' ? DASH_INFERRED : basis === 'unresolved' ? DASH_UNRESOLVED : '';
+}
+
+/** The basis tag the DOM card carries (`render/nodes.ts` basisTag), at world size; '' when observed. */
+function basisTagMarkup(basis: string | undefined, x: number, middle: number, palette: Palette): string {
+  const label = basisTagText(basis);
+  if (!label) return '';
+  const w = width(label, FS_TAG, false, false) + 8;
+  return (
+    '<g data-basis-tag="' + esc(basis || '') + '"><rect x="' + num(x) + '" y="' + num(middle - TAG_H / 2) + '" width="' + num(w) +
+    '" height="' + TAG_H + '" rx="3" fill="' + esc(palette.bg) + '" stroke="' + esc(palette.text2) + '" stroke-width="1"' +
+    ' stroke-dasharray="' + (basis === 'unresolved' ? '1 2' : '3 2') + '"/>' +
+    text(label, x + 4, middle + 3.5, { size: FS_TAG, fill: palette.text }) + '</g>'
+  );
+}
+
 function groupFrame(
   visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number },
-  colour: string,
   palette: Palette,
   hc: boolean,
 ): string {
@@ -403,19 +449,21 @@ function groupFrame(
   const box = visual.box;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
+  const dash = basisDash(n.basis);
   const out: string[] = [
     '<g data-node-id="' + esc(n.id) + '" data-group="1" data-stage="' + esc(n.stage || 'unknown') + '"' +
-      (top ? ' data-sev="' + esc(top) + '"' : '') + '>',
+      (top ? ' data-sev="' + esc(top) + '"' : '') + (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '') + '>',
   ];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
+  // Viewer M2: a neutral frame, solid unless the group itself is inferred (dashed) or unresolved
+  // (dotted) — the same code the cards use. No phase colour: on screen it is on the cards only.
   out.push(
     '<rect x="' + num(box.x) + '" y="' + num(box.y) + '" width="' + num(box.w) + '" height="' + num(box.h) +
-      '" rx="' + GROUP_R + '" fill="' + esc(colour) + '" fill-opacity="' + num(palette.groupTint) +
-      '" stroke="' + esc(colour) + '" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="' +
-      (box.depth >= 2 ? '1 3' : '5 4') + '"/>',
+      '" rx="' + GROUP_R + '" fill="none" stroke="' + esc(dash ? palette.text2 : palette.border) + '" stroke-width="' + (dash ? 1.5 : 1) + '"' +
+      (dash ? ' stroke-dasharray="' + dash + '" stroke-linecap="round"' : '') + '/>',
   );
   const iconY = box.y + (GROUP_HEADER_H - 14) / 2;
-  out.push(glyphPath(kindPath(nodeGlyphKind(n, false)), box.x + 8, iconY, 14 / 16, colour, 1.3));
+  out.push(glyphPath(kindPath(nodeGlyphKind(n, false)), box.x + 8, iconY, 14 / 16, palette.text2, 1.3));
   const nameX = box.x + 28;
   const baseline = box.y + GROUP_HEADER_H / 2 + 4;
   // The count pill needs ~40 px and a severity cluster up to ~90 more, so the
@@ -424,7 +472,7 @@ function groupFrame(
   const nameBudget = Math.max(40, box.w - (top ? 170 : 96));
   const name = ellipsise(n.label || n.qualname, nameBudget, FS_GROUP, false, true);
   out.push(text(name, nameX, baseline, { size: FS_GROUP, fill: palette.text, weight: 650 }));
-  const countText = String(visual.descendants);
+  const countText = stepsText(visual.descendants);
   const countW = width(countText, FS_COUNT, false, false) + 12;
   const countX = nameX + width(name, FS_GROUP, false, true) + 8;
   out.push(
@@ -432,6 +480,7 @@ function groupFrame(
       '" height="15" rx="7.5" fill="' + esc(palette.surface2) + '"/>',
   );
   out.push(text(countText, countX + 6, baseline, { size: FS_COUNT, fill: palette.text2 }));
+  out.push(basisTagMarkup(n.basis, countX + countW + 6, baseline - 3.5, palette));
   if (top) out.push(cluster(visual.counts, box.x + box.w - 10, box.y + GROUP_HEADER_H / 2, 13, palette, hc));
   out.push('</g>');
   return out.join('');
@@ -459,31 +508,33 @@ function edgeMarkup(
     filtered?: boolean;
     stage?: string;
     weight?: number;
+    basis?: string;
   },
   palette: Palette,
   hc: boolean,
 ): { markup: string; labelled: boolean } {
   const r = visual.route;
-  const kind = edgeKindClass(r.kind);
   const colour = visual.severity ? severityColor(palette, visual.severity) : palette.edge;
-  const style = EDGE_STYLE[kind] || EDGE_STYLE.data;
+  // Viewer M2: one stroke for every kind; the dash says the basis (styles/edge.css).
+  const dash = basisDash(visual.basis);
   // The picture cannot be hovered, so the thicker stroke and the pill are the
   // only things that say a cable stands for several connections.
   const weight = visual.weight && visual.weight > 1 ? Math.floor(visual.weight) : 1;
   const weighted = weight >= WEIGHT_MIN;
-  const strokeW = weighted ? Math.max(style.width, weightStroke(weight)) : style.width;
+  const strokeW = weighted ? Math.max(EDGE_WIDTH, weightStroke(weight)) : EDGE_WIDTH;
   const out: string[] = [
     '<g data-edge-kind="' + esc(r.kind) + '"' + (weighted ? ' data-edge-weight="' + weight + '"' : '') +
+      (visual.basis ? ' data-basis="' + esc(visual.basis) + '"' : '') +
       (visual.filtered ? ' opacity="0.18"' : '') + '>',
   ];
   out.push(
     '<path data-edge-id="' + esc(r.id) + '" data-edge-ids="' + esc(r.ids.join(' ')) +
       '" d="' + esc(r.d) + '" fill="none" stroke="' + esc(colour) + '" stroke-width="' + num(strokeW) +
       '" stroke-linecap="round" stroke-linejoin="round"' +
-      (style.dash ? ' stroke-dasharray="' + style.dash + '"' : '') +
-      ' stroke-opacity="' + (visual.severity ? 0.85 : style.opacity) + '"/>',
+      (dash ? ' stroke-dasharray="' + dash + '"' : '') +
+      (visual.severity ? ' stroke-opacity="0.85"' : '') + '/>',
   );
-  if (style.arrow) out.push(arrowHead(r.points, kind, colour));
+  out.push(arrowHead(r.points, colour));
 
   let labelled = false;
   const placement = visual.placement;
@@ -551,18 +602,8 @@ function weightPill(
   );
 }
 
-/** Stroke treatments, transcribed from `styles/edge.css` one kind at a time. */
-const EDGE_STYLE: Record<string, { width: number; dash: string; opacity: number; arrow: boolean }> = {
-  data: { width: 1.5, dash: '', opacity: 1, arrow: true },
-  call: { width: 1.5, dash: '4 3', opacity: 0.75, arrow: true },
-  control: { width: 1.5, dash: '1 4', opacity: 0.65, arrow: true },
-  config: { width: 1, dash: '2 4', opacity: 0.5, arrow: false },
-  unknown: { width: 1.5, dash: '3 3', opacity: 0.6, arrow: true },
-  // Campaign 3, issue 9 — the same three strokes as styles/edge.css.
-  state: { width: 1.5, dash: '8 3', opacity: 0.85, arrow: true },
-  loop: { width: 1.5, dash: '6 2.5 1.5 2.5', opacity: 0.75, arrow: true },
-  output: { width: 2, dash: '', opacity: 1, arrow: true },
-};
+/** The connection stroke width (styles/edge.css `.mlv-edge__path` at zoom 1). */
+const EDGE_WIDTH = 1.5;
 
 /**
  * The arrowhead the DOM gets from a `<marker>`, drawn inline instead.
@@ -572,8 +613,8 @@ const EDGE_STYLE: Record<string, { width: number; dash: string; opacity: number;
  * `refX 8.5, refY 5`. Reproducing that transform here is what lets the export
  * keep its no-`url(` promise without changing the picture.
  */
-function arrowHead(points: Point[], kind: string, colour: string): string {
-  const head = ARROW_HEADS[kind] || ARROW_HEADS.data;
+function arrowHead(points: Point[], colour: string): string {
+  const head = ARROW_HEAD;
   if (points.length < 2) return '';
   const end = points[points.length - 1];
   let prev = points[points.length - 2];
@@ -586,9 +627,7 @@ function arrowHead(points: Point[], kind: string, colour: string): string {
   const angle = (Math.atan2(end.y - prev.y, end.x - prev.x) * 180) / Math.PI;
   const transform =
     'translate(' + num(end.x) + ',' + num(end.y) + ') rotate(' + num(angle) + ') translate(-7.65,-4.5) scale(0.9)';
-  const paint = head.filled
-    ? 'fill="' + esc(colour) + '"'
-    : 'fill="none" stroke="' + esc(colour) + '" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"';
+  const paint = 'fill="' + esc(colour) + '"';
   return '<path class="mlv-edge__arrow" d="' + esc(head.d) + '" transform="' + transform + '" ' + paint + '/>';
 }
 

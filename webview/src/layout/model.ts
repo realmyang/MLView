@@ -13,6 +13,18 @@ export interface IssuePredicate {
   (issue: Issue): boolean;
 }
 
+/**
+ * Viewer M2: how many phase colours there are (`--mlv-phase-0` … `--mlv-phase-7` in
+ * styles/tokens.css). Phase i (document order) takes tone i mod PHASE_TONES, so every authored
+ * phase gets a colour whatever its id; past eight phases the colours repeat and the lane label
+ * tells them apart.
+ */
+export const PHASE_TONES = 8;
+
+export function phaseTone(phaseIndex: number): number {
+  return ((phaseIndex % PHASE_TONES) + PHASE_TONES) % PHASE_TONES;
+}
+
 export class GraphIndex {
   readonly graph: MLGraph;
   readonly nodeById = new Map<string, MLNode>();
@@ -46,6 +58,12 @@ export class GraphIndex {
    * information is not lost — it is correctly labelled (CONTRACTS 11.4 F3).
    */
   readonly outOfScopeStages: Stage[] = [];
+  /**
+   * Viewer M2: each phase's position in the document (0-based), the key of its colour. Taken
+   * from the declared phases in authored order, so it does not shift when a scope hides a lane;
+   * a stage id that only appears on nodes comes after them.
+   */
+  private readonly phaseOrder = new Map<string, number>();
 
   constructor(graph: MLGraph) {
     this.graph = graph;
@@ -106,6 +124,8 @@ export class GraphIndex {
       }
     }
     unknownStages.sort();
+    for (const s of ordered) if (!this.phaseOrder.has(s.id)) this.phaseOrder.set(s.id, this.phaseOrder.size);
+    for (const id of unknownStages) this.phaseOrder.set(id, this.phaseOrder.size);
     let order = this.lanes.length ? this.lanes[this.lanes.length - 1].order + 1 : 0;
     for (const id of unknownStages) {
       this.lanes.push({
@@ -118,6 +138,11 @@ export class GraphIndex {
         maxSeverity: null,
       });
     }
+  }
+
+  /** Viewer M2: the phase's document position (0-based), or 0 for an id this index never saw. */
+  phaseIndexOf(stageId: string): number {
+    return this.phaseOrder.get(stageId) ?? 0;
   }
 
   private hasCycle(start: string): boolean {

@@ -81,6 +81,48 @@
   font-weight: var(--mlv-fw-medium);
 }
 
+/* Viewer M2: the unit the severity numbers in the status bar count. */
+.mlv-stats__label {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M2: "7 not observed (…)" — a toggle; plain text in the text colour, no hue. */
+.mlv-chip--exceptions {
+  white-space: nowrap;
+}
+
+.mlv-chip--exceptions[hidden] {
+  display: none;
+}
+
+/* A toggle, not a filter: off is the normal state, never struck through (base.css). */
+.mlv-chip--exceptions[aria-pressed="false"] {
+  opacity: 1;
+  text-decoration: none;
+}
+
+.mlv-chip--exceptions[aria-pressed="true"] {
+  border-color: var(--mlv-text-2);
+  color: var(--mlv-text);
+}
+
+/* Beside the code (900 px in the design, 541 px measured live) the toolbar must wrap no deeper
+ * than it did before these counts gained their units. Under 1000 px the breakdown in brackets
+ * folds away (the tooltip and the accessible name keep it); under 700 px the toolbar's step and
+ * connection counts also give way to the status bar, which says the same. */
+@media (max-width: 1000px) {
+  .mlv-chip--exceptions .mlv-chip__detail {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .mlv-toolbar > .mlv-stats {
+    display: none;
+  }
+}
+
 .mlv-search {
   position: relative;
   display: flex;

@@ -134,7 +134,8 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     // h4 under the panel's h3 (VIEW-12).
     const heading = add(section, el('h4', 'mlv-rail__heading'));
     heading.appendChild(severityGlyph(sev, 12, ''));
-    add(heading, el('span', '', sev + ' · ' + group.length));
+    // Viewer M2: the count names its unit.
+    add(heading, el('span', '', sev + ' · ' + group.length + (group.length === 1 ? ' finding' : ' findings')));
     section.appendChild(flatList(group, sev, s, cb));
   }
 }
@@ -166,7 +167,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   row.setAttribute('aria-selected', selected ? 'true' : 'false');
   row.setAttribute(
     'aria-label',
-    issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
+    (issue.short ? issue.short + ', ' : '') + issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
       (issue.loc.file ? ', ' + locSpoken(issue.loc) : '') +
       (issue.basis ? ', basis ' + issue.basis : ''),
   );
@@ -178,6 +179,8 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
     row.setAttribute('aria-label', row.getAttribute('aria-label') + ', ' + staleChipText(stale) + (allElsewhere(stale) ? '' : ' since publishing'));
   }
   row.appendChild(severityGlyph(issue.severity, 14, ''));
+  // Viewer M2: the short label the canvas badges print; the real id stays in the meta line.
+  if (issue.short) add(row, el('span', 'mlv-issue__short', issue.short));
   const text = add(row, el('div', 'mlv-issue__text'));
   add(text, el('div', 'mlv-issue__title', issue.title));
   const meta = add(text, el('div', 'mlv-issue__meta'));

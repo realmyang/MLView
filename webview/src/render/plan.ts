@@ -29,7 +29,14 @@ import type { IssueCounts, Loc, MLNode, Severity, StaleReason, WorkflowBasis } f
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
   lane: LayoutLane;
+  /**
+   * Findings touching this phase: each finding that names a step or connection of the phase,
+   * counted once here and once in every other phase it touches (the PR #14 rule). Phase counts
+   * are therefore not a partition and need not sum to the document's total.
+   */
   counts: IssueCounts;
+  /** Viewer M2: the phase's document position, the key of its colour (`GraphIndex.phaseIndexOf`). */
+  phase: number;
 }
 
 /** A drawn box, and whether it is the dashed frame of an EXPANDED group. */
@@ -76,7 +83,7 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
 
   const lanes: LaneVisual[] = [];
   for (const lane of frame.lanes) {
-    lanes.push({ lane, counts: index.laneCounts(lane.id, keep) });
+    lanes.push({ lane, counts: index.laneCounts(lane.id, keep), phase: index.phaseIndexOf(lane.id) });
   }
 
   const nodes: PlannedNode[] = [];
@@ -86,14 +93,17 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
     const node = index.nodeById.get(box.id);
     if (!node) continue;
     const expandedGroup = box.isGroup && !box.collapsed;
-    const counts =
-      expandedGroup || box.collapsed ? index.subtreeCounts(box.id, keep) : index.ownCounts(box.id, keep);
+    const group = expandedGroup || box.collapsed;
+    const issues = group ? index.subtreeIssues(box.id, keep) : index.issuesOf(box.id, keep);
     nodes.push({
       expandedGroup,
       visual: {
         node,
         box,
-        counts,
+        counts: index.countsFor(issues),
+        // Viewer M2: the badge names its findings by short label (F1…Fn), in document order.
+        findings: issues.map((issue) => issue.short).filter(Boolean),
+        phase: index.phaseIndexOf(node.stage),
         descendants: index.descendantCount(box.id),
         ...staleOf(node.evidenceLocs, node.loc, opts.staleFiles),
         filteredOut: opts.isFilteredOut(node),
@@ -110,6 +120,8 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
     edges.push({
       route,
       severity: highestSeverity(index.countsFor(issues)),
+      findings: issues.map((issue) => issue.short).filter(Boolean),
+      phase: src ? index.phaseIndexOf(src.stage) : undefined,
       // Back-edges always carry their label; data-edge labels come in with the
       // `full` LOD class, driven from CSS so zooming never re-renders (MLV-R1-012).
       labelVisible: route.back,
@@ -149,6 +161,7 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       bundle,
       severity,
       stage: bundle.sourceLane,
+      phase: index.phaseIndexOf(bundle.sourceLane),
       sourceLabel: laneLabel.get(bundle.sourceLane),
       targetLabel: laneLabel.get(bundle.targetLane),
     });

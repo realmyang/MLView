@@ -25,6 +25,8 @@ export interface CommandPort {
   overview(): void;
   toggleLegend(): void;
   toggleFlow(): void;
+  /** Viewer M2: play the settled flow again (Shift+A). */
+  replayFlow(): boolean;
   /** Collapse the selected group, or the selected node's parent group. */
   collapseSelection(): boolean;
   /** Open the selection's cited source; `focusEditor` (Alt+Enter) moves focus to the editor. */
@@ -62,6 +64,7 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     overview: () => port.overview(),
     toggleLegend: () => port.toggleLegend(),
     toggleFlow: () => port.toggleFlow(),
+    replayFlow: () => port.replayFlow(),
     toggleCollapse: () => port.collapseSelection(),
     openSelection: (focusEditor) => port.openSelection(focusEditor),
     move: (key) => port.move(key),

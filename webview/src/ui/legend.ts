@@ -1,25 +1,25 @@
 /**
- * The legend (VIEW-10).
- *
- * No legend existed anywhere in `webview/src`: a first-time reader got severity
- * glyphs, edge kinds, back-edge chevrons, collapsed-group count badges and
- * bases with nothing explaining any of them. The
- * stage chip row is a FILTER, not a key, and the `?` sheet is a shortcut list.
+ * The legend (VIEW-10, rewritten in viewer M2).
  *
  * Every row here is GENERATED from what actually draws it — `markers.ts` for the
- * severity glyphs, `render/edges.ts`'s `KNOWN_EDGE_KINDS` and `buildDefs()` for
- * the strokes and their arrowheads, the real card classes for the node states —
+ * severity glyphs, `render/edges.ts`'s arrowhead and edge.css's basis dashes for
+ * the strokes, `render/nodes.ts`'s basis tags and the phase tones for the cards —
  * so the key cannot drift from the picture. `legendModel()` is the data behind
  * it, exported so a test can assert the two lists are the same list.
+ *
+ * Viewer M2: line style now encodes the claim's basis, not the connection kind,
+ * so the eight-kind key is gone; the kinds the diagram uses are listed in words.
  */
 
 import { add, el, iconButton, on, svg } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, SEVERITY_WORD } from '../markers.js';
-import { ARROW_HEADS, edgeKindClass, KNOWN_EDGE_KINDS } from '../render/edges.js';
+import { ARROW_HEAD } from '../render/edges.js';
+import { basisTagText } from '../render/nodes.js';
+import { PHASE_TONES } from '../layout/model.js';
 
 export interface LegendRow {
-  /** `severity` | `edge` | `basis` | `freshness`. */
+  /** `basis` | `severity` | `edge` | `phase` | `freshness`. */
   group: string;
   key: string;
   label: string;
@@ -32,41 +32,41 @@ export interface LegendSection {
   rows: LegendRow[];
 }
 
-const EDGE_DETAIL: Record<string, string> = {
-  data: 'A value produced here is consumed there.',
-  call: 'This step calls that definition.',
-  control: 'Ordering or a branch decision, not a value.',
-  config: 'A setting reaches this step.',
-  state: 'Reads or updates persistent state (parameters, optimizer or scheduler state, buffers).',
-  loop: 'Repetition: the next iteration, epoch or step.',
-  output: 'Something written or returned: a file, a log, a checkpoint, a result.',
-  unknown: 'Any other kind the author wrote, or none. Hover or select the connection to read the authored kind.',
-};
-
-/** The legend's own word for the catch-all row: `unknown` read as an error. */
-const EDGE_LABEL: Record<string, string> = { unknown: 'other' };
-
-/** WorkflowDocument 1.0's three authored evidence bases. */
+/**
+ * WorkflowDocument 1.0's three authored evidence bases. Viewer M2: only the exceptions are
+ * marked, by line style and a word, never by colour alone.
+ */
 const BASIS_ROWS: LegendRow[] = [
-  { group: 'basis', key: 'observed', label: 'Observed', detail: 'Directly supported by cited workspace source.' },
-  { group: 'basis', key: 'inferred', label: 'Inferred', detail: 'Reasoned from cited source and stated assumptions; it was not directly observed at run time.' },
-  { group: 'basis', key: 'unresolved', label: 'Unresolved', detail: 'The available evidence does not settle this claim. It does not mean the step is absent. Its card draws a dashed icon outline.' },
+  { group: 'basis', key: 'observed', label: 'Observed', detail: 'Directly supported by cited workspace source. Most claims are observed, so they carry no mark.' },
+  { group: 'basis', key: 'inferred', label: 'Inferred', detail: 'Reasoned from cited source and stated assumptions; the quotes do not show all of it. Dashed border or line, and an "inferred" tag.' },
+  { group: 'basis', key: 'unresolved', label: 'Unresolved', detail: 'The available evidence does not settle this claim. It does not mean the step is absent. Dotted border or line, faint hatching, and a "? unresolved" tag.' },
+];
+
+const EDGE_ROWS: LegendRow[] = [
+  { group: 'edge', key: 'arrow', label: 'connection', detail: 'Points from the step that produces something to the step that uses it. The line style shows the basis above, not the kind.' },
+  { group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' },
+  { group: 'edge', key: 'kinds', label: 'kind', detail: 'What a connection carries (data, call, state…) is written in its hover card and the Inspector.' },
+];
+
+const PHASE_ROWS: LegendRow[] = [
+  { group: 'phase', key: 'order', label: 'phase colour', detail: 'Each phase gets a colour by its place in the document, shown on the lane\'s left rule and the card\'s left edge. It means nothing else. Problems are the only other colour on the diagram.' },
 ];
 
 const FRESHNESS_ROWS: LegendRow[] = [
   { group: 'freshness', key: 'verified', label: 'Source snapshot', detail: 'Published file hashes can detect later source changes; they do not prove the interpretation.' },
   { group: 'freshness', key: 'draft', label: 'Draft', detail: 'This revision has no published source hashes, so freshness is not verified.' },
   // Viewer M1: the only freshness mark on the diagram. Unchanged files get none.
-  { group: 'freshness', key: 'stale', label: 'Changed or missing', detail: 'A cited file no longer matches the published revision. Cards, connections, findings and quotes that cite it carry this mark, and their jumps are blocked. It does not say whether the claim is still right. When the notice above says the workspace root is the wrong folder, the mark means the file is unchanged in another folder.' },
+  { group: 'freshness', key: 'stale', label: 'Changed or missing', detail: 'A cited file no longer matches the published revision. Cards, connections, findings and quotes that cite it carry this mark and a border in the warning colour, and their jumps are blocked. It does not say whether the claim is still right. When the notice above says the workspace root is the wrong folder, the mark means the file is unchanged in another folder.' },
 ];
 
 /** The legend's content, derived from the drawing tables. */
 export function legendModel(): LegendSection[] {
   return [
+    { id: 'basis', title: 'Claim basis', rows: BASIS_ROWS },
     {
       id: 'severity',
-      title: 'Severity',
-      rows: SEVERITY_ORDER.map((sev) => ({
+      title: 'Findings',
+      rows: SEVERITY_ORDER.map((sev): LegendRow => ({
         group: 'severity',
         key: sev,
         label: SEVERITY_WORD[sev],
@@ -76,49 +76,32 @@ export function legendModel(): LegendSection[] {
             : sev === 'medium'
               ? 'Medium potential impact if the finding is correct.'
               : 'Low potential impact if the finding is correct. Severity does not express certainty.',
-      })),
-    },
-    {
-      id: 'edges',
-      title: 'Connections',
-      rows: KNOWN_EDGE_KINDS.concat(['unknown']).map((kind) => ({
-        group: 'edge',
-        key: kind,
-        label: EDGE_LABEL[kind] || kind,
-        detail: EDGE_DETAIL[kind] || '',
       })).concat([
-        { group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' },
+        { group: 'severity', key: 'short', label: 'numbers', detail: 'Findings numbered in document order. A new revision can renumber them; the hover card, the Inspector and Refine prompts use the real id.' },
       ]),
     },
-    { id: 'basis', title: 'Claim basis', rows: BASIS_ROWS },
+    { id: 'edges', title: 'Connections', rows: EDGE_ROWS },
+    { id: 'phases', title: 'Phases', rows: PHASE_ROWS },
     { id: 'freshness', title: 'Source freshness', rows: FRESHNESS_ROWS },
   ];
 }
 
 /**
- * A short stroke drawn with the REAL edge classes and the REAL arrowhead path.
+ * A short stroke drawn with the REAL edge classes and the REAL arrowhead path: `basis` picks the
+ * dash (edge.css keys it on `data-basis`, as on the canvas).
  *
- * The head is drawn INLINE rather than through `url(#mlv-arrow-…)`: a <marker>
- * id is document-scoped, and a second copy of `buildDefs()` on the page would
- * shadow the scene's own markers.
+ * The head is drawn INLINE rather than through `url(#mlv-arrow)`: a <marker> id is
+ * document-scoped, and a second copy of `buildDefs()` on the page would shadow the scene's own.
  */
-function edgeSwatch(kind: string): SVGElement {
-  const known = edgeKindClass(kind === 'back' ? 'control' : kind);
+function edgeSwatch(basis: string, back = false): SVGElement {
   const root = svg('svg', { class: 'mlv-legend__swatch', viewBox: '0 0 44 14', width: 44, height: 14, 'aria-hidden': 'true' });
-  const g = svg('g', {
-    class:
-      'mlv-edge mlv-edge--' + known + (kind === 'back' ? ' mlv-edge--back' : ''),
-  });
-  // `mlv-legend__edge`, never `mlv-edge__path`: edge.css lists both on every
-  // kind rule, so the swatch shows the real stroke without becoming a decoy for
-  // the queries that walk the scene's cables.
-  const path = svg('path', { class: 'mlv-legend__edge', d: 'M2 7 H 33' });
-  g.appendChild(path);
-  const head = ARROW_HEADS[known] || ARROW_HEADS.unknown;
-  const arrow = svg('path', { class: 'mlv-arrow mlv-arrow--' + known + (head.filled ? '' : ' mlv-arrow--open'), d: head.d, transform: 'translate(31,2)' });
-  if (!head.filled) arrow.setAttribute('fill', 'none');
-  g.appendChild(arrow);
-  if (kind === 'back') {
+  const g = svg('g', { class: 'mlv-edge mlv-edge--data' + (back ? ' mlv-edge--back' : '') });
+  g.setAttribute('data-basis', basis);
+  // `mlv-legend__edge`, never `mlv-edge__path`: edge.css lists both on every stroke rule, so the
+  // swatch shows the real stroke without becoming a decoy for the queries that walk the cables.
+  g.appendChild(svg('path', { class: 'mlv-legend__edge', d: 'M2 7 H 33' }));
+  g.appendChild(svg('path', { class: 'mlv-arrow', d: ARROW_HEAD.d, transform: 'translate(31,2)' }));
+  if (back) {
     g.appendChild(
       svg('path', {
         class: 'mlv-edge__loopmark',
@@ -134,17 +117,42 @@ function edgeSwatch(kind: string): SVGElement {
   return root;
 }
 
-/** A miniature card carrying the same class the scene stamps on a real one. */
+/** A miniature card carrying the basis the scene stamps on a real one, and its line. */
 function basisSwatch(basis: string): HTMLElement {
-  const chip = el('span', 'mlv-chip mlv-chip--basis mlv-chip--basis-' + basis, basis);
-  chip.setAttribute('data-basis', basis);
-  return chip;
+  const wrap = el('span', 'mlv-legend__basis');
+  const card = add(wrap, el('span', 'mlv-legend__card'));
+  card.setAttribute('data-basis', basis);
+  const tag = basisTagText(basis);
+  if (tag) {
+    const chip = add(card, el('span', 'mlv-legend__tag', tag));
+    chip.setAttribute('data-basis', basis);
+  }
+  wrap.appendChild(edgeSwatch(basis));
+  return wrap;
+}
+
+/** The phase tones, one bar each, in order. */
+function phaseSwatch(): HTMLElement {
+  const wrap = el('span', 'mlv-legend__phases');
+  wrap.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < PHASE_TONES; i++) {
+    const bar = add(wrap, el('span', 'mlv-legend__phase'));
+    bar.setAttribute('data-phase-tone', String(i));
+  }
+  return wrap;
 }
 
 function swatchFor(row: LegendRow): Node {
-  if (row.group === 'severity') return severityGlyph(row.key, 14, '');
-  if (row.group === 'edge') return edgeSwatch(row.key);
+  if (row.group === 'severity') {
+    if (row.key === 'short') return el('span', 'mlv-legend__short', 'F1');
+    return severityGlyph(row.key, 14, '');
+  }
   if (row.group === 'basis') return basisSwatch(row.key);
+  if (row.group === 'edge') {
+    if (row.key === 'kinds') return el('span', 'mlv-chip', 'data');
+    return edgeSwatch('observed', row.key === 'back');
+  }
+  if (row.group === 'phase') return phaseSwatch();
   if (row.key === 'stale') {
     const chip = el('span', 'mlv-chip mlv-chip--stale');
     chip.appendChild(uiIcon('warning', 11));
@@ -190,15 +198,20 @@ export class Legend {
         term.setAttribute('data-legend-row', row.group + ':' + row.key);
         const swatch = swatchFor(row);
         term.appendChild(swatch);
+        // Viewer M2: a basis swatch is a miniature card above a line, too wide to share the term
+        // column with its name, so the name opens the description instead.
+        const nameInDetail = row.group === 'basis';
         // A swatch that already SPELLS the row's name is the label. The
         // confidence chip is a word-shaped pill, so adding the name beside it
         // made every Confidence row read "certain / certain / Every factor the
         // rule wants is present." — the only self-repeating row in the legend,
         // in the section a first-time reader is most likely to be reading.
-        if ((swatch.textContent || '').trim() !== row.label) {
+        if (!nameInDetail && (swatch.textContent || '').trim() !== row.label) {
           add(term, el('span', 'mlv-legend__label', row.label));
         }
-        add(list, el('dd', 'mlv-legend__desc', row.detail));
+        const desc = add(list, el('dd', 'mlv-legend__desc'));
+        if (nameInDetail) add(desc, el('strong', 'mlv-legend__label', row.label + '. '));
+        desc.appendChild(desc.ownerDocument.createTextNode(row.detail));
       }
     }
     this.setOpen(false);
@@ -209,20 +222,20 @@ export class Legend {
   }
 
   /**
-   * Campaign 3, issue 9: name the authored kind words this diagram draws with
-   * the catch-all stroke, so the key says what they are instead of "unknown".
-   * `unspecified` counts the connections that carry no kind at all.
+   * Viewer M2: name the connection kinds this diagram uses, with how many of each, since the line
+   * no longer shows the kind. `unspecified` counts the connections that carry no kind at all.
    */
-  setOtherKinds(kinds: string[], unspecified: number): void {
-    const desc = this.root.querySelector('[data-legend-row="edge:unknown"]');
+  setKinds(kinds: { kind: string; count: number }[], unspecified: number): void {
+    const desc = this.root.querySelector('[data-legend-row="edge:kinds"]');
     const dd = desc && desc.nextElementSibling;
     if (!dd) return;
     const prior = dd.querySelector('.mlv-legend__authored');
     if (prior) prior.remove();
     const parts: string[] = [];
     if (kinds.length) {
-      const shown = kinds.slice(0, 8).join(', ');
-      parts.push('In this diagram: ' + shown + (kinds.length > 8 ? ', and ' + (kinds.length - 8) + ' more' : '') + '.');
+      // Every count names its unit: "Connections in this diagram, by kind: data 12, call 3."
+      const shown = kinds.slice(0, 8).map((k) => k.kind + ' ' + k.count).join(', ');
+      parts.push('Connections in this diagram, by kind: ' + shown + (kinds.length > 8 ? ', and ' + (kinds.length - 8) + ' more kinds' : '') + '.');
     }
     if (unspecified > 0) parts.push(unspecified + (unspecified === 1 ? ' connection has' : ' connections have') + ' no kind.');
     if (!parts.length) return;

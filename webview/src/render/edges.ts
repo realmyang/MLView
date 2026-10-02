@@ -1,10 +1,17 @@
 /**
  * SVG edge layer. One <g> per routed edge: a wide transparent hit path, the
  * visible stroke, an optional label and an optional severity marker at the
- * midpoint. Arrowheads come from <marker> definitions in <defs>, one per kind.
+ * midpoint. The arrowhead comes from one <marker> definition in <defs>.
+ *
+ * Viewer M2: the stroke's dash encodes CERTAINTY, not kind: solid for an
+ * observed connection, dashed for inferred, dotted for unresolved (edge.css,
+ * keyed on `data-basis`). The kind stays in the class name (the flow layer's
+ * stream density reads it) and is told in words by the hover card, the
+ * Inspector and the accessible name.
  */
 
 import { svg, setAttrs } from '../dom.js';
+import { stampPhase } from './phase.js';
 import { edgeMarker, edgeMarkerRadius } from '../markers.js';
 import {
   WEIGHT_BADGE_H,
@@ -119,37 +126,32 @@ function marker(id: string, cls: string, d: string, filled: boolean): SVGElement
 }
 
 /**
- * Arrowheads: filled triangle for data, open chevrons for call, control and
- * loop, a filled diamond for state and a hollow triangle for output.
+ * The arrowhead: one filled triangle for every connection (viewer M2). It used
+ * to vary by kind (open chevrons, a diamond, a hollow triangle), a key most
+ * readers never learnt; the kind is now told in words.
  *
- * One table, two consumers: `buildDefs()` turns it into the scene's <marker>
- * elements, and the legend (VIEW-10) draws the same paths inline — a <marker>
+ * Two consumers: `buildDefs()` turns it into the scene's one <marker>, and the
+ * legend (VIEW-10) and the SVG export draw the same path inline — a <marker>
  * id may exist only once per document, so the key cannot reuse the scene's.
- * An unfilled head is stroked (`.mlv-arrow--open`, edge.css).
  */
-export const ARROW_HEADS: Record<string, { d: string; filled: boolean }> = {
-  data: { d: 'M0.5 1 L9 5 L0.5 9 Z', filled: true },
-  unknown: { d: 'M0.5 1 L9 5 L0.5 9 Z', filled: true },
-  call: { d: 'M1 1.2 L8.4 5 L1 8.8', filled: false },
-  control: { d: 'M2 2 L7.6 5 L2 8', filled: false },
-  config: { d: 'M2 2 L7.6 5 L2 8', filled: false },
-  state: { d: 'M0.6 5 L4.8 1.4 L9 5 L4.8 8.6 Z', filled: true },
-  loop: { d: 'M1.4 1.6 L8 5 L1.4 8.4', filled: false },
-  output: { d: 'M1.2 1.6 L8.6 5 L1.2 8.4 Z', filled: false },
-};
+export const ARROW_HEAD = { d: 'M0.5 1 L9 5 L0.5 9 Z' };
+
+/** The id of the scene's arrowhead marker. */
+export const ARROW_MARKER_ID = 'mlv-arrow';
 
 export function buildDefs(): SVGElement {
   const defs = svg('defs');
-  for (const kind of Object.keys(ARROW_HEADS)) {
-    const head = ARROW_HEADS[kind];
-    defs.appendChild(marker('mlv-arrow-' + kind, 'mlv-arrow mlv-arrow--' + kind, head.d, head.filled));
-  }
+  defs.appendChild(marker(ARROW_MARKER_ID, 'mlv-arrow', ARROW_HEAD.d, true));
   return defs;
 }
 
 export interface EdgeVisual {
   route: RoutedEdge;
   severity: Severity | null;
+  /** Viewer M2: the short labels (F1…Fn) of the findings on this cable, in document order. */
+  findings?: string[];
+  /** Viewer M2: the SOURCE phase's document position, the key of its colour. */
+  phase?: number;
   labelVisible: boolean;
   /**
    * The SOURCE node's stage, stamped on the <g> as `data-stage`. It makes
@@ -232,6 +234,9 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   // only node cards — the bare [data-stage] rule in node.css is what binds
   // --mlv-stage, and the flow layer reads it as --mlv-flow-color.
   if (v.stage) g.setAttribute('data-stage', v.stage);
+  if (v.phase !== undefined) stampPhase(g, v.phase);
+  // Viewer M2: edge.css dashes an inferred cable and dots an unresolved one; observed is solid.
+  if (v.basis) g.setAttribute('data-basis', v.basis);
   if (v.severity) {
     g.setAttribute('data-sev', v.severity);
     g.classList.add('has-issue');
@@ -248,7 +253,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });
-  path.setAttribute('marker-end', 'url(#mlv-arrow-' + kind + ')');
+  path.setAttribute('marker-end', 'url(#' + ARROW_MARKER_ID + ')');
   // The charge's `<mpath>` rides THIS element, so it needs a document-unique id
   // (CONTRACTS 11.13.1). It is written for every edge, not only a flowing one:
   // the flow layer is built lazily inside a hover callback and must never have
@@ -281,7 +286,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   // centred on each other (VIEW-03).
   const mark = markerPoint(v);
   if (v.severity) {
-    const m = edgeMarker(v.severity, EDGE_MARKER_SIZE);
+    const m = edgeMarker(v.severity, EDGE_MARKER_SIZE, v.findings || []);
     m.setAttribute('transform', 'translate(' + mark.x + ',' + mark.y + ')');
     g.appendChild(m);
   } else if (r.back) {

@@ -8,6 +8,7 @@
 import { add, clear, el, locSpan } from '../dom.js';
 import { severityGlyph } from '../markers.js';
 import { EDGE_MARKER_R, edgeKindText } from './edges.js';
+import { basisTagText } from './nodes.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LayoutBox } from '../layout/layout.js';
 import type { Point, RoutedEdge } from '../layout/routing.js';
@@ -83,6 +84,8 @@ export class Tooltip {
     if (!node) return;
     clear(this.root);
     add(this.root, el('div', 'mlv-tooltip__title', node.label || node.qualname));
+    const basisText = basisTagText(node.basis);
+    if (basisText) add(this.root, el('div', 'mlv-tooltip__row mlv-tooltip__basis', basisText.replace('? ', '') + ', not observed'));
     if (node.sublabel) add(this.root, el('div', 'mlv-tooltip__row', node.sublabel));
     if (node.loc.file) add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
     // A group's badge counts what it contains (`planScene`), so its card lists
@@ -109,7 +112,9 @@ export class Tooltip {
     // Issue 9: the authored kind word, never `unknown`.
     const authored = edge && edge.authoredKind ? ' · authored as ' + edge.authoredKind : '';
     add(this.root, el('div', 'mlv-tooltip__row', edgeKindText(route.kind) + (route.subkind ? ' · ' + route.subkind : '') + authored));
-    if (edge && edge.basis) add(this.root, el('div', 'mlv-tooltip__row', 'Basis · ' + edge.basis));
+    // Viewer M2: the basis only when it is not `observed`; observed claims carry no mark.
+    const basisText = edge ? basisTagText(edge.basis) : '';
+    if (basisText) add(this.root, el('div', 'mlv-tooltip__row mlv-tooltip__basis', basisText.replace('? ', '') + ', not observed'));
     if (edge && edge.loc.file) add(this.root, locSpan('mlv-tooltip__loc', edge.loc, 'div'));
     if (route.count > 1) add(this.root, el('div', 'mlv-tooltip__row', route.count + ' merged connections'));
     this.issueRows(index.issuesOfEdges(route.ids, keep));
@@ -117,12 +122,15 @@ export class Tooltip {
     else this.placeAt(route.mid.x, route.mid.y, route.mid.y);
   }
 
-  /** One row per finding: its severity glyph, code and title. */
+  /**
+   * One row per finding: its severity glyph, the short label the badge prints, the real id and
+   * the title (viewer M2: the short label can renumber between revisions; the id does not).
+   */
   private issueRows(issues: Issue[]): void {
     for (const issue of issues) {
       const row = add(this.root, el('div', 'mlv-tooltip__row'));
       row.appendChild(severityGlyph(issue.severity, 12, ''));
-      add(row, el('span', '', ' ' + issue.code + ' ' + issue.title));
+      add(row, el('span', '', ' ' + (issue.short ? issue.short + ' · ' : '') + issue.code + ' ' + issue.title));
     }
   }
 

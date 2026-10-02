@@ -36,6 +36,9 @@ const STATES = {
   'hover-node': 'pointer resting on a step card',
   'hover-connection': 'pointer resting on a connection',
   'focus-mode': 'clicked a step card, then pressed F',
+  'focus-settled': 'clicked a step card, pressed F, then waited 7 s for the flow to settle',
+  'exceptions': 'turned on the "not observed" toggle, which fades the observed claims',
+  'legend': 'pressed L to open the legend',
   'filter': 'turned off the lowest severity that has findings (a phase chip when there are none)',
   'search': 'typed a word from a step label into the search box',
   'finding': 'clicked a finding with a suggestion in the Findings list',
@@ -326,7 +329,8 @@ function pageHelpers() {
       const r = rect(status);
       return { x: r.x + r.w * 0.75, y: r.y + r.h / 2 };
     },
-    severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[title^="Toggle"]')].filter(shown).map((c, i) => ({ i, title: c.title, count: Number(txt(c)) || 0 })),
+    severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter(shown)
+      .map((c, i) => ({ i, severity: c.getAttribute('data-severity'), count: Number(txt(c.querySelector('.mlv-chip__count'))) || 0 })),
     facts() {
       const panel = [...document.querySelectorAll('.mlv-rail [role="tabpanel"]')].find((p) => !p.hidden && shown(p));
       const tab = document.querySelector('.mlv-rail__tab[aria-selected="true"]');
@@ -337,6 +341,8 @@ function pageHelpers() {
       const rail = document.querySelector('.mlv-rail');
       return {
         viewport: `${innerWidth}x${innerHeight}`,
+        canvasBox: (() => { const m = main(); return `${Math.round(m.x)},${Math.round(m.y)} ${Math.round(m.w)}x${Math.round(m.h)}`; })(),
+        bars: Object.fromEntries(['.mlv-toolbar', '.mlv-status'].map((sel) => { const e = document.querySelector(sel); return [sel.slice(5), e && shown(e) ? Math.round(rect(e).h) : 0]; })),
         zoom: txt(document.querySelector('.mlv-zoom__level')) || null,
         selected: [...document.querySelectorAll('.is-selected[data-node-id], .is-selected[data-edge-id], .mlv-issue.is-selected')]
           .map((e) => e.getAttribute('data-node-id') || e.getAttribute('data-edge-id') || e.getAttribute('data-issue-id')),
@@ -354,6 +360,12 @@ function pageHelpers() {
           rail: document.querySelectorAll('.mlv-rail .is-stale').length,
         },
         focusMode: !!document.querySelector('.is-focusing'),
+        flow: {
+          lit: document.querySelectorAll('.mlv-edge.is-flowing, .mlv-edge.is-flowing--pulse').length,
+          moving: document.querySelectorAll('.mlv-edge__flow, .mlv-edge__charge').length,
+          settled: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-flow-settled') === 'true',
+        },
+        exceptions: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-exceptions') === 'on',
         tooltip: tip ? txt(tip).slice(0, 300) : null,
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
@@ -537,16 +549,42 @@ try {
       await sleep(900);
       return { frames, did: `clicked ${node.id}, pressed F`, target: { node: node.id, preferred: node.preferred } };
     },
+    async 'focus-settled'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const node = await clickNode(input, input.nodeOrder);
+      if (!node) return { skip: 'no step card visible to click' };
+      await key('f');
+      await sleep(7000);
+      return { frames, did: `clicked ${node.id}, pressed F, waited 7 s`, target: { node: node.id, preferred: node.preferred } };
+    },
+    async 'legend'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const canvas = await evaluate(`window.__shots.pointOf('.mlv-canvas')`);
+      if (canvas) { await click(canvas.x, canvas.y); await sleep(300); }
+      await key('l');
+      await sleep(500);
+      await rest();
+      return { frames, did: 'pressed L' };
+    },
+    async 'exceptions'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--exceptions')`);
+      if (!chip) return { skip: 'no "not observed" toggle (every claim is observed, or the viewer predates it)' };
+      await click(chip.x, chip.y);
+      await sleep(700);
+      await rest();
+      return { frames, did: 'turned on the "not observed" toggle' };
+    },
     async 'filter'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
       const chips = await evaluate('window.__shots.severityChips()');
-      const pick = ['low', 'medium', 'high'].map((sev) => chips.find((c) => c.title.includes(sev) && c.count > 0)).find(Boolean);
+      const pick = ['low', 'medium', 'high'].map((sev) => chips.find((c) => c.severity === sev && c.count > 0)).find(Boolean);
       if (pick) {
-        const p = await evaluate(`(() => { const c = [...document.querySelectorAll('.mlv-chip--btn[title^="Toggle"]')].filter((e) => e.getClientRects().length)[${pick.i}]; const b = c.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
+        const p = await evaluate(`(() => { const c = [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter((e) => e.getClientRects().length)[${pick.i}]; const b = c.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
         await click(p.x, p.y);
         await sleep(700);
         await rest();
-        return { frames, did: `${pick.title.replace('Toggle', 'turned off')} (${pick.count})` };
+        return { frames, did: `turned off ${pick.severity} severity findings (${pick.count} findings)` };
       }
       const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--stage:not(:first-child)')`);
       if (!chip) return { skip: 'no finding severity or phase chip to click' };

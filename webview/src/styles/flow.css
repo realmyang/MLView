@@ -3,7 +3,9 @@
  * Everything here is inert until the renderer adds `.is-flowing` or
  * `.is-flowing--pulse` to an edge <g>, which only ever happens inside a
  * debounced hover/focus callback. Nothing loops without a live pointer, focus,
- * selection or focus-mode latch (UX_DESIGN principle 5).
+ * selection or focus-mode latch (UX_DESIGN principle 5), and since viewer M2
+ * nothing loops for long even then: a flow settles into the static marks below
+ * after two passes (render/flow.ts `streamSettleMs`), and Shift+A plays it again.
  *
  * Deliberately absent, and they must stay absent (FEATURES 2.9):
  *   - `will-change`, which would promote up to 120 layers for nothing;
@@ -24,7 +26,8 @@
 
 /* ── charge colour: two order-independent rules ──────────────────────────
  * Source order must not decide the winner. An edge with a finding is coloured
- * by SEVERITY; every other edge is coloured by its SOURCE node's stage. The two
+ * by SEVERITY; every other edge is coloured by its SOURCE node's phase tone
+ * (viewer M2: `data-phase-tone`, bound in node.css). The two
  * selectors are mutually exclusive by construction, so reordering them cannot
  * change the result (CONTRACTS 11.13 rule 4). */
 .mlv-edge[data-stage]:not(.has-issue) {
@@ -101,6 +104,10 @@ body.vscode-high-contrast-light .mlv-edge.has-issue,
 .mlv-edge__charge {
   pointer-events: none;
   animation: mlv-charge-ends var(--mlv-flow-dur, 900ms) linear infinite;
+  /* Viewer M2: as many fades as the SMIL travel has passes (`--mlv-flow-iter`, written inline by
+   * render/flow.ts), then held at opacity 0 until `settle()` removes the dot on `animationend`. */
+  animation-iteration-count: var(--mlv-flow-iter, infinite);
+  animation-fill-mode: forwards;
 }
 
 /* The twin rides half a period behind (`begin` = `t0 - dur/2`), so its fade is
@@ -177,6 +184,9 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
   stroke-dasharray: var(--mlv-flow-head) var(--mlv-flow-gap);
   animation: mlv-flow-stream var(--mlv-flow-dur-data) linear infinite;
   animation-delay: var(--mlv-flow-delay, 0ms);
+  /* Viewer M2: a finite train. render/flow.ts writes the count per cable so every cable of a
+   * stream ends near the same moment; `animationend` then settles it into the static marks. */
+  animation-iteration-count: var(--mlv-flow-iter, infinite);
 }
 
 .mlv-edge--call.is-flowing .mlv-edge__flow,
@@ -236,8 +246,8 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
  * the inlet IS the arrowhead's replacement — which is the mental model the
  * design wanted — so the marker stands down. Only under `data-flow="motion"`:
  * the static substitute keeps its arrowhead alongside the chevron. */
-.mlv-canvas[data-flow="motion"] .mlv-edge.is-flowing .mlv-edge__path,
-.mlv-canvas[data-flow="motion"] .mlv-edge.is-flowing--pulse .mlv-edge__path {
+.mlv-canvas[data-flow="motion"] .mlv-edge.is-flowing:not(.is-flow-settled) .mlv-edge__path,
+.mlv-canvas[data-flow="motion"] .mlv-edge.is-flowing--pulse:not(.is-flow-settled) .mlv-edge__path {
   marker-end: none;
 }
 
@@ -248,10 +258,14 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
  * blue while its ports and chevron stayed red overpainted the one signal 2.6 is
  * built around, and did it precisely for the reduced-motion user who has no
  * animation to fall back on (MLV-R1-FLOW-009). */
-.mlv-canvas[data-flow="static"] .mlv-edge.is-flowing--pulse .mlv-edge__path {
+.mlv-canvas[data-flow="static"] .mlv-edge.is-flowing--pulse .mlv-edge__path,
+.mlv-edge.is-flowing--pulse.is-flow-settled .mlv-edge__path {
   stroke: var(--mlv-flow-color, var(--mlv-accent));
-  stroke-width: 2.5;
+  stroke-width: max(2.5px, calc(2px / var(--mlv-z, 1)));
 }
+
+/* Viewer M2: a SETTLED flow (render/flow.ts `settle()`, after two passes) is the same picture:
+ * ports, the chevron and the arrowhead, still lit, nothing moving. Shift+A plays it again. */
 
 .mlv-edge__dir {
   fill: none;
@@ -267,11 +281,11 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
 /* Which end is which, told twice: hue on the card, hollow vs filled on the port
  * (UX_DESIGN section 4.5 upgraded — the ring alone could not tell them apart).
  *
- * The two rings may NOT be told apart by hue alone. `--mlv-stage-model` is
- * byte-identical to `--mlv-accent` in every theme, and the hc block redefines no
- * stage hue at all, so on any model-stage edge — including the demo's flagship
- * SmallCNN --logits--> criterion — the source and target rings resolved to the
- * same colour and the direction cue died silently (R2-FLOW-02). The TARGET
+ * The two rings may NOT be told apart by hue alone. A phase tone can sit close to
+ * `--mlv-accent`, and in high contrast every phase tone is the contrast border, so
+ * on such an edge the source and target rings would resolve to the same colour
+ * and the direction cue would die silently (R2-FLOW-02, first seen when the old
+ * model-stage hue equalled the accent). The TARGET
  * therefore reads as a DOUBLE ring: a surface-coloured spacer punched out at
  * 2 px and the accent at 4 px. That is geometry, so it survives any theme, any
  * stage hue, and the reduced-motion path where FEATURES 2.8 counts on it. */
@@ -307,6 +321,12 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
   .mlv-edge__charge {
     display: none !important;
   }
+}
+
+/* Viewer M2: the same removal under VS Code's own reduce-motion body class. */
+body.vscode-reduce-motion .mlv-edge__flow,
+body.vscode-reduce-motion .mlv-edge__charge {
+  display: none !important;
 }
 
 /* Flow off entirely: the toolbar toggle, persisted as ViewState.flow. */

@@ -10,14 +10,13 @@
 /* ── the weighted cable ─────────────────────────────────────────────── */
 
 /*
- * `--mlv-edge-w` is set on the <g> by `render/edges.ts`. This rule sits AFTER
- * every per-kind rule in `edge.css` and has the same specificity, so it wins on
- * source order; the hover, lit and selected rules are one class more specific,
+ * `--mlv-edge-w` is set on the <g> by `render/edges.ts`. It is more
+ * specific than the base stroke rule in `edge.css`, so it wins; the hover, lit and selected rules are one class more specific,
  * so a heavy cable still lights up under the pointer instead of freezing at its
  * resting width.
  */
 .mlv-edge--weighted .mlv-edge__path {
-  stroke-width: var(--mlv-edge-w, 2px);
+  stroke-width: max(var(--mlv-edge-w, 2px), calc(1px / var(--mlv-z, 1)));
 }
 
 .mlv-edge__weight {

@@ -42,6 +42,22 @@
  *
  * @contrast (3:1): --mlv-stale-ink on --mlv-surface
  * @contrast (3:1): --mlv-stale-ink on --mlv-bg
+ *
+ * Viewer M2, checked by test/calm-canvas.test.mjs against the screenshot
+ * harness's theme table (Dark Modern, Light Modern, Dark High Contrast;
+ * webview/tools/screenshots/themes.js):
+ *
+ * @contrast (3:1): --mlv-edge on --mlv-bg, on a lane and on --mlv-surface
+ * @contrast (3:1): --mlv-node-edge on --mlv-bg
+ * @contrast (3:1): --mlv-phase-0 … --mlv-phase-7 on --mlv-surface and --mlv-bg
+ * @contrast (3:1): the basis border (--mlv-text-2) on --mlv-surface
+ * @contrast (4.5:1): card text on a faded (observed) card in exceptions mode
+ *
+ * The connection and card-border colours are the theme's own text colour
+ * mixed into its background, so they follow any theme, not only the defaults.
+ * The phase tones are literals per theme kind: VS Code's chart and terminal
+ * colours repeat or fall under 3:1 on Light Modern (terminal.ansiBrightGreen
+ * #14CE14 is 2.13:1), so they cannot carry eight distinct phases.
  */
 
 :root,
@@ -151,23 +167,29 @@
   --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
   --mlv-focus: var(--vscode-focusBorder, #3B6CF6);
   --mlv-canvas-dot: var(--vscode-widget-border, #E6E9F0);
-  --mlv-edge: var(--vscode-editorLineNumber-foreground, #8C93A3);
+  /* Viewer M2: connections and card borders at about 3:1 or better against the canvas, as the
+   * theme's text mixed into its background (Light Modern: 3.87:1 and 3.2:1). */
+  --mlv-edge: color-mix(in srgb, var(--mlv-text) 64%, var(--mlv-bg));
+  --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 58%, var(--mlv-bg));
   --mlv-scrim: rgba(16, 18, 24, 0.36);
   /* a scoped view's boundary stub: a DECLARED foreground, never opacity alone. */
   --mlv-fg-boundary: #6B7284;
 
-  /* stage hues */
-  --mlv-stage-config: #667085;
-  --mlv-stage-data: #0E7C85;
-  --mlv-stage-preprocess: #6A48E8;
-  --mlv-stage-model: #3B6CF6;
-  --mlv-stage-objective: #B05F17;
-  --mlv-stage-train: #14895F;
-  --mlv-stage-eval: #A3308B;
-  --mlv-stage-deliver: #6E7484;
+  /* Viewer M2: phase colour by document ORDER, never by id (render/phase.ts). Eight low-chroma
+   * hues that leave red, yellow and orange to severity; used only on the lane's accent rule,
+   * the card's left edge and the phase swatches. */
+  --mlv-phase-0: #00796B;
+  --mlv-phase-1: #6A4FB3;
+  --mlv-phase-2: #8D6E2F;
+  --mlv-phase-3: #B0457E;
+  --mlv-phase-4: #558B2F;
+  --mlv-phase-5: #0B7F99;
+  --mlv-phase-6: #546E7A;
+  --mlv-phase-7: #1F6FB2;
   --mlv-stage-unknown: #7A8090;
-  --mlv-lane-tint: 0.05;
-  --mlv-group-tint: 0.05;
+  /* a lane's neutral wash: the text colour at this share over the background, never a phase hue */
+  --mlv-lane-tint: 0.025;
+  --mlv-group-tint: 0;
 
   /* severity */
   --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #D0342C));
@@ -196,23 +218,24 @@
     --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
     --mlv-focus: var(--vscode-focusBorder, #6E96FF);
     --mlv-canvas-dot: var(--vscode-widget-border, #23262D);
-    --mlv-edge: var(--vscode-editorLineNumber-foreground, #79808F);
+    --mlv-edge: color-mix(in srgb, var(--mlv-text) 54%, var(--mlv-bg));
+    --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 46%, var(--mlv-bg));
     --mlv-scrim: rgba(0, 0, 0, 0.5);
     --mlv-fg-boundary: #98A0B0;
     --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
     --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
     --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
-    --mlv-stage-config: #8B93A7;
-    --mlv-stage-data: #2DC5D0;
-    --mlv-stage-preprocess: #9E86FF;
-    --mlv-stage-model: #6E96FF;
-    --mlv-stage-objective: #F0954A;
-    --mlv-stage-train: #34C08A;
-    --mlv-stage-eval: #E169C9;
-    --mlv-stage-deliver: #8B93A7;
+    --mlv-phase-0: #4DB6AC;
+    --mlv-phase-1: #A48BE0;
+    --mlv-phase-2: #C9A56B;
+    --mlv-phase-3: #D98CB3;
+    --mlv-phase-4: #9CCC65;
+    --mlv-phase-5: #4FC3D9;
+    --mlv-phase-6: #90A4AE;
+    --mlv-phase-7: #6FA8DC;
     --mlv-stage-unknown: #8B93A7;
-    --mlv-lane-tint: 0.10;
-    --mlv-group-tint: 0.09;
+    --mlv-lane-tint: 0.035;
+    --mlv-group-tint: 0;
     --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #FF6169));
     --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #F2B03C));
     --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #6E96FF));
@@ -240,23 +263,24 @@ body.vscode-dark,
   --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
   --mlv-focus: var(--vscode-focusBorder, #6E96FF);
   --mlv-canvas-dot: var(--vscode-widget-border, #23262D);
-  --mlv-edge: var(--vscode-editorLineNumber-foreground, #79808F);
+  --mlv-edge: color-mix(in srgb, var(--mlv-text) 54%, var(--mlv-bg));
+  --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 46%, var(--mlv-bg));
   --mlv-scrim: rgba(0, 0, 0, 0.5);
   --mlv-fg-boundary: #98A0B0;
   --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
   --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
   --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
-  --mlv-stage-config: #8B93A7;
-  --mlv-stage-data: #2DC5D0;
-  --mlv-stage-preprocess: #9E86FF;
-  --mlv-stage-model: #6E96FF;
-  --mlv-stage-objective: #F0954A;
-  --mlv-stage-train: #34C08A;
-  --mlv-stage-eval: #E169C9;
-  --mlv-stage-deliver: #8B93A7;
+  --mlv-phase-0: #4DB6AC;
+  --mlv-phase-1: #A48BE0;
+  --mlv-phase-2: #C9A56B;
+  --mlv-phase-3: #D98CB3;
+  --mlv-phase-4: #9CCC65;
+  --mlv-phase-5: #4FC3D9;
+  --mlv-phase-6: #90A4AE;
+  --mlv-phase-7: #6FA8DC;
   --mlv-stage-unknown: #8B93A7;
-  --mlv-lane-tint: 0.10;
-  --mlv-group-tint: 0.09;
+  --mlv-lane-tint: 0.035;
+  --mlv-group-tint: 0;
   --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #FF6169));
   --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #F2B03C));
   --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #6E96FF));
@@ -280,9 +304,19 @@ body.vscode-high-contrast-light,
   --mlv-border: var(--vscode-contrastBorder, #FFFFFF);
   --mlv-border-strong: var(--vscode-contrastBorder, #FFFFFF);
   --mlv-edge: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-node-edge: var(--vscode-contrastBorder, #FFFFFF);
   --mlv-canvas-dot: transparent;
   --mlv-lane-tint: 0;
   --mlv-group-tint: 0;
+  /* High contrast has no phase hues: every tone is the contrast border. */
+  --mlv-phase-0: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-1: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-2: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-3: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-4: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-5: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-6: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-7: var(--vscode-contrastBorder, #FFFFFF);
   --mlv-sh-1: 0 0 0 1px var(--mlv-border);
   --mlv-sh-2: 0 0 0 2px var(--mlv-border);
   --mlv-sh-3: 0 0 0 2px var(--mlv-border);

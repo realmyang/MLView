@@ -251,13 +251,15 @@ test('outline enumerates textual relationships by direction and preserves basis'
   app.setRailTab('outline');
   let panel = root.querySelector('.mlv-rail__panel:not([hidden])');
   assert.match(panel.querySelector('.mlv-relations__context').textContent, /Update weights/);
-  assert.equal(panel.querySelector('[data-outline-id="dataset"] .mlv-outline__stage').textContent, 'observed');
+  // Viewer M2: an observed step carries no basis mark; the exceptions say so in words.
+  assert.equal(panel.querySelector('[data-outline-id="dataset"] .mlv-outline__stage'), null);
   assert.equal(panel.querySelector('[data-outline-id="epoch"] .mlv-outline__stage').textContent, 'inferred');
-  assert.equal(panel.querySelector('[data-outline-id="gate"] .mlv-outline__stage').textContent, 'unresolved');
+  assert.equal(panel.querySelector('[data-outline-id="gate"] .mlv-outline__stage').textContent, '? unresolved');
   assert.doesNotMatch(panel.querySelector('[data-outline-id="dataset"]').textContent, /unknown/i);
   assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['cycle', 'review']);
   // The basis is said once: the label no longer carries a " · inferred" suffix.
-  assert.match(panel.querySelector('[data-relation-id="cycle"]').getAttribute('aria-label'), /Outgoing: Update weights to Epoch; next epoch; basis inferred/);
+  assert.match(panel.querySelector('[data-relation-id="cycle"]').getAttribute('aria-label'), /^Outgoing: Update weights to Epoch; next epoch; inferred, not observed$/);
+  assert.equal(panel.querySelector('[data-relation-id="cycle"] .mlv-relations__detail').textContent, 'next epoch · inferred');
 
   panel.querySelector('[data-relation-view="incoming"]').click();
   assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['flow']);

@@ -6,6 +6,7 @@
 
 import { svg, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
+import { stampPhase } from './phase.js';
 import type { Viewport } from '../types.js';
 
 export const MIN_ZOOM = 0.15;
@@ -80,6 +81,33 @@ export interface Rect {
 export const LOD_FULL_ZOOM = 0.62;
 
 /**
+ * Viewer M2: the zoom steps `--mlv-z` is written at. The stylesheet divides by it to keep a few
+ * marks the same size on screen at every zoom — the inferred / unresolved tags, the exception
+ * dashes and a 1 px floor on connection strokes — so an exception stays visible zoomed out.
+ * Quantised so a wheel zoom restyles those marks only when it crosses a step (about 25% apart),
+ * never on every frame.
+ */
+export const ZOOM_BUCKETS = [0.15, 0.2, 0.25, 0.32, 0.4, 0.5, 0.62, 0.8, 1, 1.25, 1.6, 2, 2.5];
+
+/**
+ * The bucket nearest `zoom` on a log scale, as `--mlv-z` holds it: a constant-size mark is then
+ * within about 12% of its intended screen size at any zoom (the buckets are about 25% apart).
+ */
+export function zoomBucket(zoom: number): number {
+  if (!(zoom > 0)) return 1;
+  let best = ZOOM_BUCKETS[0];
+  let gap = Infinity;
+  for (const bucket of ZOOM_BUCKETS) {
+    const d = Math.abs(Math.log(zoom / bucket));
+    if (d < gap - 1e-9) {
+      gap = d;
+      best = bucket;
+    }
+  }
+  return best;
+}
+
+/**
  * The zoom a selection from the rail lands at when the diagram is below the
  * detail threshold (Campaign 3, issue 6): card titles at about 12 px, edge
  * labels and `file:line` drawn.
@@ -111,6 +139,8 @@ export class ViewportController {
   contentH = 1;
   private onChange: (vp: Viewport) => void;
   private lod = 'full';
+  /** The `--mlv-z` bucket last written onto the canvas (viewer M2). */
+  private zBucket = 0;
   /** True while the document is a PROJECTION (`graph.view` present). */
   private projected = false;
   /**
@@ -158,6 +188,11 @@ export class ViewportController {
     if (lod !== this.lod) {
       this.lod = lod;
       this.canvas.setAttribute('data-lod', lod);
+    }
+    const bucket = zoomBucket(zoom);
+    if (bucket !== this.zBucket) {
+      this.zBucket = bucket;
+      this.canvas.style.setProperty('--mlv-z', String(bucket));
     }
     this.onChange(this.vp);
   }
@@ -353,6 +388,8 @@ export interface MinimapDot {
   w: number;
   h: number;
   stage: string;
+  /** Viewer M2: the phase's document position, the key of its colour. */
+  phase?: number;
   severity: string | null;
 }
 
@@ -473,6 +510,7 @@ export class Minimap {
         rx: 1,
       });
       r.setAttribute('data-stage', d.stage);
+      if (d.phase !== undefined) stampPhase(r, d.phase);
       if (d.severity) r.setAttribute('data-sev', d.severity);
       this.nodesG.appendChild(r);
     }

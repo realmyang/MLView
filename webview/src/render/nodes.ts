@@ -7,6 +7,8 @@ import { el, add, locSpan } from '../dom.js';
 import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind, nodeGlyphKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
+import { basisSpoken } from './edges.js';
+import { stampPhase } from './phase.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
 import { titleLines } from '../layout/cardmetrics.js';
@@ -31,6 +33,42 @@ export interface NodeVisual {
   /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
   staleElsewhere?: boolean;
   filteredOut: boolean;
+  /** Viewer M2: the short labels (F1…Fn) of the findings the badge counts, in document order. */
+  findings?: string[];
+  /** Viewer M2: the phase's document position, the key of its colour. */
+  phase?: number;
+}
+
+/**
+ * Viewer M2: the word a basis tag prints, for the exceptions only. An observed claim is the common
+ * case and carries no mark.
+ */
+export function basisTagText(basis: string | undefined): string {
+  if (basis === 'inferred') return 'inferred';
+  if (basis === 'unresolved') return '? unresolved';
+  return '';
+}
+
+/** What a basis tag's tooltip says: the legend's sentence for that basis. */
+function basisTagTitle(basis: string, noun: string): string {
+  return basis === 'inferred'
+    ? 'Inferred, not observed: reasoned from the cited code and stated assumptions; the quotes do not show all of it.'
+    : 'Unresolved: the evidence does not settle this claim. It does not mean the ' + noun + ' is missing.';
+}
+
+/**
+ * Viewer M2: the small tag an inferred or unresolved card or group carries. It is the same size on
+ * screen at every zoom (node.css scales it by 1 / --mlv-z), so an exception stays visible when the
+ * diagram is zoomed out. Null for an observed claim.
+ */
+export function basisTag(basis: string | undefined, noun = 'step'): HTMLElement | null {
+  const text = basisTagText(basis);
+  if (!text || !basis) return null;
+  const tag = el('span', 'mlv-basis-tag', text);
+  tag.setAttribute('data-basis', basis);
+  tag.setAttribute('aria-hidden', 'true');
+  tag.title = basisTagTitle(basis, noun);
+  return tag;
 }
 
 /**
@@ -87,7 +125,9 @@ export function ariaLabelFor(v: NodeVisual): string {
   // Viewer M1: a step names its phase by label, as the lane does; the id is internal.
   bits.push(n.phaseLabel ? n.phaseLabel + ' phase' : stageOf(n) + ' stage');
   if (n.loc.file) bits.push(locSpoken(n.loc));
-  if (n.basis) bits.push('basis ' + n.basis);
+  // Viewer M2: the basis is named only when it is not `observed`, as on the card.
+  const basis = basisSpoken(n.basis);
+  if (basis) bits.push(basis.slice(2));
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
   // VIEWUI-14: the same "finding" wording as the card's own severity badge.
@@ -154,8 +194,9 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.setAttribute('data-kind', n.kind);
   card.setAttribute('data-level', n.level);
   // Issue 14: the uncertainty treatment belongs to the authored basis, not to
-  // an unfamiliar kind word (node.css `[data-basis="unresolved"]`).
+  // an unfamiliar kind word. Viewer M2: node.css marks only inferred and unresolved cards.
   if (n.basis) card.setAttribute('data-basis', n.basis);
+  if (v.phase !== undefined) stampPhase(card, v.phase);
   const top = highestSeverity(v.counts);
   // A BOUNDARY stub carries no severity badge: its findings are out of scope,
   // and a badge you cannot open is a lie (FEATURES 3.7).
@@ -207,11 +248,14 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // Viewer M2: the only chip row left is a collapsed group's count (layout/cardmetrics.ts).
   if (groupLike) {
     const row = add(text, el('div', 'mlv-node__chips'));
-    add(row, el('span', 'mlv-chip', v.descendants + ' nodes'));
+    add(row, el('span', 'mlv-chip', stepsText(v.descendants)));
   }
 
   // Viewer M1: a corner mark with its meaning in words (title and accessible name), never colour alone.
   if (v.stale) card.appendChild(staleMark(v));
+  // Viewer M2: inferred and unresolved cards carry a tag; observed cards carry nothing.
+  const tag = basisTag(n.basis, groupLike ? 'group' : 'step');
+  if (tag) card.appendChild(tag);
 
   if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
@@ -227,10 +271,32 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
       card.appendChild(cluster);
     }
   } else if (!boundary) {
-    const badge = severityBadge(v.counts, 18);
+    const badge = severityBadge(v.counts, 18, v.findings || []);
     if (badge) card.appendChild(badge);
   }
   return card;
+}
+
+/** "1 step" / "5 steps": a count that names its unit (viewer M2). */
+export function stepsText(n: number): string {
+  return n + (n === 1 ? ' step' : ' steps');
+}
+
+/**
+ * The visible label of a lane's finding counts (viewer M2): the severity cluster's numbers count
+ * findings touching this phase. A finding that touches two phases counts in each (PR #14), so the
+ * lanes are not a partition of the document's findings.
+ */
+export function phaseFindingsText(total: number): string {
+  return total === 1 ? 'finding touches this phase' : 'findings touch this phase';
+}
+
+/** The same, as a full sentence for the accessible name and the tooltip. */
+export function phaseFindingsSpoken(counts: IssueCounts): string {
+  const total = countsTotal(counts);
+  const top = highestSeverity(counts);
+  return total + (total === 1 ? ' finding touches' : ' findings touch') + ' this phase, highest severity ' + (top || 'none') +
+    '. A finding that cites steps or connections in several phases counts in each of them.';
 }
 
 /** An expanded group: the dashed container plus its header strip. */
@@ -241,6 +307,8 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   box.setAttribute('data-node-id', n.id);
   box.setAttribute('data-group', '1');
   box.setAttribute('data-stage', stageOf(n));
+  if (v.phase !== undefined) stampPhase(box, v.phase);
+  if (n.basis) box.setAttribute('data-basis', n.basis);
   box.setAttribute('data-depth', String(Math.min(2, v.box.depth)));
   if (n.viewRole) box.setAttribute('data-view-role', n.viewRole);
   // A boundary FRAME is as badge-free as a boundary card: what it contains is
@@ -272,8 +340,10 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   header.appendChild(kindIcon(nodeGlyphKind(n, false), 14));
   // Issue 14: a group name is cut once, by the CSS end ellipsis.
   add(header, el('span', 'mlv-group__name', n.label || n.qualname));
-  if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
-  add(header, el('span', 'mlv-group__count', String(v.descendants)));
+  // Viewer M2: the basis only when it is not `observed`, as the same tag a card carries.
+  const tag = basisTag(n.basis, 'group');
+  if (tag) header.appendChild(tag);
+  add(header, el('span', 'mlv-group__count', stepsText(v.descendants)));
   const cluster = boundary ? null : severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);
   if (v.stale) {
@@ -296,10 +366,11 @@ function staleMark(v: NodeVisual): HTMLElement {
   return mark;
 }
 
-export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean): HTMLElement {
+export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean, phase?: number): HTMLElement {
   const band = el('div', 'mlv-lane');
   band.setAttribute('data-lane-id', lane.id);
   band.setAttribute('data-stage', lane.id);
+  if (phase !== undefined) stampPhase(band, phase);
   band.style.left = lane.x + 'px';
   band.style.top = lane.y + 'px';
   band.style.width = lane.w + 'px';
@@ -308,10 +379,18 @@ export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean
   if (absent) band.classList.add('is-absent');
 
   const header = add(band, el('div', 'mlv-lane__header'));
-  add(header, el('span', 'mlv-lane__label', lane.label));
-  add(header, el('span', 'mlv-lane__count', lane.nodeCount + (lane.nodeCount === 1 ? ' node' : ' nodes')));
+  const label = add(header, el('span', 'mlv-lane__label', lane.label));
+  label.title = lane.label;
+  add(header, el('span', 'mlv-lane__count', stepsText(lane.nodeCount)));
   add(header, el('span', 'mlv-lane__spacer'));
-  const cluster = severityCluster(counts, 13);
-  if (cluster) header.appendChild(cluster);
+  // Viewer M2: the counts say what they count. A finding touching two phases counts in each.
+  const spoken = phaseFindingsSpoken(counts);
+  const cluster = severityCluster(counts, 13, spoken);
+  if (cluster) {
+    header.appendChild(cluster);
+    const unit = add(header, el('span', 'mlv-lane__unit', phaseFindingsText(countsTotal(counts))));
+    unit.setAttribute('aria-hidden', 'true');
+    unit.title = spoken;
+  }
   return band;
 }

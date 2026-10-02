@@ -479,9 +479,13 @@ test('authored kinds draw mapped glyphs, never the question mark; uncertainty fo
   assert.notEqual(glyph('k11'), glyph('k12'));
   assert.equal(ctx.document.querySelector('[data-node-id="k11"]').getAttribute('data-basis'), 'unresolved');
   assert.equal(ctx.document.querySelector('[data-node-id="k12"]').getAttribute('data-basis'), 'observed');
+  // Viewer M2: the uncertainty treatment is a dotted outline plus a "? unresolved" tag on the
+  // unresolved card only; the observed card carries no basis mark at all.
+  assert.equal(ctx.document.querySelector('[data-node-id="k11"] .mlv-basis-tag').textContent, '? unresolved');
+  assert.equal(ctx.document.querySelector('[data-node-id="k12"] .mlv-basis-tag'), null);
   const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
-  const rule = declarationsFor(css, '.mlv-node[data-basis=unresolved] .mlv-node__iconbox');
-  assert.match(rule.outline || declarationsFor(css, '.mlv-node[data-basis="unresolved"] .mlv-node__iconbox').outline || '', /dashed/);
+  assert.match(declarationsFor(css, '.mlv-node[data-basis=unresolved]:after')['border-style'] || '', /dotted/);
+  assert.match(declarationsFor(css, '.mlv-node[data-basis=inferred]:after').border || '', /dashed/);
   ctx.app.destroy();
 });
 
@@ -512,18 +516,20 @@ test('edge kind synonyms are drawn as the styled kinds; other kinds keep their a
   assert.equal(chip('e12'), 'construction');
   assert.equal(chip('e13'), 'kind not specified');
   assert.equal(chip('e14'), 'call');
-  // The legend has the new rows, calls the catch-all "other", and lists this diagram's other kinds.
+  // Viewer M2: the line no longer shows the kind (its dash shows the basis), so the legend has no
+  // per-kind strokes. It lists the kinds this diagram uses, in words, with how many of each.
   const legend = ctx.document.querySelector('.mlv-legend');
-  for (const kind of ['state', 'loop', 'output']) assert.ok(legend.querySelector(`[data-legend-row="edge:${kind}"]`), kind + ' has a legend row');
-  const other = legend.querySelector('[data-legend-row="edge:unknown"]');
-  assert.match(other.textContent, /other/);
-  assert.match(other.nextElementSibling.textContent, /In this diagram: construction\./);
-  assert.match(other.nextElementSibling.textContent, /1 connection has no kind\./);
-  // Open arrowheads are stroked, so they draw (edge.css `.mlv-arrow--open`).
-  for (const kind of ['call', 'control', 'loop', 'output']) assert.ok(ctx.document.querySelector(`#mlv-arrow-${kind}`).querySelector('.mlv-arrow--open'), kind + ' head is open');
-  for (const kind of ['data', 'state']) assert.equal(ctx.document.querySelector(`#mlv-arrow-${kind} .mlv-arrow--open`), null, kind + ' head is filled');
+  for (const kind of ['state', 'loop', 'output', 'unknown']) assert.equal(legend.querySelector(`[data-legend-row="edge:${kind}"]`), null, kind + ' has no stroke row');
+  const kinds = legend.querySelector('[data-legend-row="edge:kinds"]');
+  assert.match(kinds.nextElementSibling.textContent, /Connections in this diagram, by kind: /);
+  assert.match(kinds.nextElementSibling.textContent, /construction 1/);
+  assert.match(kinds.nextElementSibling.textContent, /1 connection has no kind\./);
+  // One filled arrowhead for every connection.
+  assert.equal(ctx.document.querySelectorAll('marker').length, 1);
+  assert.ok(ctx.document.querySelector('#mlv-arrow'));
+  for (const id of ids) assert.equal(ctx.document.querySelector(`.mlv-edge[data-edge-id="${id}"] .mlv-edge__path`).getAttribute('marker-end'), 'url(#mlv-arrow)');
   const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
   assert.match(declarationsFor(css, '.mlv-arrow').fill || '', /var\(--mlv-edge\)/);
-  assert.equal(declarationsFor(css, '.mlv-arrow.mlv-arrow--open').fill, 'none');
   ctx.app.destroy();
 });
+

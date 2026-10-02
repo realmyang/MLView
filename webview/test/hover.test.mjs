@@ -138,7 +138,7 @@ async function mountEdges(doc = edgeFindingWorkflow()) {
   const tooltip = ctx.document.querySelector('.mlv-tooltip');
   const hit = (id) => ctx.document.querySelector(`.mlv-edge[data-edge-id="${id}"] .mlv-edge__hit`);
   const pointer = (type, element) => element.dispatchEvent(new ctx.window.Event(type, { bubbles: false }));
-  /** The hover card's finding rows, as "<glyph severity> <code> <title>". */
+  /** The hover card's finding rows, as "<glyph severity> <short label> · <code> <title>" (viewer M2). */
   const rows = () => Array.from(tooltip.querySelectorAll('.mlv-tooltip__row'))
     .filter((row) => row.querySelector('.mlv-glyph'))
     .map((row) => row.querySelector('.mlv-glyph').getAttribute('class').replace(/.*mlv-glyph--/, '') + row.textContent);
@@ -150,7 +150,7 @@ test('hovering a connection shows its finding on the card, as hovering a card do
   ctx.pointer('pointerenter', ctx.hit('b'));
   await wait(450);
   assert.equal(ctx.tooltip.hidden, false);
-  assert.deepEqual(ctx.rows(), ['medium f-edge Weights leak into eval']);
+  assert.deepEqual(ctx.rows(), ['medium F1 · f-edge Weights leak into eval']);
   ctx.app.destroy();
 });
 
@@ -161,7 +161,7 @@ test('a merged route lists a finding its members share once, in document order',
   ctx.pointer('pointerenter', ctx.hit('m1'));
   await wait(450);
   assert.match(ctx.tooltip.textContent, /2 merged connections/);
-  assert.deepEqual(ctx.rows(), ['high f-shared Rows and labels drift', 'low f-one Labels unchecked']);
+  assert.deepEqual(ctx.rows(), ['high F2 · f-shared Rows and labels drift', 'low F3 · f-one Labels unchecked']);
   ctx.app.destroy();
 });
 
@@ -175,7 +175,7 @@ test('a merged route lists its findings in document order, not in member order',
   assert.equal(ctx.document.querySelector('.mlv-edge[data-edge-id="m1"]').getAttribute('data-edge-ids'), 'm1 m2');
   ctx.pointer('pointerenter', ctx.hit('m1'));
   await wait(450);
-  assert.deepEqual(ctx.rows(), ['high f-shared Rows and labels drift', 'low f-one Labels unchecked']);
+  assert.deepEqual(ctx.rows(), ['high F2 · f-shared Rows and labels drift', 'low F3 · f-one Labels unchecked']);
   ctx.app.destroy();
 });
 
@@ -190,7 +190,7 @@ test('a collapsed group card lists the findings its badge counts, including a hi
   assert.match(card.getAttribute('aria-label'), /2 findings, highest severity medium/);
   ctx.pointer('pointerenter', card);
   await wait(450);
-  assert.deepEqual(ctx.rows(), ['medium f-edge Weights leak into eval', 'low f-child Step reuses a stale batch']);
+  assert.deepEqual(ctx.rows(), ['medium F1 · f-edge Weights leak into eval', 'low F4 · f-child Step reuses a stale batch']);
   ctx.app.destroy();
 });
 
@@ -211,7 +211,7 @@ test('the severity filter hides a filtered finding from the connection card', as
   ctx.app.setFilters({ severities: ['medium', 'low'] });
   ctx.pointer('pointerenter', ctx.hit('m1'));
   await wait(450);
-  assert.deepEqual(ctx.rows(), ['low f-one Labels unchecked']);
+  assert.deepEqual(ctx.rows(), ['low F3 · f-one Labels unchecked']);
   ctx.app.setFilters({ severities: ['high'] });
   ctx.pointer('pointerenter', ctx.hit('b'));
   await wait(450);
@@ -249,7 +249,7 @@ test('the rim of a severity marker opens its connection card at high zoom', asyn
   assert.ok(ctx.document.querySelector('.mlv-edge[data-edge-id="b"]').classList.contains('is-hover'));
   await wait(450);
   assert.equal(ctx.tooltip.hidden, false);
-  assert.deepEqual(ctx.rows(), ['medium f-edge Weights leak into eval']);
+  assert.deepEqual(ctx.rows(), ['medium F1 · f-edge Weights leak into eval']);
   // The card sits above the whole disc (8.5 world px), not over its top half: jsdom cannot
   // measure the card, so its anchor is the disc's top minus the 12 px gap.
   assert.equal(ctx.tooltip.style.left, Math.round(mx * vp.zoom + vp.x) + 'px');

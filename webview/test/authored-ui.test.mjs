@@ -216,7 +216,8 @@ test('authored readers see finding wording, no adapter chips and no duplicated m
   assert.equal(headings.includes('Issues'), false);
   const badge = ctx.root.querySelector('[data-node-id="step"] [aria-label*="highest severity"]');
   assert.ok(badge);
-  assert.match(badge.getAttribute('aria-label'), /^1 finding, highest severity medium$/);
+  // Viewer M2: the badge names its finding by short label (F1…Fn, document order), not a bare count.
+  assert.match(badge.getAttribute('aria-label'), /^Finding F\d+, highest severity medium$/);
   ctx.app.setFilters({ severities: ['high'] });
   assert.match(ctx.root.querySelector('.mlv-rail').textContent, /No findings match these filters\./);
   ctx.app.destroy();

@@ -149,6 +149,16 @@
   min-width: 0;
 }
 
+/* Viewer M2: the short label (F1…Fn) the canvas badges print; the real id stays in the meta line. */
+.mlv-issue__short,
+.mlv-insp__short {
+  flex: none;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
 .mlv-issue__title {
   font-size: 12.5px;
   font-weight: var(--mlv-fw-medium);

@@ -224,6 +224,17 @@ html.mlv-fills-page > body > .mlv-root {
   }
 }
 
+/* Viewer M2: VS Code's own signal. The webview body carries `vscode-reduce-motion` when the
+ * editor's "Reduce Motion" setting is on (or follows the OS), which the media query alone misses
+ * when VS Code's setting is on but the OS one is not. Same clamp. */
+body.vscode-reduce-motion .mlv-root *,
+body.vscode-reduce-motion .mlv-root *::before,
+body.vscode-reduce-motion .mlv-root *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
 /*
  * VIEW-12: the skip link — the document's FIRST tab stop.
  *

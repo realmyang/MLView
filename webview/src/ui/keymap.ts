@@ -24,6 +24,11 @@ export interface KeyCommands {
   toggleLegend(): void;
   /** `a`: turn the connection-flow animation on or off. */
   toggleFlow(): void;
+  /**
+   * `Shift+A` (viewer M2): play the flow on screen again. A flow stops after two passes; false
+   * when nothing is lit, the layer is off, or motion is reduced.
+   */
+  replayFlow(): boolean;
   toggleCollapse(): boolean;
   /** Enter: open beside the panel, focus kept; Alt+Enter (`focusEditor`): open and move focus there. */
   openSelection(focusEditor: boolean): boolean;
@@ -68,6 +73,8 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['f'], action: 'focusMode', description: 'Focus mode: light the full lineage of the selection' },
   { keys: ['l'], action: 'legend', description: 'Show or hide the legend' },
   { keys: ['a'], action: 'flow', description: 'Turn the connection flow animation on or off' },
+  // Viewer M2: a flow stops after two passes, so nothing moves while you read.
+  { keys: ['Shift+A'], action: 'replayFlow', description: 'Play the connection flow again (it stops after two passes)' },
   { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },
   { keys: ['s', 'Shift+S'], action: 'scope', description: 'Scope the diagram to the selection / clear the scope' },
   { keys: ['[', ']'], action: 'scopeDepth', description: 'Narrow / widen the scope by one hop' },
@@ -168,7 +175,13 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     cmd.toggleLegend();
     return consume();
   }
+  // Viewer M2: `a` turns the flow on or off; Shift+A plays it again. Branch on shiftKey
+  // explicitly: with Caps Lock on, a plain `a` arrives as 'A'.
   if (key === 'a' || key === 'A') {
+    if (ev.shiftKey) {
+      if (!cmd.replayFlow()) return false;
+      return consume();
+    }
     cmd.toggleFlow();
     return consume();
   }

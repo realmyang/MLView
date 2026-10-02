@@ -112,6 +112,11 @@ export interface Issue {
   id: string;
   /** The finding id again (search and the Findings list print it). */
   code: string;
+  /**
+   * Viewer M2: the short label `F1`…`Fn`, numbered in document order. Badges show it; it can
+   * renumber between revisions, so tooltips, the Inspector and Refine keep the real `id`.
+   */
+  short: string;
   severity: string;
   title: string;
   message: string;

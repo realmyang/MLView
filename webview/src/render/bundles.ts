@@ -17,6 +17,7 @@
  * the rest of the viewer already decided.
  */
 
+import { stampPhase } from './phase.js';
 import { svg } from '../dom.js';
 import type { EdgeBundle } from '../layout/bundles.js';
 import type { Severity } from '../types.js';
@@ -30,6 +31,8 @@ export interface BundleVisual {
   severity: Severity | null;
   /** The source lane's stage id — the trunk takes its colour like an edge does. */
   stage?: string;
+  /** Viewer M2: the source phase's document position, the key of its colour. */
+  phase?: number;
   /** Human lane names, for the accessible title. */
   sourceLabel?: string;
   targetLabel?: string;
@@ -56,6 +59,7 @@ export function buildBundle(v: BundleVisual): SVGElement {
   });
   g.setAttribute('data-lane-pair', b.sourceLane + '>' + b.targetLane);
   if (v.stage) g.setAttribute('data-stage', v.stage);
+  if (v.phase !== undefined) stampPhase(g, v.phase);
   if (v.severity) {
     g.setAttribute('data-sev', v.severity);
     g.classList.add('has-issue');
