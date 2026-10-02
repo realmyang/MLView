@@ -24,7 +24,7 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { IssueCounts, Loc, MLNode, Severity, StaleReason } from '../types.js';
+import type { IssueCounts, Loc, MLNode, Severity, StaleReason, WorkflowBasis } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -124,6 +124,8 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       weight: routeWeight(route.ids),
       // Viewer M1: a cable is marked when any connection it stands for cites a stale file.
       ...staleOfRoute(route.ids, index, opts.staleFiles),
+      // Viewer M2: the least certain basis among the connections the cable stands for.
+      basis: routeBasis(route.ids, index),
     });
   }
 
@@ -153,6 +155,23 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
   }
 
   return { index, frame, lanes, nodes, edges, bundles };
+}
+
+/** Least certain first: a merged cable is only as certain as its weakest member. */
+const BASIS_RANK: Record<string, number> = { unresolved: 0, inferred: 1, observed: 2 };
+
+/**
+ * Viewer M2: the basis a cable is drawn and named with. A merged route stands for several
+ * connections, so it takes the least certain of them; a route with no authored basis has none.
+ */
+export function routeBasis(ids: string[], index: GraphIndex): WorkflowBasis | undefined {
+  let out: WorkflowBasis | undefined;
+  for (const id of ids) {
+    const basis = index.edgeById.get(id)?.basis;
+    if (!basis) continue;
+    if (!out || (BASIS_RANK[basis] ?? 2) < (BASIS_RANK[out] ?? 2)) out = basis;
+  }
+  return out;
 }
 
 function compare(a: string, b: string): number {

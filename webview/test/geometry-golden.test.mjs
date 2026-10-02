@@ -7,6 +7,12 @@
 // digest was recorded from the e7d175f bundle before the RENDER-2 routing
 // change, so a routing or layout edit that moves anything fails here.
 //
+// Re-recorded once, deliberately, in viewer M2 (2026-10-02): the projection no
+// longer gives every card a `basis=<basis>` chip row (each expanded card lost
+// 26 px, which also changes how ranks wrap) and edge labels no longer end in
+// " · <basis>". Collapsed groups keep their count chip row, so only the labels
+// moved in the collapsed picture. Any other change here is a regression.
+//
 // Numbers are rounded to 0.1 before hashing. Layout uses no DOM text
 // measurement, so jsdom reproduces the browser geometry. If CI on another Node
 // or OS disagrees, investigate the difference before adding per-platform
@@ -17,8 +23,8 @@ import { createHash } from 'node:crypto';
 import { loadBundle, recordingBridge, rendererRegressionWorkflow, routedGeometry } from './helpers.mjs';
 
 const GOLDEN = {
-  expanded: '3710cd676e61c0f52170fca9ea38c95ee40b7b62c84d87783d6a6c7c4c27f2ce',
-  collapsed: 'dc5ac0b5a5f55033050ee732300c55eb01f2915a366965e833dfc63389b8d2ca',
+  expanded: '6f29f6b84c02cef2dd2761ba1ab9511be6dd425b6eac49d0dd2584c01f90eb44',
+  collapsed: 'bfb42d2c0bfc77aa2f7e6a35006a9b94ddd32b092a20c0739db946df0bf8c4a6',
 };
 
 const digest = (geometry) => createHash('sha256').update(JSON.stringify(geometry)).digest('hex');

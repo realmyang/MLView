@@ -8,9 +8,9 @@ export const NODE_H = 72;
 /** The same card without its `file : line` row (54.4 px drawn). */
 export const NODE_H_GHOST = 60;
 /**
- * The attribute chip row: an 18 px chip line plus its 4 px top margin, added to
- * the box of every card that draws one (VW-01). See `layout/cardmetrics.ts` —
- * it owns the decision, this is only the number.
+ * The chip row: an 18 px chip line plus its 4 px top margin, added to the box of
+ * a card that draws one (VW-01) — since viewer M2 only a collapsed group, for its
+ * count. See `layout/cardmetrics.ts`: it owns the decision, this is only the number.
  */
 export const NODE_CHIP_ROW_H = 26;
 /**

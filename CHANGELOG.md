@@ -6,6 +6,30 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer M2: readable at your width
+
+The viewer's second milestone: a diagram you can read in the panel beside your
+code. These changes are checked by local tests and headless-Chrome screenshots
+of a simulated host only; none of it has been tried in a live VS Code window,
+with a screen reader, or as a usability check. No contract change, no new
+setting, and the version is unchanged.
+
+Calmer cards (the one deliberate geometry change):
+- Cards no longer carry a `basis=observed` chip row, and connection labels no
+  longer end in " · observed". The basis is drawn only where a claim is not
+  observed (see below). A card without an authored detail shows its kind on
+  the second line, never the basis.
+- Each expanded card is 26 px shorter, so documents are more compact. On
+  public shakedown artifacts the canvas went from 2088x2620 to 2132x2480 px
+  (vit, Claude Code) and from 2140x5503 to 2184x5016 px (yolov5); the
+  repository sample went from 956x1735 to 712x1592 px. Collapsed groups keep
+  their count chip, so they are unchanged.
+- The geometry golden (`webview/test/geometry-golden.test.mjs`) was
+  re-recorded once for this, in its own commit; nothing else in M2 moves it.
+- `MLEdge.authoredLabel` is gone: `MLEdge.label` is the authored label. The
+  connection's accessible name says "inferred, not observed" or "unresolved"
+  for the exceptions instead of repeating the basis through the label.
+
 ## Unreleased — viewer M1: verification loop and cleanup
 
 Step 1 of the viewer's first milestone: check a claim against its source

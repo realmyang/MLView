@@ -17,7 +17,7 @@ import {
 import { labelTextOf } from '../layout/labels.js';
 import type { LabelPlacement } from '../layout/labels.js';
 import type { Point, RoutedEdge } from '../layout/routing.js';
-import type { Severity } from '../types.js';
+import type { Severity, WorkflowBasis } from '../types.js';
 
 /**
  * The styled edge kinds: the four the renderer always drew plus `state`,
@@ -187,6 +187,11 @@ export interface EdgeVisual {
   stale?: boolean;
   /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
   staleElsewhere?: boolean;
+  /**
+   * Viewer M2: the authored basis of the connection (the least certain one on a merged cable,
+   * `render/plan.ts` routeBasis). The accessible name says it when it is not `observed`.
+   */
+  basis?: WorkflowBasis;
 }
 
 /** The glyph size of a cable's severity marker, and the radius of its disc. */
@@ -239,7 +244,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   hit.setAttribute('tabindex', '-1');
   hit.setAttribute('role', 'button');
   const staleText = v.staleElsewhere ? ' Its evidence cites a file in another folder.' : ' Its evidence cites a changed or missing file.';
-  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel) + (v.stale ? staleText : ''));
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, v.basis) + (v.stale ? staleText : ''));
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });
@@ -364,13 +369,23 @@ function round(value: number): number {
  * The accessible name carries the DIRECTION in words — a connection was
  * unreachable and undescribed from the keyboard before this (FEATURES 2.2, 2.10).
  */
-export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string): string {
+export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, basis?: WorkflowBasis): string {
   const kind = r.back ? 'loop back edge' : r.kind && r.kind !== 'unknown' ? r.kind + ' edge' : 'edge';
   const label = r.label ? ' labelled ' + r.label : '';
   const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
   // The merged count is also the cable's drawn weight (`render/weight.ts`).
   const merged = r.count > 1 ? ', ' + r.count + ' merged connections' : '';
-  return kind + label + flows + merged + '. Press Enter to open the cited source.';
+  return kind + label + flows + merged + basisSpoken(basis) + '. Press Enter to open the cited source.';
+}
+
+/**
+ * Viewer M2: the basis in an accessible name, for the exceptions only. An observed claim is the
+ * common case and carries no mark, on the canvas or in its name.
+ */
+export function basisSpoken(basis: string | undefined): string {
+  if (basis === 'inferred') return ', inferred, not observed';
+  if (basis === 'unresolved') return ', unresolved';
+  return '';
 }
 
 /** The dotted numbered connectors drawn for a selected issue's relatedLocs. */

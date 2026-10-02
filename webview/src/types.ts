@@ -58,14 +58,12 @@ export interface MLNode {
   level: string;
   stage: string;
   label: string;
-  /** What the card's second line draws: the authored detail, or the basis. */
+  /** What the card's second line draws: the authored detail ('' when there is none). */
   sublabel?: string;
   /** The authored label again (the scope resolver and the outline read it). */
   qualname: string;
   loc: Loc;
   parent: string | null;
-  /** `{ basis }`: the card's chip row, which the layout reserves (re-recorded in M2). */
-  attrs: Record<string, string>;
   issueIds: string[];
   /** Renderer-local authored-workflow epistemic basis. */
   basis?: WorkflowBasis;
@@ -73,8 +71,8 @@ export interface MLNode {
   evidenceLocs?: Loc[];
   /**
    * Viewer M1: the authored `detail`, verbatim, or absent when the author wrote
-   * none. Read by the Inspector and the card's accessible name only; the card
-   * itself still draws `sublabel`, so layout does not depend on it.
+   * none. Read by the Inspector and the card's accessible name; the card draws
+   * `sublabel`, one ellipsised line, so layout does not depend on it.
    */
   detail?: string;
   /** Viewer M1: the authored label of the node's phase (`stage` is its id). */
@@ -93,6 +91,7 @@ export interface MLEdge {
   subkind?: string;
   source: string;
   target: string;
+  /** The authored label, verbatim (viewer M2: no basis suffix). */
   label?: string;
   loc: Loc;
   issueIds: string[];
@@ -106,11 +105,6 @@ export interface MLEdge {
    * Absent when the two are the same or the author gave no kind.
    */
   authoredKind?: string;
-  /**
-   * Viewer M1: the authored label, verbatim. `label` is what the canvas draws,
-   * which still carries the " · basis" suffix until the card re-record (M2).
-   */
-  authoredLabel?: string;
 }
 
 /** An authored finding, as the renderer reads it. */

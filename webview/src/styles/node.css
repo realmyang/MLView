@@ -96,8 +96,8 @@
 
 /*
  * A chip that does not fit ellipsises instead of being guillotined mid-character
- * at the card's right edge (MLV-R1-011). `chipsFor()` also budgets by text
- * length, so this is the belt to that pair of braces.
+ * at the card's right edge (MLV-R1-011). Since viewer M2 the only card chip is a
+ * collapsed group's count.
  */
 .mlv-node__chips .mlv-chip {
   display: inline-block;

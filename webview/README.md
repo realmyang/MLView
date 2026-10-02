@@ -56,11 +56,14 @@ Viewer M1 protocol details:
 
 Viewer M1 Inspector content (no protocol change):
 
-- `normalizeWorkflow` adds `MLNode.detail` (the authored detail, verbatim),
-  `MLNode.phaseLabel` and `MLEdge.authoredLabel`. The Inspector and the card's
-  accessible name read them; the card itself still draws `sublabel`, the
-  `attrs={basis}` chip row and the edge label with its ` · basis` suffix, so
-  the layout and the geometry golden are unchanged until the M2 re-record.
+- `normalizeWorkflow` adds `MLNode.detail` (the authored detail, verbatim)
+  and `MLNode.phaseLabel`. The Inspector and the card's accessible name read
+  them.
+- Viewer M2 re-recorded the geometry golden once: the projection no longer
+  gives cards an `attrs={basis}` chip row (`MLNode.attrs` is gone) and edge
+  labels no longer end in ` · basis` (`MLEdge.label` is the authored label;
+  `MLEdge.authoredLabel` is gone). A card's second line (`sublabel`) is the
+  authored detail, else the kind.
 - The Inspector shows the title, the phase label and kind, one basis chip, a
   sentence for an inferred or unresolved basis, the full detail, the findings
   on the item with **What to change** (the finding's `suggestion`), the source

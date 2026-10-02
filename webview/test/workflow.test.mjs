@@ -46,7 +46,12 @@ test('normalizes authored phases, hierarchy, cycles, evidence, and findings with
   assert.equal(gate.basis, 'unresolved');
   assert.equal('ghost' in gate, false, 'unresolved is uncertainty, never a claim that the step is missing');
   assert.equal(graph.edges.find((e) => e.id === 'cycle').target, 'epoch');
-  assert.match(graph.edges.find((e) => e.id === 'cycle').label, /inferred/);
+  // Viewer M2: the label is the authored text; the basis is its own field, drawn by the stroke.
+  const cycle = graph.edges.find((e) => e.id === 'cycle');
+  assert.equal(cycle.label, 'next epoch');
+  assert.equal(cycle.basis, 'inferred');
+  assert.equal('authoredLabel' in cycle, false, 'one label field: the drawn label is the authored one');
+  assert.equal('attrs' in graph.nodes.find((n) => n.id === 'step'), false, 'no basis chip row on the card');
   assert.equal(graph.issues[0].code, 'loss-risk');
   assert.equal(graph.issues[0].relatedLocs.length, 3);
   assert.deepEqual(Array.from(graph.issues[0].relatedLocs, (loc) => loc.role), ['Supporting evidence', 'Supporting evidence', 'Counter-evidence']);
@@ -251,7 +256,8 @@ test('outline enumerates textual relationships by direction and preserves basis'
   assert.equal(panel.querySelector('[data-outline-id="gate"] .mlv-outline__stage').textContent, 'unresolved');
   assert.doesNotMatch(panel.querySelector('[data-outline-id="dataset"]').textContent, /unknown/i);
   assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['cycle', 'review']);
-  assert.match(panel.querySelector('[data-relation-id="cycle"]').getAttribute('aria-label'), /Outgoing: Update weights to Epoch; next epoch · inferred; basis inferred/);
+  // The basis is said once: the label no longer carries a " · inferred" suffix.
+  assert.match(panel.querySelector('[data-relation-id="cycle"]').getAttribute('aria-label'), /Outgoing: Update weights to Epoch; next epoch; basis inferred/);
 
   panel.querySelector('[data-relation-view="incoming"]').click();
   assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['flow']);

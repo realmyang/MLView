@@ -103,9 +103,8 @@ export class Tooltip {
   showEdge(index: GraphIndex, route: RoutedEdge, keep: IssuePredicate, marker?: Point): void {
     const edge = index.edgeById.get(route.id);
     clear(this.root);
-    // Viewer M1: one connection's title is its authored label; the basis row below says the
-    // basis once (the drawn label still ends in " · <basis>" until M2).
-    const single = route.count <= 1 && edge && edge.authoredLabel ? edge.authoredLabel : '';
+    // One connection's title is its authored label; the basis row below says the basis once.
+    const single = route.count <= 1 && edge && edge.label ? edge.label : '';
     add(this.root, el('div', 'mlv-tooltip__title', single || route.label || edgeKindText(route.kind)));
     // Issue 9: the authored kind word, never `unknown`.
     const authored = edge && edge.authoredKind ? ' · authored as ' + edge.authoredKind : '';

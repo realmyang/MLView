@@ -35,15 +35,17 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   const phaseLabels = new Map((document.phases || []).map((phase) => [phase.id, phase.label]));
   const nodes = (document.nodes || []).map((node) => {
     return {
-      // Viewer M1: what the Inspector and the accessible name read. The card's own inputs
-      // below (sublabel, attrs) are unchanged, so the layout is too.
+      // Viewer M1: what the Inspector and the accessible name read.
       ...(typeof node.detail === 'string' && node.detail.trim() ? { detail: node.detail } : {}),
       ...(phaseLabels.has(node.phase) ? { phaseLabel: phaseLabels.get(node.phase) } : {}),
       id: node.id, kind: node.kind || 'unknown', level: node.parent ? 'op' : 'unit', stage: node.phase,
-      label: node.label, sublabel: node.detail || node.basis, qualname: node.label, loc: evidenceLoc(evidence, node.evidence),
+      // Viewer M2: the card's second line is the authored detail, never the basis, and the card
+      // has no `basis=…` chip row. The basis is drawn only where it is not `observed`
+      // (render/nodes.ts), so the common case carries no mark.
+      label: node.label, sublabel: node.detail || '', qualname: node.label, loc: evidenceLoc(evidence, node.evidence),
       // `unresolved` is an authored epistemic basis: the step may exist while
       // its behavior or connection remains uncertain, so it never reads as missing.
-      parent: node.parent || null, attrs: { basis: node.basis }, basis: node.basis,
+      parent: node.parent || null, basis: node.basis,
       evidenceLocs: node.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
       issueIds: issueIds.get(node.id) || [],
     };
@@ -53,7 +55,9 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     // other authored word is kept as written and shown as written.
     id: edge.id, kind: normalizeEdgeKind(edge.kind), source: edge.source, target: edge.target,
     ...(edge.kind && normalizeEdgeKind(edge.kind) !== edge.kind.trim() ? { authoredKind: edge.kind } : {}),
-    label: edge.label + ' · ' + edge.basis, authoredLabel: edge.label,
+    // Viewer M2: the label as authored. The basis is drawn by the stroke (render/edges.ts), not
+    // appended to the text.
+    label: edge.label,
     loc: evidenceLoc(evidence, edge.evidence), basis: edge.basis,
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
     issueIds: edgeIssueIds.get(edge.id) || [],

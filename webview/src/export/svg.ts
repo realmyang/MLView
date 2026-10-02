@@ -35,7 +35,7 @@ import { locParts } from '../notebook.js';
 import { kindPath, nodeGlyphKind } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { ARROW_HEADS, edgeKindClass } from '../render/edges.js';
-import { ariaLabelFor, chipsFor } from '../render/nodes.js';
+import { ariaLabelFor, cardSubline } from '../render/nodes.js';
 import {
   WEIGHT_BADGE_H,
   WEIGHT_MIN,
@@ -110,10 +110,11 @@ const Y_TITLE = 22.5;
 const Y_SUB = 38.5;
 const Y_LOC = 52.5;
 /**
- * The chip row is BOTTOM-anchored, because it is the row the layout reserves
- * extra height for (VW-01): `layout/cardmetrics.ts` adds `NODE_CHIP_ROW_H` to a
- * card that draws chips, so on a chipped card the box is 26 px taller and the
- * chips belong in that band rather than tucked under the loc line. The three
+ * The chip row (since viewer M2 only a collapsed group's count) is BOTTOM-anchored,
+ * because it is the row the layout reserves extra height for (VW-01):
+ * `layout/cardmetrics.ts` adds `NODE_CHIP_ROW_H` to a card that draws chips, so
+ * on a chipped card the box is 26 px taller and the chips belong in that band
+ * rather than tucked under the loc line. The three
  * text rows above stay pinned to the top of the card, as the DOM's flex column
  * does. `CHIP_BOTTOM` is the distance from the card's BOTTOM edge to the chip
  * rect's top, mirroring `.mlv-node__chips`' 4 px margin and 11 px of padding.
@@ -357,7 +358,7 @@ function nodeCard(
     out.push(text(ellipsise(row, tw, FS_TITLE, false, true), tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: palette.text, weight: 650 }));
   });
   const shift = (titleRows.length - 1) * NODE_TITLE_LINE_H;
-  const sub = ellipsise(n.sublabel || n.kind, tw, FS_SUB, false, false);
+  const sub = ellipsise(cardSubline(n), tw, FS_SUB, false, false);
   out.push(text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2 }));
   // The cell reference (or, on a `.py` path, the line number) is reserved
   // out of the budget first, so a path too long for the card loses the
@@ -367,9 +368,8 @@ function nodeCard(
   const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
   out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
 
-  const chips = groupLike
-    ? [visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
-    : chipsFor(n, chipMetrics(tw), 26, 3);
+  // Viewer M2: the only chip row left is a collapsed group's count, as on the DOM card.
+  const chips = groupLike ? [visual.descendants + ' nodes'] : [];
   if (chips.length && box.h - shift >= CHIP_MIN_H) {
     const chipTop = box.y + box.h - CHIP_BOTTOM;
     let cx = tx;
@@ -592,12 +592,3 @@ function arrowHead(points: Point[], kind: string, colour: string): string {
   return '<path class="mlv-edge__arrow" d="' + esc(head.d) + '" transform="' + transform + '" ' + paint + '/>';
 }
 
-/** The chip budget, in the SVG's own metric — the same `chipsFor` the DOM uses. */
-function chipMetrics(available: number) {
-  return {
-    width: available,
-    measure(value: string): number {
-      return width(value, FS_CHIP, false, false);
-    },
-  };
-}

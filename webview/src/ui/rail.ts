@@ -331,9 +331,8 @@ export class Rail {
   }
 
   private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex, s: RailState): void {
-    // Viewer M1: the label as authored. The canvas label still ends in " · <basis>" until the
-    // card re-record (M2); here the basis chip says it once.
-    add(panel, el('h4', 'mlv-insp__title', edge.authoredLabel || edge.label || edgeKindText(edge.kind) || 'Connection'));
+    // The label as authored; the basis chip below says the basis once.
+    add(panel, el('h4', 'mlv-insp__title', edge.label || edgeKindText(edge.kind) || 'Connection'));
     const source = index.nodeById.get(edge.source);
     const target = index.nodeById.get(edge.target);
     const meta = add(panel, el('div', 'mlv-insp__meta'));
