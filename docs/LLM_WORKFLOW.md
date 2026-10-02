@@ -207,7 +207,10 @@ a panel 900 px wide or narrower, a diagram under 350 px tall, or with fewer
 than 30 cards. Ctrl+F (Cmd+F on macOS), or `/` on the diagram, focuses
 search; the viewer's other keys are single keys, so VS Code's own Ctrl and Cmd
 shortcuts keep working, and the shortcut sheet prints them for your platform.
-Each search result shows its
+Escape closes one thing at a time in the viewer (a menu or panel, the bottom
+sheet, focus mode, the selection, then the focus on the diagram) without VS
+Code also acting on it; after that it goes to VS Code, for example to hide a
+notification. Each search result shows its
 title and, under it, where it is cited. The status bar counts steps and
 connections, shows the coverage status with its limitations, and says
 whether the cited files are unchanged (muted text) or changed or missing (a

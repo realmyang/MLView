@@ -329,6 +329,53 @@ byte-identical):
 - `test/m2-live.test.mjs` holds the regression tests for fixes 1, 4, 5, 6
   and 7; the hue test for fix 3 is in `test/calm-canvas.test.mjs`.
 
+Viewer M3 review walk, host side, and Escape (no contract change, no new
+setting; the golden is byte-identical):
+
+- `openLocation` takes four optional fields (`UiToHost` in `src/types.ts`):
+  `seq`, a positive integer that increases with every numbered open of a
+  page; `requestId`, which asks for one `actionResult`; `walk: true`, an open
+  from the review walk; and `highlight: false`, which selects the range
+  without the whole-range highlight. Opens without them behave as in M2.
+- The host drops a numbered open whose `seq` is not above the last one it saw
+  on this page (answered `cancelled`), and an open a later open overtook while
+  it waited (a notebook's cell editor, for example). A new page (`ready`)
+  starts the numbering again. The walk itself (step 11) should send a jump
+  only after the reader has stopped moving for about 150 ms; that debounce is
+  not in the viewer yet.
+- `actionResult` answers `openLocation` too: `done`, `blocked` (not opened,
+  with `reason` and a short `message` such as "train.py changed after
+  revision r3 was published; not opened."), `cancelled` or `failed`. It
+  repeats the request's `seq`. `reason` is one of `changed`, `missing`,
+  `unreadable`, `too-large`, `elsewhere`, `unsaved`, `cell-missing`,
+  `unchecked` or `unknown` (`OpenBlockReason`). The message never holds an
+  absolute path.
+- A blocked walk open raises no VS Code notification; the reason is only in
+  the result. A blocked open from Enter, a double-click or an Open link still
+  shows the M2 warning notification, and is answered as well when it carried
+  a `requestId`.
+- `{ type: 'walk', state: 'end' }` is new: the walk ended, so the host clears
+  the cited-range highlight (and its overview-ruler mark) and drops a walk open
+  still waiting. Closing the panel clears it too.
+- The checks behind a jump are cached per revision and freshness version, keyed
+  by each cited file's device, inode, size, and modification and change times
+  (`checkCitedFile` in `vscode-extension/src/authoredPanel.ts`). The first jump
+  into a file hashes that file once; later jumps into it read no file content
+  while those stay the same. A file whose stat changed without a watcher event
+  is checked again.
+- Escape: `KeyCommands.escape()` returns whether the cascade did anything.
+  When the focus is already off the canvas and nothing is open or selected,
+  `handleCanvasKey` leaves Escape unconsumed so VS Code can use it (for
+  example to hide a notification). VS Code's webview host forwards every
+  keydown to the workbench, even one the page called `preventDefault()` on,
+  and its window listener runs before any page script. So after the mount
+  the panel's bootstrap (`render()` in `vscode-extension/src/authoredPanel.ts`)
+  adds a document-level keydown listener that stops an Escape the viewer
+  already handled (`defaultPrevented`) before it reaches that window
+  listener. The search box's Escape (`SearchController.handleKey`) is marked
+  handled too. `authoredEscapeHandshake` in `test/authored-handshake.mjs` pins
+  both with a stand-in forwarder attached before the scripts.
+
 Viewer M1 cleanup (no contract change):
 
 - The bundle contains only the authored path. Inbound, the viewer handles
@@ -337,7 +384,8 @@ Viewer M1 cleanup (no contract change):
   Diagram") and `restoreState` (the tests drive collapse with it); any other
   type is answered with a `log` frame and ignored. Outbound it posts
   `openLocation`, `workspaceHint`, `refineWorkflow`, `copy`, `exportFile` and
-  `log`; the host bootstrap posts `ready`.
+  `log` (viewer M3 adds `walk` to the protocol for the review walk; the viewer
+  does not send it yet); the host bootstrap posts `ready`.
 - A saved `ViewState` with keys the viewer no longer writes (for example
   `showSuppressed` or `railGroupBy`) still loads; those keys are ignored.
 - `MLGraph` carries only what an authored document fills in. Fields of the

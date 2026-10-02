@@ -74,6 +74,10 @@ focus to the editor. For a notebook citation the cell is selected and
 revealed; its lines are highlighted when VS Code has the cell's editor ready.
 In High Contrast themes the highlighted lines are outlined with the theme's
 range-highlight border, since those themes define no highlight background.
+The highlight also marks the editor's overview ruler. MLView checks a cited
+file once per revision and freshness check: later jumps into it read it again
+only after it changes on disk, so stepping through the cells of a large
+notebook does not re-read the whole notebook each time.
 Only inferred (dashed, `inferred` tag) and unresolved (dotted, `? unresolved`
 tag) steps and connections are marked; observed ones carry no mark, and the
 header's **N not observed** toggle fades them. Line style shows certainty,
@@ -96,6 +100,11 @@ The overview map item is disabled, with the reason, when the map is not drawn
 (at 900 px wide or narrower, under 350 px tall, or below 30 cards). The
 viewer's other keys are single keys, so VS Code's Ctrl and Cmd shortcuts are
 left alone; the shortcut sheet prints the keys for your platform.
+Escape in the diagram closes the topmost thing (the menu, the shortcut sheet,
+the Refine popover, the legend, the open bottom panel, focus mode, the
+selection) or clears the search, and VS Code does not also act on that key
+press. Once nothing is left to close and the focus is off the diagram, Escape
+goes to VS Code, for example to hide a notification.
 The status bar reads, for example, "31 steps · 41 connections",
 "Coverage: scoped · 6 limitations" (which opens About), the source
 freshness, and the zoom.

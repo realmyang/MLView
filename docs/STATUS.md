@@ -143,6 +143,28 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M3, step 12 (the host side of the review walk) and Escape:
+an `openLocation` request may carry a sequence number, a request id, a walk
+flag and `highlight: false`. The host drops an open a later one has
+overtaken, answers a request id with done, blocked (with the reason, for
+example "train.py changed after revision r3 was published; not opened."),
+cancelled or failed, and never opens a changed, missing or otherwise stale
+file. A blocked walk open raises no VS Code notification; one from Enter, a
+double-click or an Open link still does. A `walk` end message clears the
+cited-range highlight and its overview-ruler mark, as closing the panel does.
+The check behind a jump is cached per revision and freshness: 60 jumps into a
+synthetic 3.8 MB notebook hashed it once instead of 60 times
+([performance](PERFORMANCE.md)). The walk itself (step 11) is not in the
+viewer yet. An Escape the viewer used no longer also reaches VS Code (where
+it hid a notification); with nothing left to close and the focus off the
+diagram, Escape goes to VS Code. The M2 report of focus lost on Escape after
+Enter opened a notebook was not reproduced in 14 live attempts, so this fixes
+the mechanism found, not a confirmed reproduction. No contract change, no new
+setting and no geometry change. Checked by local jsdom and mock `vscode`
+tests and in an isolated VS Code 1.139 Extension Development Host on macOS
+driven over the DevTools protocol; not on Windows or Linux, with a screen
+reader or as a usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, live-check fixes: a live check of the branch found
 seven problems, now fixed. When the panel resizes or the rail changes shape
 and a selection that was in view no longer is, the diagram pans the least

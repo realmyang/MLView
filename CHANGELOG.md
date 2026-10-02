@@ -6,6 +6,77 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer M3: review walk and the way back
+
+The viewer's third milestone, in progress. This part is the host side of the
+review walk (roadmap step 12), a fix for Escape, and a look at the cost of
+jumping through a large notebook. The walk itself, which steps through the
+diagram's claims and opens each one's source, comes in a later step; until
+then nothing here changes what a reader sees except Escape and less work on
+repeated notebook jumps. Checked by local jsdom and mock `vscode` tests
+(mutation-checked against the fixes) and in an isolated VS Code 1.139 Extension
+Development Host on macOS driven over the DevTools protocol. Not tried on
+Windows or Linux, with a screen reader or as a usability check. No contract
+change, no new setting, no geometry change, and the version is unchanged.
+
+Opening a cited range for the walk (`openLocation`, no change for Enter,
+double-click or an Open link):
+- An open can carry a sequence number (`seq`), a request id, `walk: true` and
+  `highlight: false`. The host drops an open whose number is not above the
+  last one it saw, and one a later open overtook while it waited (for example
+  for a notebook cell's editor). A new page starts the numbering again. The
+  walk is expected to wait about 150 ms after the reader stops moving before
+  it asks for a jump; that pause belongs to the walk step and is not in the
+  viewer yet.
+- Each open with a request id gets one answer: done, blocked, cancelled or
+  failed. A blocked answer names the reason and says nothing was
+  opened, for example "vit_pytorch/efficient.py changed after revision
+  cats-dogs-r1 was published; not opened." A changed, missing, unreadable or
+  oversized file, a file in another folder, unsaved text that lost the cited
+  lines, or a notebook cell that no longer exists is never opened.
+- A blocked walk open raises no VS Code notification, since the walk shows the
+  reason itself. A blocked open from Enter, a double-click or an Open link
+  still shows its notification, as before.
+- A new message tells the host the walk ended: it clears the cited-range
+  highlight, including its mark in the editor's overview ruler, and drops a
+  walk open still on its way. Closing the panel also clears the highlight.
+- The check behind each jump is cached for the displayed revision and
+  freshness. On a synthetic 200-cell, 3.8 MB notebook, 60 cell jumps hashed
+  the notebook once instead of 60 times, and the extension host was busy for
+  310 ms instead of 466 ms over the 12 s run. A file that changes on disk is
+  checked again on the next jump, even before VS Code reports the change.
+
+Escape:
+- An Escape the viewer used (closing the menu, the shortcut sheet, the Refine
+  popover or the legend, collapsing the bottom panel, leaving focus mode,
+  clearing the selection or the search) no longer also reaches VS Code. VS
+  Code's webview forwards every key to the workbench, even one the page has
+  handled, so a viewer Escape also hid a visible notification, which was
+  measured live. The panel now stops such an Escape inside the page.
+- When nothing is left to close and the focus is already off the diagram,
+  Escape is left to VS Code, for example to hide a notification.
+- The M2 report of the diagram losing focus when Escape followed an Enter that
+  opened a notebook (vit-cc, the diagram alone at about 1430 px) was not
+  reproduced in 14 live attempts, with waits from 150 ms to 7 s and a
+  notification on screen. The fix above removes the one way found for a
+  viewer Escape to act in VS Code as well; whether it was the cause of that
+  report is not confirmed. After the fix, the same steps keep the focus in
+  the diagram, nothing is forwarded, and the notification stays. Live, with
+  a warning notification on screen, Escape in the search box cleared it and
+  returned to the diagram, the next two cleared the selection and left the
+  diagram, all with the notification still up, and only the fourth reached VS
+  Code and hid it.
+
+Notebook load (measured, see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)):
+- Over 60 paced cell jumps MLView's own code used about 40 ms of extension
+  host CPU before and after the cache; the cache removed the 93 ms spent
+  hashing the notebook again on every jump.
+- Creating 2,000 files in the workspace called MLView's file watcher 1,157
+  times for about 6 ms in total. The watcher adds no operating-system watcher
+  and must see every cited file, so it was not narrowed.
+- With Pylance running, the extra time was outside MLView's code. These runs
+  cannot attribute it more finely, and no freeze was reproduced.
+
 ## Unreleased — viewer M2: readable at your width
 
 The viewer's second milestone: a diagram you can read in the panel beside your
