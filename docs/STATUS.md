@@ -149,14 +149,15 @@ revision claim by claim, in the diagram's order (each step, its outgoing
 connections, then the findings whose first cited step it is; findings that
 cite no step come last). Every claim is visited once: 79 in vit-cc, 176 in
 yolov5-cc2. It starts on **Not observed** (7 and 16, the header's counts);
-**Findings**, **All** and, when cited files changed, **Changed files** are the
-other filters. `j` / `k` or ↓ / ↑ step, `[` / `]` change quote, Enter opens
+**Findings**, **All claims** and, when cited files changed, **Changed files**
+are the other filters. `j` / `k` or ↓ / ↑ step, `[` / `]` change quote, Enter opens
 again, `u` / Shift+U go through the claims not observed, `n` / `p` through the
 findings, and Escape or `r` ends it. About 150 ms after each step the cited
 lines open beside the diagram, highlighted, with the keyboard kept on the
 diagram; a quote VS Code did not open says why in the walk bar and the
 Selection tab, with no notification. The bar sits under the diagram, above the
-bottom panel's tabs, and shrinks to "3/16", the filters and Exit below 620 px.
+bottom panel's tabs, and shrinks to "3/16", Previous and Next, the filters and
+Exit below 620 px.
 The place is remembered per revision in the panel's view state; nothing marks
 a claim as checked. The changed-files notice offers **Review affected
 claims**. The host gained a `walk` `clear` message and clears the highlight
@@ -218,10 +219,10 @@ Unreleased viewer M3, step 14 (Reveal in Diagram, from the code back to the
 diagram): right-click a line in the editor and choose **Reveal in Diagram**
 (or run **MLView: Reveal in Diagram** from the Command Palette) to show the
 claim that cites it. This is the extension's second command and has no
-default keybinding. The item appears only while an open diagram cites the
-file and the file still matches it (not changed since the revision was
-published, and the quotes still at their cited lines in the editor's text);
-the `when` clause is the context key `mlview.citedFile`. One claim on the
+default keybinding. The item appears on a file an open diagram cites that has
+not changed since the revision was published; the `when` clause is
+`resourcePath in mlview.citedFiles`, a list the extension keeps of the open
+diagrams' cited, unchanged files (see the review fixes below). One claim on the
 cursor's line or the selection is shown at once; several are listed (steps,
 then connections, then findings, with the F label, severity, phase and where
 each is cited); a line no claim cites offers the nearest claims in the file.
@@ -242,6 +243,37 @@ Host on macOS driven over the DevTools protocol (vit-cc, with the diagram at
 541 and 866 px, a notebook cell, a hidden panel, an unsaved edit); a changed
 file was checked by unit tests only. Not with a screen reader, on Windows or
 Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M3, review fixes: independent reviewers found five
+behaviour problems, three record problems and eight accessibility or wording
+problems, all fixed. **Reveal in Diagram** was missing from the editor's
+context menu on the first right-click after Enter in the diagram, because its
+context key was worked out from the active editor and was still off when the
+menu was read (measured live); the `when` clause now reads a list of the open
+diagrams' cited, unchanged files, and unsaved edits that moved the quotes are
+explained by the command instead of hiding the item. **Review affected claims**
+(and `u` after a walk on another filter) starts at the first claim instead of
+after the old place. When a fixed file takes the walk's claim out of
+**Changed files**, the walk shows and announces the next one (not opened by
+itself) instead of naming a claim that was not on screen. A quote whose file
+is stale never reads "Enter shows". Escape with a legend open over the phase
+overview closes the legend first. **Review** and the **⋯** menu's item put
+the keyboard on the diagram, so `j` steps at once. The walk bar has Previous
+and Next buttons at every width and says when Alt+Enter moved the focus to the
+editor; a late answer for a claim the walk has left is ignored; the narrow
+bar's full place is screen-reader text; the filter reads **All claims**; a
+blocked open is announced without "not opened" twice. The phase overview
+keeps a short key below 620 px and says what a bracket's number counts; its
+screen-reader text says each F label once; the phase index grows to 360 px to
+show longer names, and its rows no longer repeat their name as a tooltip; the
+header's Review toggle keeps one name. Checked by local jsdom and mock `vscode`
+tests (each new test fails on the code before the fix) and, for the context
+menu, the Previous and Next buttons, the menu's Review and the Alt+Enter
+wording, in an isolated VS Code 1.139 Extension Development Host on macOS
+driven over the DevTools protocol (vit-cc, the diagram at about 541 and
+786 px); a changed file and the phase overview changes were not tried live.
+Not with a screen reader, on Windows or Linux, or as a usability check
+([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M2, live-check fixes: a live check of the branch found
 seven problems, now fixed. When the panel resizes or the rail changes shape

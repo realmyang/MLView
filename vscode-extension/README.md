@@ -68,22 +68,27 @@ Notebook cells are numbered from 0, as the artifact records them.
 starts the review walk: claim by claim in the diagram's order (each step, its
 outgoing connections, then the findings whose first cited step it is;
 findings citing no step last), starting on the claims not observed, with
-**Findings**, **All** and, after a cited file changed, **Changed files** as the
-other filters. `j` / `k` or ↓ / ↑ move, `[` / `]` change quote, Enter opens
+**Findings**, **All claims** and, after a cited file changed, **Changed
+files** as the other filters. `j` / `k` or ↓ / ↑ (or the walk bar's up and
+down buttons) move, `[` / `]` change quote, Enter opens
 again, `u` / Shift+U and `n` / `p` go through the claims not observed and the
 findings, and Escape or `r` ends it. About 150 ms after each step the claim's
 cited lines open beside the diagram, highlighted, with the keyboard kept on
-the diagram; a quote whose file changed or is missing is not opened, and the
-walk bar (under the diagram) and the Selection tab say why, with no
-notification. The walk remembers its place per revision in the panel's view
-state and records nothing else; the changed-files notice offers **Review
-affected claims**.
+the diagram (also when the walk was started from **Review** or the **⋯**
+menu); a quote whose file changed or is missing, or whose unsaved edits no
+longer contain the cited lines, is not opened, and the walk bar (under the
+diagram) and the Selection tab say why, with no notification. The walk
+remembers its place per revision in the panel's view state and records
+nothing else; the changed-files notice offers **Review affected claims**,
+which starts at the first affected claim.
 Shift+0 (or **Phase overview** in the **⋯** menu) shows every phase as a block
 of its step titles, with ◌ for inferred, ? for unresolved and the F labels of
 findings. Arrows count the connections to the next phase, and brackets count
 those that skip ahead or go back. A block that does not fit ends with "… N
 more steps". The arrow keys move between blocks, Enter or a click goes to that
-phase at reading size, and Escape returns to where you were. The phase index
+phase at reading size, and Escape returns to where you were (a legend opened
+over it closes first). A key under the overview's header explains ◌, ? and
+the brackets at every width. The phase index
 in the diagram's lower right corner lists each phase with its findings and
 step count and marks the phases in view; a row goes to its phase. Below 1000
 px wide it is one line such as "4/6 Objective, optimizer & scheduler" that
@@ -91,10 +96,15 @@ opens the list. It never covers the card you are on.
 **Reveal in Diagram** goes from the code back to the diagram. Right-click a
 line in the editor and choose it, or run **MLView: Reveal in Diagram** from
 the Command Palette; there is no default keybinding, so bind one in Keyboard
-Shortcuts if you want one. It is offered only while an open diagram cites the
-file and the file still matches it: not changed or missing since the revision
-was published, and the editor's text, unsaved edits included, still has a
-quote at its cited lines (the context key is `mlview.citedFile`). The
+Shortcuts if you want one. It is offered on a file an open diagram cites that
+has not changed or gone missing since the revision was published, on the first
+right-click, even straight after you pressed Enter in the diagram. The `when`
+clause is `resourcePath in mlview.citedFiles`: the extension keeps that list
+of the open diagrams' cited, unchanged files, so VS Code decides for the
+editor under the pointer without waiting for the extension. If unsaved edits
+moved the quoted lines, or a notebook cited by cell is open as text, the
+command says so in one line. A file opened through another path (a symlinked
+folder) is matched when the command runs, but the menu matches the path only. The
 cursor's line or the selected lines decide the claim: one claim is shown at
 once; several are listed as steps, then connections, then findings (with the
 F label, severity, phase, a basis other than observed, and where each is

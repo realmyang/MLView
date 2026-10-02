@@ -14,7 +14,8 @@ through the diagram claim by claim and opens each one's cited lines beside it
 look at the cost of jumping through a large notebook, the phase overview
 with the labelled phase index that replaced the minimap (step 13), and
 **Reveal in Diagram**, the way back from a cited line in the editor to the
-claim in the diagram (step 14). Steps 11, 12 and 14 were checked by local
+claim in the diagram (step 14), and the fixes from an independent review of
+those steps (at the end of this section). Steps 11, 12 and 14 were checked by local
 jsdom and mock `vscode` tests (mutation-checked against the fixes) and in an
 isolated VS Code 1.139 Extension Development Host on macOS driven over the
 DevTools protocol. Step 13 was checked by local jsdom tests and headless-Chrome
@@ -36,9 +37,9 @@ The review walk (step 11):
   documents and pinned by synthetic test documents of the same shape.
 - The walk starts on **Not observed**, the claims marked inferred or
   unresolved: 7 in vit-cc and 16 in yolov5-cc2, the same numbers as the
-  header's **N not observed**. The other filters are **Findings**, **All**
-  and, only when VS Code reports changed or missing cited files, **Changed
-  files**. Each shows its count; a filter with nothing in it is not offered.
+  header's **N not observed**. The other filters are **Findings**, **All
+  claims** and, only when VS Code reports changed or missing cited files,
+  **Changed files**. Each shows its count; a filter with nothing in it is not offered.
 - Keys while walking: `j` / `k` or ↓ / ↑ for the next or previous claim, `[`
   / `]` for the claim's quotes, Enter to open the current quote again
   (Alt+Enter also moves the focus to the editor), `n` / `p` for the next or
@@ -53,8 +54,9 @@ The review walk (step 11):
   its cited lines in the editor beside the diagram with the range highlighted
   while the keyboard stays on the diagram. A claim with no quotes opens
   nothing and says so, and the previous claim's highlight goes. A quote VS
-  Code did not open (its file changed, went missing or has unsaved edits)
-  shows the reason in the walk bar and under the quote in the Selection tab;
+  Code did not open (its file changed or went missing, or its unsaved edits
+  no longer contain the cited lines) shows the reason in the walk bar and
+  under the quote in the Selection tab;
   nothing is opened and no notification appears. A screen reader hears, for
   example, "Claim 3 of 16, not observed: Step Load batches, inferred."
 - The walk bar sits at the foot of the diagram, directly above the bottom
@@ -62,7 +64,8 @@ The review walk (step 11):
   shown only while walking: "Claim 3 of 16 · Not observed", the filters, the
   keys, **Exit**, and a line such as "In the editor beside: train.py · lines
   12–14, highlighted. Focus stays here." Below 620 px wide it is one row:
-  "3/16", the filters and **Exit**; a quote that was not opened adds a warning
+  "3/16", Previous and Next (added in the review fixes), the filters and
+  **Exit**; a quote that was not opened adds a warning
   mark there and the Selection tab says why. It sits under the diagram rather
   than under the header so the diagram stays within four Tab presses of the
   top, and Tab goes from the diagram to the walk's controls to the claim.
@@ -147,9 +150,12 @@ Notebook load (measured, see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)):
 - Over 60 paced cell jumps MLView's own code used about 40 ms of extension
   host CPU before and after the cache; the cache removed the 93 ms spent
   hashing the notebook again on every jump.
-- Creating 2,000 files in the workspace called MLView's file watcher 1,157
-  times for about 6 ms in total. The watcher adds no operating-system watcher
-  and must see every cited file, so it was not narrowed.
+- Creating and then deleting 2,000 files in the workspace, in one profiled
+  run with counting breakpoints, called MLView's file watcher 1,157 times for
+  about 6 ms in total. That run's output and profile were not kept, so these
+  figures cannot be re-derived (unlike the notebook figures above). The
+  watcher adds no operating-system watcher and must see every cited file, so
+  it was not narrowed.
 - With Pylance running, the extra time was outside MLView's code. These runs
   cannot attribute it more finely, and no freeze was reproduced.
 
@@ -181,7 +187,8 @@ The phase overview (step 13):
   Code's Reduce Motion, the OS's reduced-motion setting or a screen reader.
   The selection does not change, and the next arrow key starts at that
   phase's first step. Escape, Shift+0 again or **Back** returns to the diagram
-  exactly as it was, with the keyboard where it was. Any other key the
+  exactly as it was, with the keyboard where it was (since the review fixes, a
+  legend opened over the overview closes on the first Escape). Any other key the
   diagram uses (for example `r`) closes the overview and then acts. The
   shortcut sheet, search and the legend open over it.
 - A screen reader reads each block as a button, for example "Phase 2 of 6:
@@ -236,14 +243,15 @@ Reveal in Diagram (step 14):
   **MLView: Reveal in Diagram**. There is no default keybinding; you can add
   one in VS Code's Keyboard Shortcuts. It is the extension's second command,
   next to **MLView: Open Generated Diagram**.
-- The menu item appears only while an open diagram cites the file and the file
-  still matches it: VS Code has not reported it changed or missing since the
-  revision was published, and the editor's text still has the quoted lines
-  where the diagram cites them. An unsaved edit that moves every quote hides
-  the item until you undo it (checked at most every 150 ms while you type); an
-  edit elsewhere keeps it, and a quote that moved no longer counts. The
-  item's `when` clause is the context key `mlview.citedFile`, which is cleared
-  when the last diagram closes.
+- The menu item appears on a file an open diagram cites, while VS Code has
+  not reported it changed or missing since the revision was published. Its
+  `when` clause is `resourcePath in mlview.citedFiles` (with a file or
+  notebook-cell scheme): the extension keeps that list of the open diagrams'
+  cited, unchanged files and empties it when the last diagram closes. (This
+  replaced, in the review fixes below, a key worked out from the active
+  editor, which also hid the item while unsaved edits had moved every quote.)
+  An unsaved edit that moved the quotes is explained by the command, and a
+  quote that moved no longer counts.
 - The cursor's line, or the selected lines, decide the claim. One claim cites
   them: it is shown at once. Several do: a list asks which, steps first, then
   connections, then findings, each in document order. Each row gives the kind
@@ -276,9 +284,10 @@ Reveal in Diagram (step 14):
   diagram records. A notebook the diagram cites by cell, opened as plain JSON
   text, gets a message saying to open it in the notebook editor (and the other
   way round for a notebook cited as text).
-- The menu and the palette hide the command where it does not apply. Run
-  there anyway, from a keybinding of your own or because the file changed
-  after the menu opened, it says why in one line: no diagram is open, the
+- The menu and the palette hide the command on files no open diagram cites
+  and on changed ones; from the diagram itself the palette does not offer it.
+  Run where it does not apply (from a keybinding of your own, or on a file
+  whose unsaved edits moved the quotes), it says why in one line: no diagram is open, the
   editor is not a cited file or cell, the file changed after the revision was
   published (ask the assistant for a fresh revision), its unsaved text no
   longer has the quotes, or the diagram cites the file from a parent folder
@@ -296,9 +305,11 @@ Reveal in Diagram (step 14):
   revision shown here." The shortcut sheet's note mentions the command.
 - `scripts/vsix_check.py` now allows the second command in a packaged VSIX.
 
-Checked for step 14: `vscode-extension/test/reveal-host.test.js` (19 tests,
-mock `vscode`) covers the index, the nearest claims and the list's rows, the
-context key for cited, uncited, changed, edited and closed files, the index
+Checked for step 14: `vscode-extension/test/reveal-host.test.js` (19 tests
+then, 21 after the review fixes; mock `vscode`) covers the index, the nearest
+claims and the list's rows, the context key for cited, uncited, changed,
+edited and closed files (since the review fixes, the list and the manifest's
+`when` clause evaluated against it), the index
 rebuilt on a new revision, one claim shown at once, the list for several and
 for the nearest, the plain messages, the parent-folder case, two diagrams
 citing one file, the reveal sent again after the page's `ready`, a revision
@@ -309,8 +320,11 @@ purpose to name the second command and to check it has no keybinding.
 three kinds and the focus they leave, folded groups, connections and
 findings, the older frames, malformed frames and unknown ids, the overlays
 closing, the walk following, a hidden side panel opening, and, at 1440x900,
-900x800 and 541x798 on the vit-cc and yolov5-cc2 shapes, every step and
-connection revealed on the canvas and clear of the phase index. An
+900x800 and 541x798 on the vit-cc and yolov5-cc2 shapes, each step card and
+connection revealed on the canvas and clear of the phase index. (The review
+found that this check took only the first 40 connections and checked group
+boxes as selected only; it now takes all 41 and 113, and the group exception
+is in its title.) An
 integration test drives the real host with the built page. Removing the
 stale check, the quote check, the focus move, the replay, the index refresh,
 the diagram list, the connection case or the side panel opening each makes a
@@ -319,7 +333,8 @@ test fail.
 It was also tried live in an isolated VS Code 1.139 Extension Development
 Host on macOS, on the vit-cc artifact, driven over the DevTools protocol with
 the window at 1440x900. The menu item showed on the cited `efficient.py` and
-not on `README.md`. A line cited by a step, a connection and a finding gave a
+not on `README.md` (tried with the editor already focused; the review found it
+missing on a right-click that came straight from the diagram, fixed below). A line cited by a step, a connection and a finding gave a
 list of three; choosing the connection selected it and opened the bottom
 sheet with the diagram 541 px wide. A line with one claim showed it at once,
 and Enter on it then opened the code beside with the focus kept. An uncited
@@ -328,12 +343,105 @@ allowed, not 900) a finding was framed clear of the phase index. In a
 notebook cell the list showed six claims and the step was revealed. A diagram
 hidden behind the code came to the front and showed the claim after its page
 reloaded. An unsaved edit at the top of the file hid the item and undo
-brought it back. After the diagram closed, the item was gone. The live run
+brought it back (the context key as it was then; the item now stays and the
+command explains). After the diagram closed, the item was gone. The live run
 showed that VS Code's hand-over of the focus left it on the page's body, so
 for 1.5 seconds after a reveal the claim takes the focus back if nothing else
 has it; checked live afterwards. A changed file was checked only by the unit
 tests, not live. Not tried with a screen reader, on Windows or Linux, or as a
 usability check.
+
+Review fixes (independent reviewers of steps 11 to 14; each finding was
+reproduced or checked first, and each fix has a test that fails on the code
+before it):
+- **Reveal in Diagram on the first right-click.** The menu item was missing
+  when the right-click in the editor beside came straight from the diagram,
+  for example after Enter on a card: the old context key was worked out from
+  the active editor, which VS Code reports as none while the diagram has the
+  focus, and the menu was read before the extension's update came back (seen
+  live by the reviewer, three times out of three). The `when` clause now reads
+  `resourcePath in mlview.citedFiles`, a list of the open diagrams' cited,
+  unchanged files that the extension refreshes when a diagram opens, closes or
+  validates again, so VS Code decides for the editor under the pointer by
+  itself. No editor listener is left. What the list cannot see (unsaved edits
+  that moved the quotes, a notebook cited by cell opened as text) the command
+  explains in one line. A file opened through a symlinked folder is still
+  matched when the command runs, but the menu matches the path only.
+- **Review affected claims starts at the first one.** It (and `u` after a walk
+  on another filter) used to begin after the place the last walk ended, so on
+  vit-cc, after walking Not observed to its end, it began at "Claim 8 of 8"
+  and never showed the other seven. A remembered place is now resumed only for
+  the same filter.
+- **A claim that leaves Changed files.** When a file is fixed while the walk is
+  on a claim that cites only that file, the walk moves to the next affected
+  claim. It used to name that claim in the bar without selecting it, and `j`
+  then skipped it. Now it is selected, shown and announced, and the earlier
+  highlight is cleared; it is not opened by itself (you may be editing beside
+  the diagram), and Enter opens it.
+- **"Enter shows" for a stale file.** A filter that keeps the claim, a click
+  on a claim the walk holds, or a panel VS Code rebuilt said "Enter shows …"
+  for a quote whose file VS Code had reported changed. They now say why it is
+  not opened, and a filter that keeps the claim keeps what the bar said.
+- **Escape over the phase overview.** With the legend opened over the
+  overview, Escape closed the overview first. Escape now goes through the one
+  cascade the shortcut sheet describes: the legend, then the overview.
+- **Review from the header or the ⋯ menu.** The keyboard stayed on the button,
+  so `j` and `k` did nothing. Starting the walk there now puts the keyboard on
+  the diagram, as **Review affected claims** does.
+- **Previous and Next.** The walk bar has up and down buttons for the previous
+  and next claim at every width, named "Previous claim (k)" and "Next claim
+  (j)", inside the bar's one tab stop, so a pointer can walk too.
+- **Alt+Enter.** After Alt+Enter the bar said "Focus stays here." It now says
+  "Focus moved to the editor.", and the Selection tab says so too.
+- **A late answer.** An answer for an open of a claim the walk had already left
+  was shown as the current claim's, as "In the editor beside: , highlighted."
+  for a claim with no quotes. Every move now drops answers to earlier opens.
+- **Words and screen readers.** The **All** filter reads **All claims**. A
+  blocked open is announced as the host's sentence, without "Not opened:"
+  before "…; not opened.". The narrow bar's full place ("Claim 3 of 16, Not
+  observed" and why a quote was not opened) is screen-reader text inside the
+  bar, not a name on a paragraph, which ARIA does not allow. The overview's
+  blocks name each F label once and end each title with a separator; a phase
+  index row's tooltip is "Go to this phase" (the full name is on the label),
+  so its name is not read twice; the header's Review toggle keeps the name
+  "Review the claims" and reports its state as pressed.
+- **The phase overview's key.** Below 620 px the overview dropped its key, so
+  ◌, ? and the brackets were explained nowhere on screen. It now keeps a
+  shorter key, and both say what a bracket's number counts: "Arrows go to the
+  next phase; brackets count connections that skip ahead (solid) or back
+  (dashed). ◌ inferred, ? unresolved." (still one line at 900 px).
+- **Longer phase names.** The phase index panel grows from 288 px to fit its
+  longest name, up to 360 px, so at 1440x900 vit-cc's "Objective, optimizer &
+  scheduler" and "Training loop (20 epochs)" are no longer cut short.
+- **Records.** The workflow guide and this changelog no longer say a quote
+  with unsaved edits is not opened; it is not opened only when those edits no
+  longer contain the cited lines. The reveal check now takes every connection.
+  The watcher-load figure here and in [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
+  says the run created and then deleted the files and that its output and
+  profile were not kept.
+
+Checked for the review fixes: `webview/test/walk.test.mjs`,
+`phase-overview.test.mjs` and `reveal.test.mjs` (jsdom), and
+`vscode-extension/test/reveal-host.test.js`, `packaging.test.js` and
+`activation.test.js` (mock `vscode`, with a small stand-in for VS Code's
+when-clause evaluation). The new tests were also run against the code before
+the fixes, where each failed. The full reveal sweep passes on both, since it
+pins behaviour that already held. Headless-Chrome screenshots of vit-cc at
+541x798, 900x800 and 1440x900 (walk bar, overview, phase list) were looked at.
+In an isolated VS Code 1.139 Extension Development Host on macOS, on a scratch
+copy of vit-cc, driven over the DevTools protocol with `window.menuStyle` set
+to custom so the menu could be read: after Enter on a card opened
+`efficient.py` beside the diagram with the focus kept, a right-click on cited
+line 20 straight from the diagram showed **Reveal in Diagram** three times out
+of three; a cited notebook cell showed it twice out of two, and choosing it
+selected the step and put the keyboard on its card; `README.md` did not show
+it; the Command Palette offered it from a cited cell and not from the diagram.
+With the diagram about 541 px wide, **Review the claims** in the **⋯** menu
+put the keyboard on the diagram and `j` `j` reached "3/7"; Next and Previous
+stepped; after Alt+Enter the focus was in the notebook and the bar said
+"Focus moved to the editor." A changed file, the phase overview changes and
+the phase index were not tried live. Not with a screen reader, on Windows or
+Linux, or as a usability check.
 
 ## Unreleased — viewer M2: readable at your width
 

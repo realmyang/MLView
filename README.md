@@ -89,9 +89,10 @@ observed** count, and can also walk the findings, every claim, or, after a
 cited file changed, the claims citing it. Each step selects the claim, shows
 it in Selection and, after a short pause, opens its cited lines beside the
 diagram, highlighted, while the keyboard stays on the diagram: `j` / `k` (or
-↓ / ↑) move, `[` / `]` change quote, Enter opens again and Escape ends the
-walk. A quote whose file changed is not opened; the walk says why. The walk
-remembers its place for each revision and records nothing else.
+↓ / ↑, or the walk bar's up and down buttons) move, `[` / `]` change quote,
+Enter opens again and Escape ends the walk. A quote whose file changed is not
+opened; the walk says why. The walk remembers its place for each revision and
+records nothing else.
 
 To see the whole workflow at once, press Shift+0 (or **Phase overview** in the
 **⋯** menu). The overview shows each phase as a block of its step titles, with
@@ -105,9 +106,9 @@ optimizer & scheduler".
 
 To go the other way, from the code to the diagram, right-click a line in the
 editor and choose **Reveal in Diagram** (also **MLView: Reveal in Diagram** in
-the Command Palette; there is no default keybinding). It is offered only
-while an open diagram cites the file and the file still matches the
-diagram. The claim citing that line, or the selected lines, is selected and
+the Command Palette; there is no default keybinding). It is offered on a file
+an open diagram cites that has not changed since the revision was published.
+The claim citing that line, or the selected lines, is selected and
 shown in the diagram, and the keyboard moves there. When several claims cite
 the line, a list asks which; on a line no claim cites, it offers the nearest
 claims in the file. It works in notebook cells too.

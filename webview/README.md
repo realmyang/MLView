@@ -401,10 +401,23 @@ setting; the golden is byte-identical):
   `App.postRequest`), only the latest answer shown, `walk: 'clear'` for a
   claim with nothing to open, and the place per revision. A reader's own
   selection of a claim in the list moves the walk without opening it.
+  M3 review fixes: `start(filter)` resumes the remembered claim only for the
+  same filter (another starts at position 0); any move resets `latestSeq`, so
+  a late answer for a claim or quote the walk has left is dropped; a claim the
+  walk is on but has not asked for gets `unansweredStatus('idle')` (the
+  viewer's own stale reason, never "Enter shows" for a stale file), and a
+  filter that keeps the claim keeps the status; `onStale()` shows (selects, announces, clears
+  the old highlight, does not open) the claim that takes the place of one that
+  left Changed files; a `done` after Alt+Enter carries `focusEditor`, and the
+  bar says the focus moved; `walkResultAnnouncement` says "not opened" once.
 - `src/ui/walkbar.ts` is the bar: a labelled region at the end of `.mlv-main`
-  (after the canvas, before the rail), one `role="toolbar"` tab stop for the
-  filters and Exit, `data-layout="narrow"` below 620 px. Escape inside it ends
-  the walk; j, k, [, ], u, n and p pressed there go to the walk.
+  (after the canvas, before the rail), one `role="toolbar"` tab stop for
+  Previous and Next (`[data-walk-step]`, as k and j), the filters and Exit,
+  `data-layout="narrow"` below 620 px, where the visible place is "3/16"
+  (`aria-hidden`) and `.mlv-walkbar__posspoken` holds the whole sentence for a
+  screen reader. Escape inside it ends the walk; j, k, [, ], u, n and p
+  pressed there go to the walk. The header's Review and the ⋯ menu's item
+  focus the canvas when they start the walk (`buildAppUi`).
 - `ViewState.walk` (`WalkViewState`: `filter`, `claim`, `quote` when not the
   first, `active` while running) is written only once a walk ran for the
   displayed revision, restored only for the same `workflowRevision`
@@ -448,18 +461,26 @@ change, no new setting; the golden is byte-identical):
   inside `.mlv-canvas`, beside (never inside) `.mlv-world`, so the routed
   picture does not move. Blocks are `role="button"` with a roving tab stop,
   named by `blockName()` and described by their list of titles. ↑ ↓ ← →, Home
-  and End move, Enter or Space go, and Escape, `)` or Shift+0 go back. The
-  overview stops only those keys. Any other key reaches the canvas, where
+  and End move, Enter or Space go, and `)` or Shift+0 go back. The overview
+  stops only those keys. Escape goes on to the canvas's cascade, which closes
+  a legend (or phase list) opened over the overview before it leaves the
+  overview. Any other key reaches the canvas, where
   `closingOverview` (`src/app/keys.ts`) closes it and then acts, except the
   `KEEP_OPEN` commands (the shortcut sheet, search, legend, rail). The ◌ mark is
   a drawn `.mlv-ovmark` ring, because macOS system fonts show nothing for the
-  character.
+  character. The header's key is `OVERVIEW_KEY` (one line at 900 px) or, below
+  620 px, the shorter `OVERVIEW_KEY_NARROW`; both say what a bracket's number
+  counts. A row's F tags are `aria-hidden` (the screen-reader text names them
+  once) and each row ends with a screen-reader separator.
 - `src/render/phaseindex.ts` (`PhaseIndex`) replaced the minimap: a
   `nav.mlv-phaseindex` inside the canvas, as a list of row buttons when the
   panel is 1000 px wide or more and the canvas 350 px tall or more
   (`PHASE_INDEX_LIST_MIN_W` / `_H` in `src/canvas/host.ts`) and the reader
   has not folded it; otherwise as a pill, "k/N label", that opens the rows as
-  a popover (an Escape rung before the legend). `phasesInView` marks the lanes
+  a popover (an Escape rung before the legend). The panel grows from
+  `INDEX_W` (288 px) to fit its longest name, up to `INDEX_MAX_W` (360 px);
+  jsdom's `coveredRect` takes the widest. A row's tooltip is the action; the
+  full name is on its label. `phasesInView` marks the lanes
   on the canvas and picks the current one by visible share of the canvas plus
   visible share of the lane. `ViewState.phaseIndex` is `'folded'` or
   `'hidden'` when not the default; a state saved with `minimapCollapsed: true`
@@ -525,9 +546,11 @@ viewer's part is one inbound frame:
 - `test/reveal.test.mjs` covers the three kinds and the focus each leaves,
   the focus hold, folded groups, connections and findings, the older frames,
   malformed frames and unknown ids, the overlays closing, the walk following,
-  a hidden rail opening, and every step and connection on the canvas, above
-  the sheet and clear of the index at 1440x900, 900x800 and 541x798 on the
-  vit-cc and yolov5-cc2 shapes. `authoredRevealHandshake` in
+  a hidden rail opening, and every step card and every connection (all 41 and
+  113 since the M3 review, not the first 40) on the canvas, above the sheet
+  and clear of the index at 1440x900, 900x800 and 541x798 on the vit-cc and
+  yolov5-cc2 shapes; a group, whose box can be larger than the canvas, is
+  checked as selected only. `authoredRevealHandshake` in
   `test/authored-handshake.mjs` drives the real host with the built viewer.
 
 Viewer M1 cleanup (no contract change):

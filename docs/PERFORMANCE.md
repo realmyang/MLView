@@ -184,9 +184,11 @@ has overtaken now stops before it reads the file.
 
 The workbench renderer was busy for about 2.2 to 2.3 s of each 12 s paced run
 (VS Code's own notebook and editor code); MLView runs no code there outside
-its webview. Creating 2,000 files in the workspace called MLView's
+its webview. Creating and then deleting 2,000 files in the workspace, in one
+profiled run with counting breakpoints on MLView's listener, called MLView's
 file-watcher listener 1,157 times, about 1 ms of MLView code and 5 ms of path
-handling in total. The watcher (`**/*`) shares VS Code's own workspace
+handling in total. Unlike the table above, these figures cannot be re-derived:
+that run's output and profile were not kept. The watcher (`**/*`) shares VS Code's own workspace
 watching and adds no operating-system watcher, and it has to see every cited
 or inspected file, whatever its name, so it was left as it is.
 

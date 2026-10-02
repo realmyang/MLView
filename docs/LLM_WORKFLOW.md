@@ -175,9 +175,10 @@ outgoing connections, then the findings whose first cited step it is;
 findings that cite no step (only connections, or the workflow as a whole) come
 last, in document order. It starts on **Not observed**, the claims marked
 inferred or unresolved, with the same count as the header's **N not
-observed**; **Findings**, **All** and, while VS Code reports changed or
+observed**; **Findings**, **All claims** and, while VS Code reports changed or
 missing cited files, **Changed files** are the other filters, each with its
-count. `j` / `k` or ↓ / ↑ go to the next or previous claim, `[` / `]` to the
+count. `j` / `k` or ↓ / ↑ (or the walk bar's up and down buttons) go to the
+next or previous claim, `[` / `]` to the
 claim's other quotes, Enter opens the current quote again (Alt+Enter moves the
 focus to the editor), `n` / `p` go to the next or previous finding, `u` /
 Shift+U to the next or previous claim not observed (`u` also starts the walk
@@ -185,18 +186,24 @@ there), and Escape or `r` ends the walk. ← and → still move to the nearest
 card. Each step selects the claim, brings it into view and shows it in the
 Selection tab; about 150 ms after you stop, its cited lines open in the editor
 beside the diagram with the range highlighted, and the keyboard stays on the
-diagram. A claim with no quotes opens nothing and clears the previous
-highlight. A quote whose file changed, went missing or has unsaved edits is
-not opened: the walk bar and the quote in the Selection tab say why, and no
-notification appears. A screen reader hears, for example, "Claim 3 of 16, not
-observed: Step Load batches, inferred." The walk bar sits under the diagram,
-above the bottom panel's tabs (with the side panel, along the bottom of the
-diagram), and shows the place and filter, the filters, the keys, **Exit** and
-what the editor beside shows; below 620 px wide it is "3/16", the filters and
-**Exit**. The walk remembers its place for each revision in the panel's view
-state, so `r` resumes there; a new revision starts fresh. It marks nothing as
-checked and writes nothing to any file. When cited files change, the notice
-offers **Review affected claims**, which walks the claims citing them.
+diagram (starting the walk from **Review** or the **⋯** menu puts the keyboard
+on the diagram too). A claim with no quotes opens nothing and clears the
+previous highlight. A quote whose file changed or went missing, or whose
+unsaved edits no longer contain the cited lines, is not opened: the walk bar
+and the quote in the Selection tab say why, and no notification appears. A
+screen reader hears, for example, "Claim 3 of 16, not observed: Step Load
+batches, inferred." The walk bar sits under the diagram, above the bottom
+panel's tabs (with the side panel, along the bottom of the diagram), and shows
+the place and filter, up and down buttons for the previous and next claim, the
+filters, the keys, **Exit** and what the editor beside shows (after Alt+Enter,
+that the focus moved to the editor); below 620 px wide it is "3/16", the two
+buttons, the filters and **Exit**. The walk remembers its place for each
+revision in the panel's view state, so `r` resumes there; a new revision
+starts fresh. It marks nothing as checked and writes nothing to any file. When
+cited files change, the notice offers **Review affected claims**, which walks
+the claims citing them from the first one. If a file is fixed while the walk
+is on a claim that cites only that file, the walk shows the next affected
+claim and says so; Enter opens it.
 
 The phase overview shows the whole workflow at once. Press Shift+0 on the
 diagram, or choose **Phase overview** in the **⋯** menu. Each phase is a block
@@ -206,7 +213,8 @@ the Outline's order, a group before its steps, with ◌ for inferred, ? for
 unresolved and the F labels of the findings on each step. An arrow between
 two neighbouring blocks says how many connections go from one phase to the
 next. A connection that skips a phase or goes back is a bracket on the right
-with its count, dashed when it goes back. The header gives the counts as a
+with its count, dashed when it goes back; a key under the header says so at
+every width. The header gives the counts as a
 sum, for example "6 phases · 31 steps · 41 connections: 19 inside a phase, 8
 to the next phase, 14 skip ahead or go back." A block with more titles than
 fit ends with "… N more steps", so every step is either listed or counted.
@@ -216,14 +224,17 @@ Enter or a click goes to that phase at reading size; the move takes about a
 quarter of a second, or happens at once with Reduce Motion or a screen reader.
 The next arrow key then starts at the phase's first step. Escape, Shift+0 or
 **Back** returns to the diagram exactly as it was, with the keyboard where it
-was. Any other key the diagram uses closes the overview first. A screen
+was; a legend opened over the overview closes first. Any other key the diagram
+uses closes the overview first. A screen
 reader reads each block as a button named by its phase, counts and
 connections, with its titles as the description.
 
 The phase index sits in the lower right corner of the diagram. It lists every
 phase with its number, name, findings by severity (a finding on two phases
 counts in each, as on the lane headings) and step count, and it marks the
-phases in view. Clicking a row goes to that phase. In a panel under 1000 px
+phases in view. The list is wide enough for names up to about 360 px; a
+longer name is cut short, with the whole name in its tooltip. Clicking a row
+goes to that phase. In a panel under 1000 px
 wide, or on a diagram under 350 px tall, it is one line naming the phase most
 in view, such as "4/6 Objective, optimizer & scheduler"; clicking it opens the
 list above it. When wide, its chevron folds it to that line. It stays inside
@@ -235,10 +246,11 @@ hides it, and the panel remembers the choice.
 Reveal in Diagram goes from the code back to the diagram. Right-click a line
 in the editor and choose **Reveal in Diagram**, or run **MLView: Reveal in
 Diagram** from the Command Palette. There is no default keybinding. The item
-is offered only while an open diagram cites the file and the file still
-matches it: VS Code has not reported it changed or missing since the revision
-was published, and the editor's text, unsaved edits included, still has a
-quote at its cited lines. The cursor's line, or the selected lines, decide
+is offered on a file an open diagram cites, as long as VS Code has not
+reported it changed or missing since the revision was published. It is there
+on the first right-click, even straight after pressing Enter on a card in the
+diagram. If your unsaved edits have moved the quoted lines, the command says
+so in one line instead of guessing. The cursor's line, or the selected lines, decide
 the claim. When one claim cites them it is shown at once; when several do, a
 list names each one's kind, title, F label, severity, phase and cited lines,
 steps first, then connections, then findings; on a line no claim cites, the
