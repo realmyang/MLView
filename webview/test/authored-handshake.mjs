@@ -699,9 +699,9 @@ export async function authoredChangesHandshake() {
     assert.equal(section().querySelector('[data-change-group="steps"] .mlv-rail__count').textContent, '1 changed');
     assert.equal(section().querySelector('[data-change-group="connections"] .mlv-rail__count').textContent, 'none added, removed or changed');
     assert.equal(section().querySelector('[data-change-group="findings"] .mlv-rail__count').textContent, '1 added');
-    assert.equal($(page, '[data-node-id="update"] > .mlv-rev-tag').textContent, 'changed');
+    assert.equal($(page, '[data-node-id="update"] > .mlv-node__tags > .mlv-rev-tag').textContent, 'changed');
     assert.match($(page, '[data-node-id="update"]').getAttribute('aria-label'), /changed in this revision: label/);
-    assert.equal($(page, '[data-node-id="loss"] > .mlv-rev-tag'), null);
+    assert.equal($(page, '[data-node-id="loss"] .mlv-rev-tag'), null);
 
     // The walk's filter holds the changed step and the added finding.
     $(page, '.mlv-about__review').click();
@@ -713,7 +713,7 @@ export async function authoredChangesHandshake() {
     // VS Code rebuilt the page: the host's first frame carries the comparison, and the bootstrap
     // hands it to the mount.
     page = mountPage(wire);
-    await waitFor(() => $(page, '[data-node-id="update"] > .mlv-rev-tag'), 'the rebuilt page lost the comparison');
+    await waitFor(() => $(page, '[data-node-id="update"] > .mlv-node__tags > .mlv-rev-tag'), 'the rebuilt page lost the comparison');
     assert.equal(page.mounts[0].comparison.previous.revision.id, 'r1');
     assert.ok(section(), 'About lists the changes again');
 

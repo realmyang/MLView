@@ -239,18 +239,41 @@ test('revisionDiff: reorderings are not changes (document lists, evidence ids, c
   assert.equal(m.changeTotal(m.revisionDiff(two, swapped)), 0);
 });
 
-test('revisionDiff: a step\'s phase is its label as the reader sees it; a renamed id is one removed and one added', async () => {
+test('revisionDiff: a step changed its phase only when it moved; a renamed phase is listed once; a renamed step id is one removed and one added', async () => {
   const m = await source();
+  // Viewer M4 review (M4R-4): a phase renamed under the same id moves none of its steps. Before,
+  // its four steps were each "changed: phase" and the rename itself was never named.
   const relabelled = doc1();
   relabelled.phases[1].label = 'Training';
   const diff = m.revisionDiff(doc1(), relabelled);
-  eq(ids(diff.steps.changed), ['loop', 'step', 'zero', 'old']);
-  for (const item of diff.steps.changed) eq(item.fields, ['phase']);
-  // The phase id renamed, the label kept: nothing the reader sees changed.
+  assert.equal(m.changeTotal(diff), 0, 'no step is tagged for its phase\'s new name');
+  eq(diff.phases, [{ id: 'fit', from: 'Fit', to: 'Training' }]);
+  // A step that moved to another phase is a change.
+  const moved = doc1();
+  moved.nodes.find((n) => n.id === 'old').phase = 'data';
+  const d0 = m.revisionDiff(doc1(), moved);
+  eq(d0.steps.changed.map((c) => [c.id, c.fields]), [['old', ['phase']]]);
+  eq(d0.phases, []);
+  // Renamed and moved at once: only the step that moved changed.
+  moved.phases[1].label = 'Training';
+  eq(m.revisionDiff(doc1(), moved).steps.changed.map((c) => [c.id, c.fields]), [['old', ['phase']]]);
+  // The phase id renamed, the label kept: nothing the reader sees changed, and nothing is listed.
   const renamedPhase = doc1();
   renamedPhase.phases[1].id = 'train';
   for (const node of renamedPhase.nodes) if (node.phase === 'fit') node.phase = 'train';
-  assert.equal(m.changeTotal(m.revisionDiff(doc1(), renamedPhase)), 0);
+  const d1 = m.revisionDiff(doc1(), renamedPhase);
+  assert.equal(m.changeTotal(d1), 0);
+  eq(d1.phases, []);
+  // A step moved into a new phase (new id, new label) did move.
+  const split = doc1();
+  split.phases.push({ id: 'log', label: 'Logging' });
+  split.nodes.find((n) => n.id === 'old').phase = 'log';
+  eq(m.revisionDiff(doc1(), split).steps.changed.map((c) => [c.id, c.fields]), [['old', ['phase']]]);
+  // Two new phases with the old label: no guess, the steps moved.
+  const twin = doc1();
+  twin.phases = [{ id: 'data', label: 'Data' }, { id: 'fit-a', label: 'Fit' }, { id: 'fit-b', label: 'Fit' }];
+  for (const node of twin.nodes) if (node.phase === 'fit') node.phase = 'fit-a';
+  assert.equal(m.revisionDiff(doc1(), twin).steps.changed.length, 4);
   // A step id renamed: removed plus added, and the connections that name it changed their ends.
   const renamed = doc1();
   renamed.nodes.find((n) => n.id === 'aug').id = 'augment';
@@ -316,6 +339,12 @@ async function mount(document, opts = {}) {
 }
 
 const $ = (ctx, selector) => ctx.document.querySelector(selector);
+/** What an element shows: its text without the words only screen readers get (`.mlv-sr`). */
+const visibleText = (element) => {
+  const copy = element.cloneNode(true);
+  for (const hidden of copy.querySelectorAll('.mlv-sr')) hidden.remove();
+  return copy.textContent;
+};
 const $$ = (ctx, selector) => Array.from(ctx.document.querySelectorAll(selector));
 const tab = (ctx, id) => $(ctx, `.mlv-rail__tab[data-tab="${id}"]`).click();
 const live = (ctx) => $(ctx, '.mlv-root > [aria-live]').textContent;
@@ -341,7 +370,7 @@ test('About: a new revision that follows the one this panel showed opens on "Cha
   assert.equal(head('steps'), '1 added · 2 changed · 1 removed');
   assert.equal(head('connections'), '1 added · 1 changed · 1 removed');
   assert.equal(head('findings'), '1 added · 1 changed · 1 removed');
-  const rows = $$(ctx, '.mlv-about__change').map((li) => [li.getAttribute('data-change-kind'), li.getAttribute('data-change-id'), li.getAttribute('data-change'), li.textContent]);
+  const rows = $$(ctx, '.mlv-about__change').map((li) => [li.getAttribute('data-change-kind'), li.getAttribute('data-change-id'), li.getAttribute('data-change'), visibleText(li)]);
   eq(rows, [
     ['node', 'save', 'added', 'new Save weights'],
     ['node', 'aug', 'changed', 'changed Augment · evidence'],
@@ -391,11 +420,13 @@ test('About\'s links select the step, the connection or the finding, whose Selec
 
 test('cards: a changed or added step carries a "changed" or "new" tag, said in its name; nothing else is tagged on the canvas', async () => {
   const ctx = await mountChanged();
-  const tagOf = (id) => $(ctx, `[data-node-id="${id}"] > .mlv-rev-tag`);
+  const tagOf = (id) => $(ctx, `[data-node-id="${id}"] > .mlv-node__tags > .mlv-rev-tag`);
   assert.equal(tagOf('step').textContent, 'changed');
   assert.equal(tagOf('step').getAttribute('data-change'), 'changed');
-  assert.equal(tagOf('step').getAttribute('aria-hidden'), 'true', 'the card\'s name says it');
-  assert.equal(tagOf('step').title, 'Changed since revision r1: label. About lists every change.');
+  assert.equal(tagOf('step').parentElement.getAttribute('aria-hidden'), 'true', 'the card\'s name says it');
+  // Viewer M4 review (UX-M4-7): a card's tag takes no pointer events, so it has no tooltip that
+  // could never show; the card's hover card says what changed.
+  assert.equal(tagOf('step').title, '');
   assert.equal(tagOf('save').textContent, 'new');
   assert.equal(tagOf('aug').textContent, 'changed');
   assert.equal(tagOf('load'), null);
@@ -405,8 +436,8 @@ test('cards: a changed or added step carries a "changed" or "new" tag, said in i
   assert.doesNotMatch($(ctx, '[data-node-id="load"]').getAttribute('aria-label'), /in this revision/);
   assert.equal($$(ctx, '.mlv-edge .mlv-rev-tag, [data-edge-id] .mlv-rev-tag').length, 0, 'connections carry no tag on the canvas');
   assert.equal($$(ctx, '[data-node-id] .mlv-rev-tag').length, 3, 'one tag per changed or added step');
-  // The tag is an overlay: absolutely placed at the bottom-right edge, scaled to screen size.
-  const style = ctx.window.getComputedStyle(tagOf('step'));
+  // The tag is an overlay: in a row absolutely placed at the bottom-left edge, scaled to screen size.
+  const style = ctx.window.getComputedStyle(tagOf('step').parentElement);
   assert.equal(style.position, 'absolute');
   // A group's tag sits in its expanded header.
   const regroup = doc2();
@@ -416,8 +447,160 @@ test('cards: a changed or added step carries a "changed" or "new" tag, said in i
   const header = $(ctx, '.mlv-group[data-node-id="loop"] .mlv-group__header');
   assert.ok(header, 'the group is drawn expanded');
   assert.equal(header.querySelector('.mlv-rev-tag').textContent, 'changed');
+  assert.equal(header.querySelector('.mlv-rev-tag').title, 'Changed since revision r2: label. About lists every change.', 'a group header\'s tag can be hovered');
   assert.match(header.getAttribute('aria-label'), /changed in this revision: label/);
   assert.equal($$(ctx, '[data-node-id] .mlv-rev-tag').length, 1, 'r3 compares with r2 only');
+});
+
+/** The built stylesheet as rules, with each rule's @media ('' at the top level); as readable-view.test.mjs. */
+function cssRules(css) {
+  const out = [];
+  const walk = (text, media) => {
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i);
+      if (open < 0) break;
+      const prelude = text.slice(i, open).trim();
+      let depth = 1;
+      let j = open + 1;
+      while (j < text.length && depth) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') depth--;
+        j++;
+      }
+      const body = text.slice(open + 1, j - 1);
+      if (prelude.startsWith('@media')) walk(body, prelude.slice(6).trim());
+      else if (!prelude.startsWith('@')) {
+        const decls = {};
+        for (const decl of body.split(';')) {
+          const k = decl.indexOf(':');
+          if (k > 0) decls[decl.slice(0, k).trim()] = decl.slice(k + 1).trim();
+        }
+        out.push({ media, selectors: prelude.split(',').map((x) => x.trim()), decls });
+      }
+      i = j;
+    }
+  };
+  walk(css, '');
+  return out;
+}
+
+test('a card with an inferred or unresolved tag and a "new" or "changed" tag holds both in one row, the basis tag first, where a lone basis tag sits (M4R-1)', async () => {
+  // Viewer M4 review (M4R-1, UX-M4-4): the two tags sat at opposite ends of the card's bottom
+  // edge, each the same size on screen, so below about 52% zoom the "changed" tag covered the
+  // "inferred" one (headless Chrome on vit-cc: 21 of 21 cards at 43%). In one row they cannot
+  // overlap at any zoom, and the "new" / "changed" tag no longer hangs at the right, over the
+  // finding badge of the card below.
+  const ctx = await mountChanged();
+  const card = (id) => $(ctx, `[data-node-id="${id}"]`);
+  const kids = (el) => Array.from(el.children).map((k) => k.className);
+  // `step` is inferred and changed: one row, basis tag then revision tag, and neither on its own.
+  const row = card('step').querySelector(':scope > .mlv-node__tags');
+  assert.ok(row, 'the row');
+  eq(kids(row), ['mlv-basis-tag', 'mlv-rev-tag']);
+  eq([row.children[0].textContent, row.children[1].textContent], ['inferred', 'changed']);
+  assert.equal(row.getAttribute('aria-hidden'), 'true');
+  assert.equal(card('step').querySelector(':scope > .mlv-basis-tag, :scope > .mlv-rev-tag'), null);
+  // `save` is observed and new: the row holds the revision tag alone, where a basis tag would be.
+  eq(kids(card('save').querySelector(':scope > .mlv-node__tags')), ['mlv-rev-tag']);
+  // A card with no mark keeps the M2 basis tag as it was, and an unchanged observed card has neither.
+  const plainCtx = await mount(doc1());
+  assert.ok($(plainCtx, '[data-node-id="step"] > .mlv-basis-tag'));
+  assert.equal($(plainCtx, '[data-node-id] .mlv-node__tags'), null);
+  assert.equal(card('load').querySelector('.mlv-node__tags, .mlv-basis-tag, .mlv-rev-tag'), null);
+
+  // The row is placed and counter-scaled exactly as a lone basis tag, at both levels of detail and
+  // in print; the tags inside it are laid out side by side; nothing positions a card's revision
+  // tag on its own any more.
+  const rules = cssRules(CSS);
+  const merged = (selector, media = '') => Object.assign({}, ...rules.filter((r) => r.media === media && r.selectors.includes(selector)).map((r) => r.decls));
+  const placed = ['position', 'top', 'left', 'z-index', 'transform-origin', 'transform', 'pointer-events'];
+  const pick = (decls, keys) => Object.fromEntries(keys.map((k) => [k, decls[k]]));
+  const rowRule = merged('.mlv-node>.mlv-node__tags');
+  eq(pick(rowRule, placed), pick(merged('.mlv-node>.mlv-basis-tag'), placed));
+  assert.equal(rowRule.position, 'absolute');
+  assert.equal(rowRule.display, 'flex');
+  assert.ok(parseFloat(rowRule.gap) > 0, 'a gap between the two tags');
+  const compact = '.mlv-canvas[data-lod=compact] .mlv-node>';
+  eq(pick(merged(compact + '.mlv-node__tags'), ['transform-origin', 'transform']), pick(merged(compact + '.mlv-basis-tag'), ['transform-origin', 'transform']));
+  assert.ok(merged(compact + '.mlv-node__tags').transform, 'the compact level hangs the row from the edge');
+  eq(pick(merged(compact + '.mlv-node__tags', 'print'), ['transform-origin', 'transform']), pick(merged(compact + '.mlv-basis-tag', 'print'), ['transform-origin', 'transform']));
+  const loose = rules.filter((r) => r.selectors.some((x) => /\.mlv-node>\.mlv-rev-tag/.test(x)));
+  eq(loose.map((r) => r.selectors.join(',')), [], 'no rule places a card\'s revision tag by itself');
+  // Never wider on screen than the card less its margins, so it never reaches the next card or its
+  // tags; when both words do not fit, the revision tag ends in an ellipsis and the basis tag stays whole.
+  assert.equal(rowRule['max-width'], 'calc((100% - 20px) * var(--mlv-z, 1))');
+  assert.equal(merged('.mlv-node__tags>.mlv-basis-tag').flex, 'none');
+  eq(pick(merged('.mlv-node__tags>.mlv-rev-tag'), ['min-width', 'overflow', 'text-overflow']), { 'min-width': '0', overflow: 'hidden', 'text-overflow': 'ellipsis' });
+});
+
+test('a changed step\'s hover card says what changed since the revision this panel showed before (UX-M4-7)', async () => {
+  const ctx = await mountChanged();
+  const tooltip = $(ctx, '.mlv-tooltip');
+  const hover = async (id) => {
+    $(ctx, `[data-node-id="${id}"]`).dispatchEvent(new ctx.window.Event('pointerenter', { bubbles: false }));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  };
+  await hover('step');
+  assert.equal(tooltip.hidden, false);
+  assert.equal(tooltip.querySelector('.mlv-tooltip__change').textContent, 'Changed since revision r1: label.');
+  $(ctx, '[data-node-id="step"]').dispatchEvent(new ctx.window.Event('pointerleave', { bubbles: false }));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await hover('save');
+  assert.equal(tooltip.querySelector('.mlv-tooltip__change').textContent, 'New since revision r1.');
+  $(ctx, '[data-node-id="save"]').dispatchEvent(new ctx.window.Event('pointerleave', { bubbles: false }));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await hover('load');
+  assert.equal(tooltip.querySelector('.mlv-tooltip__change'), null, 'an unchanged step says nothing');
+  ctx.app.destroy();
+});
+
+test('About\'s Changes buttons are named by what they show, and a link says what its tag and field list show (A11Y-M4-1)', async () => {
+  // Viewer M4 review (A11Y-M4-1): the Review button was named by its tooltip, and each link "Select
+  // the step …", without the "changed" it is listed under, the fields or the F label (WCAG 2.5.3).
+  const ctx = await mountChanged();
+  const review = $(ctx, '.mlv-about__review');
+  assert.equal(review.getAttribute('aria-label'), 'Review the 7 added and changed claims', 'the name is the visible text');
+  assert.match(review.title, /"Changed in this revision" filter/, 'the explanation stays a tooltip');
+  const link = (id) => $(ctx, `.mlv-about__change[data-change-id="${id}"] button`);
+  const name = (button) => button.getAttribute('aria-label') ?? button.textContent;
+  for (const button of $$(ctx, '.mlv-about__change button')) {
+    assert.equal(button.hasAttribute('aria-label'), false, 'named by its content');
+    assert.ok(name(button).startsWith(visibleText(button)), 'the name starts with the visible text: ' + name(button));
+  }
+  assert.equal(name(link('step')), 'Optimizer step (AdamW), changed in this revision: label');
+  assert.equal(name(link('save')), 'Save weights, new in this revision');
+  assert.equal(name(link('f-clip')), 'F1 · Clip missing, changed in this revision: severity');
+  // The visible tag and field list are said by the link, so screen readers skip them.
+  const row = $(ctx, '.mlv-about__change[data-change-id="step"]');
+  assert.equal(row.querySelector('.mlv-rev-tag').getAttribute('aria-hidden'), 'true');
+  assert.equal(row.querySelector('.mlv-about__changefields').getAttribute('aria-hidden'), 'true');
+  // A removed item has no link: its tag is read with its name.
+  assert.equal($(ctx, '.mlv-about__change[data-change-id="old"] .mlv-rev-tag').hasAttribute('aria-hidden'), false);
+});
+
+test('About lists a phase renamed under the same id once, and tags none of its steps (M4R-4)', async () => {
+  const ctx = await mount(doc1());
+  const renamed = doc1();
+  renamed.revision = { id: 'r2', parent: 'r1' };
+  renamed.phases[1].label = 'Training';
+  ctx.bridge.send({ v: 1, type: 'workflow', document: renamed, previous: doc1() });
+  const section = $(ctx, '.mlv-about [data-about="changes"]');
+  assert.match(section.textContent, /No step, connection or finding was added, removed or changed\./);
+  const block = section.querySelector('[data-change-group="phases"]');
+  assert.ok(block, 'a Phases block');
+  assert.equal(block.querySelector('.mlv-rail__count').textContent, '1 renamed');
+  eq($$(ctx, '[data-change-kind="phase"]').map((li) => [li.getAttribute('data-change-id'), li.textContent]), [['fit', '“Fit” is now “Training”']]);
+  assert.equal($(ctx, '[data-node-id] .mlv-rev-tag'), null, 'no step is tagged');
+  assert.equal($(ctx, '.mlv-about__review'), null);
+  assert.doesNotMatch(section.textContent, JUDGING);
+  // With other changes, the Phases block comes after the three groups.
+  const both = await mount(doc1());
+  const r2 = doc2();
+  r2.phases[1].label = 'Training';
+  both.bridge.send({ v: 1, type: 'workflow', document: r2, previous: doc1() });
+  eq($$(both, '.mlv-about [data-change-group]').map((g) => g.getAttribute('data-change-group')), ['steps', 'connections', 'findings', 'phases']);
+  assert.equal($(both, '.mlv-about__review').textContent, 'Review the 7 added and changed claims', 'the rename adds no claim to review');
 });
 
 test('the tags move no box and no route: the routed geometry is the same with and without the comparison (vit-cc shape)', async () => {
@@ -505,7 +688,7 @@ test('a remounted page gets the comparison again from the host and brings back a
   assert.equal(again.app.walk.active, true);
   assert.equal(again.app.walk.filter, 'revision');
   eq(again.app.walk.current(), { kind: 'node', id: 'aug' });
-  assert.ok($(again, '[data-node-id="step"] > .mlv-rev-tag'));
+  assert.ok($(again, '[data-node-id="step"] > .mlv-node__tags > .mlv-rev-tag'));
   // A page the host sends no comparison (a new panel after a window reload) falls back to All.
   const fresh = await mount(doc2(), { state: plain(saved) });
   assert.equal(fresh.app.walk.filter, 'all');
@@ -543,7 +726,7 @@ test('the comparison follows each frame: a refresh that carries it keeps the tag
   const refreshed = doc2();
   refreshed.verification = { files: {}, publishedAt: '2026-10-03T00:00:00Z' };
   ctx.bridge.send({ v: 1, type: 'workflow', document: refreshed, previous: doc1() });
-  assert.ok($(ctx, '[data-node-id="step"] > .mlv-rev-tag'), 'a refresh of the same revision keeps the tags');
+  assert.ok($(ctx, '[data-node-id="step"] > .mlv-node__tags > .mlv-rev-tag'), 'a refresh of the same revision keeps the tags');
   // A child revision with nothing compared changed.
   const same = doc1();
   same.revision = { id: 'r1b', parent: 'r1' };

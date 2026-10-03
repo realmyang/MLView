@@ -157,8 +157,43 @@ test('a file MLView does not draw gets a page saying why, and nothing else', asy
     assert.equal(panel.posted.length, 0, 'no diagram host answers it');
   }
   await h.sleep(15);
-  assert.equal(fixture.ctx.globalState.get(api.OPEN_PANELS_KEY)['mock-session'].panels.length, 1, 'only the real diagram is registered');
+  // Viewer M4 review (M4R-3): the page for a file outside every folder is registered too, marked,
+  // so the next host after an extension-host restart can replace its dead tab.
+  const registered = fixture.ctx.globalState.get(api.OPEN_PANELS_KEY)['mock-session'].panels;
+  assert.deepEqual(registered.map((p) => [p.artifact, !!p.notice]), [[fixture.artifact, false], [outside, true]], 'the real diagram, and the page for the file outside the folders');
   assert.deepEqual(sourceListeners(), before);
+});
+
+test('the page for a file outside every folder draws the diagram in the same tab once a folder holds the file (M4R-3)', async () => {
+  // Before, the page said "add it to the workspace, then open the file again", and opening it again
+  // in the same group only brought the page forward: VS Code reuses an open editor of the same file.
+  const fixture = await open({});
+  const outsideRoot = h.tempRoot('mlview-outside-');
+  fixtures.push({ root: outsideRoot });
+  fs.writeFileSync(path.join(outsideRoot, 'source.py'), 'fit()\n');
+  const outside = path.join(outsideRoot, 'x.mlview.json');
+  h.writeJson(outside, h.workflow());
+  const panel = await resolveIn(fixture.controller, outside);
+  assert.match(panel.webview.html, /MLView cannot draw this file/);
+  assert.match(panel.webview.html, /Add the folder that holds it to the workspace \(Workspaces: Add Folder to Workspace…\) and this tab draws the diagram/);
+  // A folder that does not hold it changes nothing.
+  vscode.workspace.updateWorkspaceFolders(1, 0, { uri: vscode.Uri.file(h.tempRoot('mlview-other-')) });
+  await h.sleep(15);
+  assert.match(panel.webview.html, /MLView cannot draw this file/);
+  // The reader adds the folder (a multi-root window keeps its extension host).
+  vscode.workspace.updateWorkspaceFolders(2, 0, { uri: vscode.Uri.file(outsideRoot) });
+  await h.waitFor(() => /mountWorkflow/.test(panel.webview.html), 'the page was not replaced by the diagram');
+  assert.deepEqual(panel.webview.options, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(fixture.ctx.extensionUri, 'media')] });
+  panel.fire({ v: 1, type: 'ready' });
+  await h.waitFor(() => h.workflows(panel).length === 1, 'the diagram was not drawn');
+  assert.equal(h.shownRevision(panel), 'r1');
+  await h.sleep(15);
+  const registered = fixture.ctx.globalState.get(api.OPEN_PANELS_KEY)['mock-session'].panels;
+  assert.deepEqual(registered.map((p) => [p.artifact, !!p.notice]), [[fixture.artifact, false], [outside, false]], 'a diagram now, no longer the page');
+  // Closing the tab leaves the registry as for any diagram.
+  panel.dispose();
+  await h.sleep(15);
+  assert.deepEqual(fixture.ctx.globalState.get(api.OPEN_PANELS_KEY)['mock-session'].panels.map((p) => p.artifact), [fixture.artifact]);
 });
 
 test('the last diagram closing disposes the watchers and the citation index; the next one creates them again', async () => {

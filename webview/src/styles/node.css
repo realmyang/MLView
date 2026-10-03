@@ -214,6 +214,46 @@
   pointer-events: none;
 }
 
+/*
+ * Viewer M4 review (M4R-1): a card that also carries a "new" or "changed" tag holds both tags in
+ * one row (render/nodes.ts), the basis tag first, placed exactly where a lone basis tag is (the
+ * same declarations, here and at the compact level and in print: test/revision-changes.test.mjs).
+ * The two never overlap at any zoom: they used to sit at opposite ends of the bottom edge, each the
+ * same size on screen, and ran into each other once the card shrank below about 52%.
+ *
+ * The row is never wider on screen than the card less its 10 px margins (multiplying by --mlv-z
+ * undoes the counter-scale), so it never reaches the next card in a row or that card's tags. When
+ * the card is too narrow for both words, the "new" / "changed" tag gives way and ends in an
+ * ellipsis; the basis tag never shrinks (as a lone basis tag, it can be wider than a card at the
+ * lowest zooms). The card's accessible name, hover card, the Outline and About still say it.
+ */
+.mlv-node > .mlv-node__tags {
+  position: absolute;
+  top: 100%;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  max-width: calc((100% - 20px) * var(--mlv-z, 1));
+  transform-origin: 0 50%;
+  transform: translateY(-50%) scale(calc(1 / var(--mlv-z, 1)));
+  pointer-events: none;
+}
+
+.mlv-node__tags > .mlv-basis-tag {
+  flex: none;
+}
+
+.mlv-node__tags > .mlv-rev-tag {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 12px;
+  text-overflow: ellipsis;
+}
+
 .mlv-group__header .mlv-basis-tag {
   flex: none;
 }
@@ -222,7 +262,9 @@
  * Viewer M4 (step 16): "new" or "changed" since the revision this panel showed before. A word on a
  * solid outline (the basis tags are dashed or dotted) in the text colour, with no hue: colour
  * stays for stale evidence alone. The same size on screen at every zoom, half over the card's
- * bottom edge at the right, opposite the basis tag. An overlay: no box moves.
+ * bottom edge at the left, right after the basis tag when there is one (`.mlv-node__tags` above),
+ * so it never covers that tag, and never the finding badge at the top right of the card below.
+ * An overlay: no box moves.
  */
 .mlv-rev-tag {
   display: inline-flex;
@@ -237,16 +279,6 @@
   font-weight: var(--mlv-fw-semi);
   line-height: 1;
   white-space: nowrap;
-}
-
-.mlv-node > .mlv-rev-tag {
-  position: absolute;
-  top: 100%;
-  right: 10px;
-  z-index: 5;
-  transform-origin: 100% 50%;
-  transform: translateY(-50%) scale(calc(1 / var(--mlv-z, 1)));
-  pointer-events: none;
 }
 
 .mlv-group__header .mlv-rev-tag {
@@ -349,9 +381,9 @@
   transform: translateY(-1px) scale(calc(1 / var(--mlv-z, 1)));
 }
 
-/* Viewer M4: the "new" / "changed" tag hangs from the same edge, at the right. */
-.mlv-canvas[data-lod="compact"] .mlv-node > .mlv-rev-tag {
-  transform-origin: 100% 0;
+/* Viewer M4: the row of a basis tag and a "new" / "changed" tag hangs from the same place. */
+.mlv-canvas[data-lod="compact"] .mlv-node > .mlv-node__tags {
+  transform-origin: 0 0;
   transform: translateY(-1px) scale(calc(1 / var(--mlv-z, 1)));
 }
 

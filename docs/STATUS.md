@@ -180,8 +180,10 @@ frame gains optional `previous` and `replaced` fields; no contract change, no
 new setting, nothing written to disk. Checked by jsdom and mock `vscode` tests
 and in an isolated VS Code 1.139 Extension Development Host on a scratch copy
 of the public vit-cc workspace, where the skill's helper published a child
-revision while the diagram was open; not with a screen reader, on Windows or
-Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+revision while the diagram was open. That live check ran on the step-16 build,
+before step 18 made the diagram an editor; it was not repeated live in the
+diagram editor. Not checked with a screen reader, on Windows or Linux, or as a
+usability check ([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M4, step 18 (open from the Explorer): a `*.mlview.json`
 opens as the diagram when clicked in the Explorer, from Quick Open or from a
@@ -196,7 +198,8 @@ Several diagrams can be open, the same file in two groups included; Reveal in
 Diagram uses the active one, and a diagram is only ever brought forward in its
 own group. The editor is read-only because a custom text editor made VS Code
 ask to confirm every extension restart. The old webview panel is no longer
-created; one restored from an earlier MLView reopens as the diagram editor.
+created; one restored from an earlier MLView reopens as the diagram editor,
+with a fresh view (its selection, zoom and walk place are not carried over).
 After an extension restart MLView replaces the tabs VS Code leaves undrawn, as
 M1 did for panels, with a fresh view. The file watcher now runs only while a
 diagram is open. No contract change, no new setting or keybinding, no
@@ -209,6 +212,23 @@ Git and Timeline diffs. That run found a diagram shown into another group
 became one editor in two groups; fixed and checked again. Not checked on
 Windows or Linux, in remote workspaces, with a screen reader, on VS Code before
 1.139, or as a usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M4, corrections after an independent review of the branch:
+the "new" / "changed" tag now sits in one row with a card's "inferred" or
+"? unresolved" tag, so the two no longer overlap when zoomed out (below about
+52% the "changed" tag used to cover the other), and on a card too narrow for
+both it is cut short with an ellipsis; the card's hover card says what changed;
+a phase renamed under the same id no longer marks its steps changed and is
+listed once in About; About's Changes buttons are named by their visible text;
+About's notes, the change field lists and the Selection tab's "changed since"
+line are muted text (Light+ 5.37:1 or more instead of 4.40:1); a preview
+diagram tab that shows changes is kept open, so a single click on another file
+no longer drops the comparison; after an extension-host restart a diagram whose
+file left the workspace no longer moves the next diagram into another group;
+the page for a file outside every folder draws the diagram once a folder holds
+the file. Each fix has a test that fails without it; checked by jsdom and mock
+`vscode` tests and headless Chrome with a simulated host, not in live VS Code,
+with a screen reader or as a usability check ([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
 button or **Review the claims** in the **⋯** menu goes through the displayed

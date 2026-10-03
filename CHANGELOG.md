@@ -15,8 +15,10 @@ headless Chrome with a simulated host (the screenshot harness), not in live VS
 Code, with a screen reader or as a usability check. It also holds roadmap step
 16, changes since the previous revision, and roadmap step 18, opening a
 `*.mlview.json` from the Explorer as the diagram (each its own part below, with
-how it was checked). No contract change, no new setting or keybinding, no
-geometry change (the golden is byte-identical), and the version is unchanged.
+how it was checked), and the corrections made after an independent review of
+this branch (the last part). No contract change, no new setting or keybinding,
+no geometry change (the golden is byte-identical), and the version is
+unchanged.
 
 The first view's text size (A11Y-7):
 - The diagram opens whole only when it fits at 75% zoom or more, so a card
@@ -72,7 +74,9 @@ Muted text in light themes:
   contrast in Light Modern, about as muted as Dark Modern's description colour
   (59%). Dark themes keep `descriptionForeground` (Dark Modern 5.12-6.08:1,
   Dark+ 4.97-5.74:1) and High Contrast keeps its text colour. Secondary text
-  (`--mlv-text-2`) is unchanged. The exported SVG uses the same colour.
+  (`--mlv-text-2`) is unchanged; a few small notes in the side panel moved to
+  muted text after the review (see the last part). The exported SVG uses the
+  same colour.
 - Not changed: Dark 2026, VS Code 1.139's default dark theme, was not in the
   list of themes for this fix. Its muted text is its `descriptionForeground`
   (#8C8C8C): 4.80:1 on the side panel and cards, but about 3.8:1 on a hovered
@@ -95,8 +99,9 @@ diff was deleted in M1):
   changed, such as "label" or "evidence"); removed items are listed as text
   with their id, and nothing removed is drawn on the diagram. **Review the N
   added and changed claims** starts the walk on them.
-- What counts as changed. A step: its label, detail, basis, phase (its label),
-  group, kind or evidence. A connection: its ends, label, kind, basis or
+- What counts as changed. A step: its label, detail, basis, phase (moved to
+  another phase; a phase renamed under the same id is listed once, see the last
+  part), group, kind or evidence. A connection: its ends, label, kind, basis or
   evidence. A finding: its title, description, severity, basis, What to
   change, cited steps, cited connections, evidence or counter-evidence. Evidence
   is compared by what each cited record cites (file, lines, notebook cell and
@@ -108,8 +113,10 @@ diff was deleted in M1):
   counter-evidence; they are compared here because the Selection tab shows
   them.
 - Steps added or changed carry a small "new" or "changed" tag at the card's
-  bottom-right edge (in a group's header for a group): a word on a solid
-  outline, no colour, the same size on screen at every zoom. The card's
+  bottom-left edge, right after the "inferred" or "? unresolved" tag when there
+  is one (in a group's header for a group): a word on a solid outline, no
+  colour, the same size on screen at every zoom (it sat at the bottom-right
+  edge until the review, see the last part). The card's
   accessible name adds "new in this revision" or "changed in this revision:
   label". The tag is an overlay that moves no box or route: the geometry
   golden is byte-identical, and a test compares the routed geometry with and
@@ -164,7 +171,11 @@ diff was deleted in M1):
   comparison and the walk's filter came back; **Developer: Reload Window**
   dropped the comparison and Provenance said the panel did not show
   cats-dogs-r1. That run found the revision id capitalised by the section
-  heading; the id now keeps its case (checked in jsdom only). Not checked live:
+  heading; the id now keeps its case (checked in jsdom only). This run used the
+  step-16 build, when the diagram was still M3's webview panel; step 18 then
+  made the diagram an editor, and the publish was not repeated live in the
+  diagram editor (nor Reload Window, which now restores the editor itself, nor
+  two diagrams of one file, each with its own comparison). Not checked live:
   a revision that does not follow (the helper publishes only a child of the
   revision in the file; the tests write one directly), a screen reader,
   Windows or Linux, or usability. The step's owner input (one
@@ -194,7 +205,11 @@ Open from the Explorer (roadmap step 18):
   extension-host restart, so adding a second folder to the window asked
   "Please confirm restart of extensions" (seen live in 1.139). The diagram
   draws the file on disk, never an editor's unsaved text; unsaved changes are
-  reported in the banner, as before, and saving the JSON redraws.
+  reported in the banner, as before. A saved edit is drawn when it is a new
+  revision (a new `revision.id`, as the skill's helper publishes it); an edit
+  saved under the displayed revision's id is refused, the diagram keeps that
+  revision and the banner says so, until **MLView: Open Generated Diagram**
+  shows the file as it is (unchanged since M1).
 - Several diagrams at once: diagrams of different files, and the same file in
   two groups, each with its own selection, walk and revision lineage. Reveal in
   Diagram uses one diagram per file: the active one, else the one in front of
@@ -206,7 +221,8 @@ Open from the Explorer (roadmap step 18):
   `AuthoredPanel` as before. The old webview panel (`mlview.authoredDiagram`,
   a different view type from `mlview.diagram`) is no longer created. One
   restored from before M4 is replaced by the diagram editor in its group and
-  closed.
+  closed, with a fresh view: its selection, zoom and the walk's place are not
+  carried over (Reload Window kept them for M3's panel).
 - Restarts: **Developer: Reload Window** brings diagram editors back by itself,
   with the selection and view (live). After an extension-host restart (adding a
   second folder to a one-folder window is one), VS Code leaves diagram tabs it
@@ -258,7 +274,87 @@ Open from the Explorer (roadmap step 18):
   workspaces, a screen reader, or usability. A diagram in a preview tab is
   replaced when another file opens in its group as a preview, as any preview
   editor is: a jump or walk step from one diagram replaced another diagram's
-  preview tab in the group it opened the source in (seen live).
+  preview tab in the group it opened the source in (seen live). Since the
+  review, a diagram that shows changes is kept open (see the last part).
+
+Corrections after the review (independent reviewers' findings on this branch;
+each fix has a test that fails with the fix taken out):
+- The two card tags at low zoom (M4R-1, UX-M4-4). Zoomed out below about 52%,
+  a card's "changed" tag ran into its "inferred" tag and was drawn over it, and
+  a "new" tag at the bottom-right edge could cover the finding badge of the
+  card below. The "new" or "changed" tag now sits in one row with the basis
+  tag, right after it, where a lone basis tag sits; the row is never wider on
+  screen than the card, so it never reaches the next card or its tags. On a
+  card too narrow for both words, "new" or "changed" is cut short with an
+  ellipsis ("chan…"); the basis tag is never cut. Headless Chrome with a
+  simulated host, on a synthetic second revision of vit-cc with every
+  top-level step inferred and relabelled, at 90, 75, 62, 52, 43, 36 and 30% zoom:
+  no card's two tags overlap and no revision tag touches another card's basis
+  tag (before: 20 of 21 cards overlapped at 52%, all 21 below, by up to 38 px).
+  A tag still hangs over the top of the card below at those zooms, as a lone
+  basis tag has since M2.
+- The card's hover card now says what changed ("Changed since revision r1:
+  label."). The card's tag takes no pointer events, so its own tooltip never
+  showed; that tooltip is gone (UX-M4-7).
+- Renamed phases (M4R-4). A step's phase was compared by its label, so
+  renaming a phase marked every step in it "changed: phase" and the rename
+  itself was never named. A step now changes its phase only when it moves to
+  another phase (a phase keeps its identity through its id, or through its
+  label when its id is gone and exactly one new phase has that label), and
+  About lists a renamed phase once, under **Phases** ("“Data” is now “Data
+  loading”"). The legend says so.
+- About's Changes buttons are named by what they show (A11Y-M4-1, WCAG 2.5.3):
+  **Review the N added and changed claims** was named by its tooltip, and each
+  link "Select the step …", without its "changed" tag, its fields or the
+  finding's F label. A link's name is now its text followed by the words for
+  its tag and fields ("F1 · Clip missing, changed in this revision:
+  severity"), and the tag and field list beside it are hidden from screen
+  readers. Chrome's accessibility tree (headless) read "Review the 23 added
+  and changed claims" and "… (cell 1) (v2), changed in this revision: label and
+  basis". Not checked with a screen reader or voice control.
+- Muted notes (A11Y-M4-2). About's notes and provenance line, the Changes
+  section's field lists and removed ids, the Selection tab's "changed since"
+  line and the muted freshness words ("unchanged", "not checked") are now
+  muted text: in Light+ they were 4.40:1, and in Light Modern they were the
+  text colour. Now Light+ #5C5C5C (5.37:1 or more), Light Modern #5E5E5E; no
+  change in dark or High Contrast themes, where both colours are the same. Not
+  changed: `--mlv-text-2` itself, so the rest of the secondary text in Light+
+  stays 4.40:1 and is lighter than muted text there; the dashed borders of
+  inferred cards and some strokes use that colour too, so changing it is left
+  for the owner.
+- A diagram that shows changes keeps its tab (UX-M4-3). A single click in the
+  Explorer opens the diagram as a preview tab, and the next file opened as a
+  preview in its group replaced it, dropping the comparison, which lives only
+  in that diagram. When a diagram in a preview tab shows **Changes since**, it
+  is kept open (as **Keep Open** does), at once if it is in front of its group,
+  else when it comes to the front; the focus does not move. A preview diagram
+  still behind another tab can still be replaced, and then its comparison is
+  gone.
+- Restarts with a file that left the workspace (M4R-2). After an
+  extension-host restart, the dead tab of a diagram whose file is no longer in
+  a workspace folder is closed, which closes its group when it was alone, and
+  VS Code numbers the groups after it again; the next dead diagram then opened
+  in the wrong group, possibly the code's. Dead tabs are now replaced from the
+  last group to the first, and each is closed as the tabs API holds it at that
+  moment (VS Code hands out new tab objects when groups change).
+- The page for a file outside every workspace folder (M4R-3) said "add it to
+  the workspace, then open the file again", but opening it again only brought
+  the same page forward. That tab now draws the diagram as soon as a folder
+  holds the file (a multi-root window), and the page is in the per-window list
+  of open diagrams, so after an extension-host restart (adding a folder to a
+  one-folder window) the next host draws the diagram in its place, or shows the
+  page again while the file is still outside. The page says: add the folder
+  to the workspace and this tab draws the diagram, or open that folder and
+  open the file there.
+- Documentation (INT-1, INT-2, INT-3, DOC-M4-5, DOC-M4-6): saving the JSON
+  redraws only a new revision (above); the step-16 live check ran on the panel
+  build, before step 18 (above); a panel from before M4 reopens with a fresh
+  view; **MLView: Open Generated Diagram** brings an open diagram to the front
+  of its own group instead of opening one beside; and "diffs show text" is
+  qualified as checked in VS Code 1.139 only.
+- Checked by jsdom and mock `vscode` tests and headless-Chrome probes of a
+  simulated host. None of these corrections was run in live VS Code, with a
+  screen reader or as a usability check.
 
 ## Unreleased — viewer M3: review walk and the way back
 

@@ -3,7 +3,8 @@
  *
  *   Changes since <id>     viewer M4 (step 16), only after a new revision replaced the one this
  *                          panel showed: the steps, connections and findings added, removed or
- *                          changed, by id (`revisiondiff.ts`); or one line saying why none are listed
+ *                          changed, by id (`revisiondiff.ts`), and phases renamed; or one line
+ *                          saying why none are listed
  *   Asked                  `request.question`, clamped, with Show all
  *   What the model traced  `coverage.summary`, split into paragraphs at its own run-in heads
  *                          ("Data:", "Model:" …), only when it has at least three; else as written
@@ -21,7 +22,7 @@
 import { add, button, el, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { STALE_TEXT } from '../freshness.js';
-import { changeTagText, fieldList, markedTotal } from '../revisiondiff.js';
+import { changeSpoken, changeTagText, fieldList, markedTotal } from '../revisiondiff.js';
 import type { ChangeGroup, ChangeKind, ItemChange, RevisionDiff } from '../revisiondiff.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { StaleReason, WorkflowDocument } from '../types.js';
@@ -255,10 +256,10 @@ export const CHANGES_SCOPE =
   'Steps, connections and findings are matched by id, so one whose id changed is listed as removed and added. ' +
   'This covers only revisions this panel has shown; closing the panel, reloading the window or restarting extensions forgets it.';
 
-const GROUPS: { key: 'steps' | 'connections' | 'findings'; title: string; noun: string }[] = [
-  { key: 'steps', title: 'Steps', noun: 'step' },
-  { key: 'connections', title: 'Connections', noun: 'connection' },
-  { key: 'findings', title: 'Findings', noun: 'finding' },
+const GROUPS: { key: 'steps' | 'connections' | 'findings'; title: string }[] = [
+  { key: 'steps', title: 'Steps' },
+  { key: 'connections', title: 'Connections' },
+  { key: 'findings', title: 'Findings' },
 ];
 
 /** "1 added · 2 changed", or "none added, removed or changed". */
@@ -281,11 +282,14 @@ function changesSection(root: HTMLElement, diff: RevisionDiff, s: AboutPaneState
   const total = GROUPS.reduce((n, g) => n + diff[g.key].added.length + diff[g.key].changed.length + diff[g.key].removed.length, 0);
   if (!total) {
     add(box, el('p', 'mlv-about__text', 'No step, connection or finding was added, removed or changed.'));
+    phaseRenames(box, diff);
     return;
   }
   if (marked && s.onReviewChanges) {
-    const review = button('mlv-link mlv-about__review', 'Review the ' + marked + (marked === 1 ? ' added or changed claim' : ' added and changed claims'),
-      'Walk the claims added or changed in this revision, in the diagram\'s order (the walk\'s "Changed in this revision" filter)');
+    // Viewer M4 review (A11Y-M4-1): named by what it shows (WCAG 2.5.3, Label in Name), so "Click
+    // Review the 7 added and changed claims" reaches it by voice; the title explains the filter.
+    const review = button('mlv-link mlv-about__review', 'Review the ' + marked + (marked === 1 ? ' added or changed claim' : ' added and changed claims'));
+    review.title = 'Walk the claims added or changed in this revision, in the diagram\'s order (the walk\'s "Changed in this revision" filter)';
     on(review, 'click', () => s.onReviewChanges && s.onReviewChanges());
     add(box, el('p', 'mlv-about__text')).appendChild(review);
   }
@@ -299,12 +303,39 @@ function changesSection(root: HTMLElement, diff: RevisionDiff, s: AboutPaneState
     const items = group.added.concat(group.changed, group.removed);
     if (!items.length) continue;
     const list = add(block, el('ul', 'mlv-about__changes'));
-    for (const item of items) list.appendChild(changeRow(item, g.noun, s));
+    for (const item of items) list.appendChild(changeRow(item, s));
+  }
+  phaseRenames(box, diff);
+}
+
+/**
+ * Viewer M4 review (M4R-4): phases renamed under the same id, listed once. Their steps did not
+ * move, so they carry no tag for it.
+ */
+function phaseRenames(box: HTMLElement, diff: RevisionDiff): void {
+  if (!diff.phases.length) return;
+  const block = add(box, el('div', 'mlv-about__changegroup'));
+  block.setAttribute('data-change-group', 'phases');
+  const h = add(block, el('h5', 'mlv-rail__heading mlv-about__subhead'));
+  add(h, el('span', 'mlv-rail__headtext', 'Phases'));
+  add(h, el('span', 'mlv-rail__count', diff.phases.length + ' renamed'));
+  const list = add(block, el('ul', 'mlv-about__changes'));
+  for (const phase of diff.phases) {
+    const li = add(list, el('li', 'mlv-about__change', '\u201C' + phase.from + '\u201D is now \u201C' + phase.to + '\u201D'));
+    li.setAttribute('data-change', 'renamed');
+    li.setAttribute('data-change-kind', 'phase');
+    li.setAttribute('data-change-id', phase.id);
   }
 }
 
-/** One added, changed or removed item: its tag in words, then a link to it (removed: text only). */
-function changeRow(item: ItemChange, noun: string, s: AboutPaneState): HTMLElement {
+/**
+ * One added, changed or removed item: its tag in words, then a link to it (removed: text only).
+ * Viewer M4 review (A11Y-M4-1): the link is named by its own text (WCAG 2.5.3, Label in Name: the
+ * F label and title it shows), followed by hidden words that say what the tag and the field list
+ * show, ", changed in this revision: label", as the Outline's rows do. The tag and the field list
+ * beside it are then hidden from screen readers, so nothing is read twice.
+ */
+function changeRow(item: ItemChange, s: AboutPaneState): HTMLElement {
   const li = el('li', 'mlv-about__change');
   li.setAttribute('data-change', item.status);
   li.setAttribute('data-change-kind', item.kind);
@@ -318,12 +349,15 @@ function changeRow(item: ItemChange, noun: string, s: AboutPaneState): HTMLEleme
     add(li, el('span', 'mlv-about__changeid mlv-mono', ' ' + item.id));
     return li;
   }
+  tag.setAttribute('aria-hidden', 'true');
   const issue = item.kind === 'issue' && s.index ? s.index.issueById.get(item.id) : undefined;
   const text = (issue && issue.short ? issue.short + ' · ' : '') + item.title;
-  const link = button('mlv-link mlv-about__changelink', text, 'Select the ' + noun + ' ' + item.title);
+  const link = el('button', 'mlv-link mlv-about__changelink', text) as HTMLButtonElement;
+  link.type = 'button';
+  add(link, el('span', 'mlv-sr', ', ' + changeSpoken(item)));
   on(link, 'click', () => s.onShowChange && s.onShowChange(item.kind, item.id));
   li.appendChild(link);
-  if (item.status === 'changed' && item.fields.length) add(li, el('span', 'mlv-about__changefields', ' · ' + fieldList(item.fields)));
+  if (item.status === 'changed' && item.fields.length) add(li, el('span', 'mlv-about__changefields', ' · ' + fieldList(item.fields))).setAttribute('aria-hidden', 'true');
   return li;
 }
 

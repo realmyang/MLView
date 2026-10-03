@@ -143,6 +143,9 @@ export class CanvasView {
       () => this.viewport.vp,
       () => this.viewport.size(),
     );
+    // Viewer M4 review (UX-M4-7): a card's hover card says what changed since the revision this
+    // panel showed before (the card's tag takes no pointer events, so its tooltip never showed).
+    this.tooltip.revisionMark = (id) => revisionMarkOf(this.revisionChanges, id);
     this.canvasEl.appendChild(this.tooltip.root);
 
     // Viewer M3: the phase index, inside the canvas (so in the bottom sheet's layout it stays above

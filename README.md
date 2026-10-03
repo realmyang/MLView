@@ -45,7 +45,8 @@ in the runbook. Only install one copy of the skill in each discovery path.
 2. The assistant publishes a `*.mlview.json` file. Click it in the Explorer: it
    opens as the diagram (to see the JSON, use **View: Reopen Editor With…** →
    **Text Editor**). **MLView: Open Generated Diagram** opens it beside the
-   editor you are in. Click a step, connection or finding to see its
+   editor you are in (or brings its open diagram to the front of its own
+   group). Click a step, connection or finding to see its
    claim and quotes. Press Enter, double-click, or use an **Open** link to open
    the cited lines beside the diagram; focus stays in the diagram. Alt+Enter
    opens them and moves focus to the editor.
@@ -103,9 +104,12 @@ changed items are links (a changed one says what changed, such as the label or
 the evidence); removed ones are listed by name and never drawn. Added and
 changed steps carry a small "new" or "changed" tag on their card, connections
 and findings carry it in the Outline, the Findings list and Selection, and the
-walk gains **Changed in this revision**. Only revisions this panel has shown
-are compared: closing the panel or reloading the window forgets the
-comparison. A tag says the authored text changed, not whether the claim holds.
+walk gains **Changed in this revision**. A renamed phase is listed once and
+marks none of its steps. Only revisions this panel has shown are compared:
+closing the panel or reloading the window forgets the comparison (a diagram in
+a preview tab is kept open once it shows changes, so another file does not
+replace it). A tag says the authored text changed, not whether the claim
+holds.
 
 To see the whole workflow at once, press Shift+0 (or **Phase overview** in the
 **⋯** menu). The overview shows each phase as a block of its step titles, with

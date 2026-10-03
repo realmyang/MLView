@@ -383,6 +383,12 @@ let shownEditorsVisible = false;
 let shownEditorsTabbed = false;
 /** Viewer M4, opt-in: like VS Code's default `workbench.editor.closeEmptyGroups`, closing a group's last tab removes the group. */
 let closeEmptyGroups = false;
+/**
+ * Viewer M4 review (M4R-2), opt-in: when groups close, every remaining tab is a new object, as VS
+ * Code's extension host rebuilds its tab model on a group change; a tab object kept from before is
+ * then in no group.
+ */
+let freshTabsOnGroupChange = false;
 
 /**
  * Viewer M2 live fix: the column an editor shown with `viewColumn` lands in. With tab groups set
@@ -623,8 +629,16 @@ function makeTab(group, spec) {
       ? new TabInputCustom(Uri.file(spec.custom), spec.customViewType || 'mlview.diagram')
       : spec.viewType !== undefined ? new TabInputWebview(spec.viewType) : new TabInputText(Uri.file(spec.uri || '/untitled')),
     isActive: !!spec.isActive,
+    /** Viewer M4 review (UX-M4-3): a preview tab, which the next preview opened in its group replaces. */
+    isPreview: !!spec.isPreview,
     group
   };
+}
+/** The same tab as a new object (see `freshTabsOnGroupChange`). */
+function freshTab(tab) {
+  const copy = { label: tab.label, input: tab.input, isActive: tab.isActive, isPreview: tab.isPreview, group: tab.group };
+  if (tab.panel) linkTab(copy, tab.panel);
+  return copy;
 }
 /** The tab shows `panel`: its label is the panel's title, and its front state is the panel's visibility. */
 function linkTab(tab, panel) {
@@ -677,12 +691,16 @@ async function openWithCustomEditor(uri, viewType, options) {
       }
       const existing = group.tabs.find((tab) => tab.input instanceof TabInputCustom && tab.input.viewType === viewType && tab.input.uri.fsPath === uri.fsPath);
       if (existing) {
+        // Viewer M4 review (UX-M4-3): like VS Code, `preview: false` keeps an open preview editor.
+        if (options && typeof options === 'object' && options.preview === false) existing.isPreview = false;
         vscode.__activateTab(existing);
         return undefined;
       }
     }
   }
   const panel = makeWebviewPanel(viewType, path.basename(uri.fsPath), { viewColumn: column }, {}, undefined, uri);
+  // Viewer M4 review (UX-M4-3): `preview: true` stands in for an Explorer single click, a preview tab.
+  if (panel.tab && options && typeof options === 'object' && options.preview === true) panel.tab.isPreview = true;
   const token = new CancellationTokenSource().token;
   const document = await entry.provider.openCustomDocument(uri, { backupId: undefined, untitledDocumentData: undefined }, token);
   await entry.provider.resolveCustomEditor(document, panel, token);
@@ -796,6 +814,7 @@ const vscode = {
           tabGroups.forEach((group, index) => {
             group.viewColumn = index + 1;
             for (const tab of group.tabs) if (tab.panel && !tab.panel.disposed && tab.panel.viewColumn !== index + 1) tab.panel.__setViewState({ viewColumn: index + 1 });
+            if (freshTabsOnGroupChange) group.tabs = group.tabs.map(freshTab);
           });
           tabGroupEvents.fire({ opened: [], closed, changed: tabGroups });
         }
@@ -1158,6 +1177,10 @@ const vscode = {
   __setCloseEmptyGroups(enabled) {
     closeEmptyGroups = !!enabled;
   },
+  /** Viewer M4 review: whether a closed group gives every remaining tab a new object (default false). */
+  __setFreshTabsOnGroupChange(enabled) {
+    freshTabsOnGroupChange = !!enabled;
+  },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
     documents.set(docKey(fsPath), text);
@@ -1341,6 +1364,7 @@ const vscode = {
     recorded.splitReveals.length = 0;
     shownEditorsTabbed = false;
     closeEmptyGroups = false;
+    freshTabsOnGroupChange = false;
     vscode.window.activeNotebookEditor = undefined;
     tabGroups = [];
     tabEvents.dispose();

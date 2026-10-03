@@ -68,7 +68,7 @@ const FRESHNESS_ROWS: LegendRow[] = [
  */
 const REVISION_ROWS: LegendRow[] = [
   { group: 'revision', key: 'added', label: 'new', detail: 'Added since the revision this panel showed before, when the new revision names that one as its parent. About lists every step, connection and finding added, removed or changed.' },
-  { group: 'revision', key: 'changed', label: 'changed', detail: 'The same id with a different label, detail, basis, phase, group, kind or cited evidence (file, lines or quote). Connections and findings carry the tag in the Outline, the Findings list and the Selection tab. A tag says only that the authored text changed, not whether the claim holds.' },
+  { group: 'revision', key: 'changed', label: 'changed', detail: 'The same id with a different label, detail, basis, group, kind or cited evidence (file, lines or quote), or moved to another phase; a phase that was only renamed is listed once in About and tags none of its steps. Connections and findings carry the tag in the Outline, the Findings list and the Selection tab. A tag says only that the authored text changed, not whether the claim holds.' },
 ];
 
 /** The legend's content, derived from the drawing tables. */

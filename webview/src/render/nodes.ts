@@ -26,14 +26,17 @@ export interface RevisionMark {
 
 /**
  * Viewer M4: the "new" or "changed" tag on a card or a group's header. Words, never colour alone;
- * the same size on screen at every zoom (node.css), at the card's bottom-right edge, where it
- * covers no title and moves nothing. `aria-hidden`: the card's accessible name says it.
+ * the same size on screen at every zoom (node.css), at the card's bottom-left edge right after the
+ * basis tag (`buildNodeCard`), where it covers no title and moves nothing. `aria-hidden`: the
+ * card's accessible name says it. Viewer M4 review (UX-M4-7): a card's tag takes no pointer events
+ * (node.css), so its tooltip never showed; the card's hover card says what changed instead
+ * (render/tooltip.ts). A group header's tag can be hovered, so `title` keeps its tooltip.
  */
-export function revisionTag(mark: RevisionMark): HTMLElement {
+export function revisionTag(mark: RevisionMark, title = false): HTMLElement {
   const tag = el('span', 'mlv-rev-tag', changeTagText(mark));
   tag.setAttribute('data-change', mark.status);
   tag.setAttribute('aria-hidden', 'true');
-  tag.title = changeSentence(mark, mark.since) + ' About lists every change.';
+  if (title) tag.title = changeSentence(mark, mark.since) + ' About lists every change.';
   return tag;
 }
 
@@ -293,9 +296,15 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean, mark?: Rev
   if (v.stale) card.appendChild(staleMark(v));
   // Viewer M2: inferred and unresolved cards carry a tag; observed cards carry nothing.
   const tag = basisTag(n.basis, groupLike ? 'group' : 'step');
-  if (tag) card.appendChild(tag);
-  // Viewer M4: added or changed since the revision this panel showed before.
-  if (mark) card.appendChild(revisionTag(mark));
+  if (mark) {
+    // Viewer M4: added or changed since the revision this panel showed before. Viewer M4 review
+    // (M4R-1): in one row with the basis tag, which comes first, where a lone basis tag sits, so
+    // the two never overlap when the card shrinks (node.css `.mlv-node__tags`).
+    const row = add(card, el('span', 'mlv-node__tags'));
+    row.setAttribute('aria-hidden', 'true');
+    if (tag) row.appendChild(tag);
+    row.appendChild(revisionTag(mark));
+  } else if (tag) card.appendChild(tag);
 
   if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
@@ -381,7 +390,7 @@ export function buildGroupBox(v: NodeVisual, mark?: RevisionMark): HTMLElement {
   // Viewer M2: the basis only when it is not `observed`, as the same tag a card carries.
   const tag = basisTag(n.basis, 'group');
   if (tag) header.appendChild(tag);
-  if (mark) header.appendChild(revisionTag(mark));
+  if (mark) header.appendChild(revisionTag(mark, true));
   add(header, el('span', 'mlv-group__count', stepsText(v.descendants)));
   const cluster = severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);

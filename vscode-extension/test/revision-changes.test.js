@@ -123,3 +123,64 @@ test('Open Generated Diagram on the open panel keeps the comparison; a new panel
   assert.equal(lastFrame(next.panel).document.revision.id, 'r2');
   assert.equal(comparison(lastFrame(next.panel)), 'none');
 });
+
+/**
+ * Viewer M4 review (UX-M4-3): a diagram opened as a preview (a single click in the Explorer, here
+ * `vscode.openWith` with `preview: true`) in group 1, beside a text file's tab in the same group.
+ */
+async function previewDiagram() {
+  const fixture = await open({});
+  const { vscode } = h;
+  fixture.panel.dispose();
+  const groups = vscode.__setTabGroups([{ viewColumn: 1, isActive: true, tabs: [{ label: 'source.py', uri: fixture.root + '/source.py', isActive: true }] }]);
+  await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(fixture.artifact), 'mlview.diagram', { viewColumn: 1, preview: true });
+  const panel = vscode.__recorded.panels.at(-1);
+  panel.fire({ v: 1, type: 'ready' });
+  await h.waitFor(() => h.workflows(panel).length === 1, 'the preview diagram was not drawn');
+  const tab = panel.tab;
+  assert.equal(tab.isPreview, true, 'precondition: a preview tab');
+  vscode.__recorded.openWith.length = 0;
+  return { ...fixture, panel, tab, text: groups[0].tabs[0] };
+}
+const keeps = () => h.vscode.__recorded.openWith.filter((call) => call.options && call.options.preview === false);
+
+test('a preview diagram that shows changes since the revision it showed before is kept open, with the focus left where it is (UX-M4-3)', async () => {
+  // A preview tab is replaced by the next file opened as a preview in its group, and the comparison
+  // lives only in the panel: a single click on another file in the Explorer dropped it.
+  const { panel, artifact, tab } = await previewDiagram();
+  h.writeJson(artifact, rev('r2', 'r1', doc => { doc.nodes[0].label = 'Fit the model'; }));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(comparison(lastFrame(panel)), 'r1');
+  await h.waitFor(() => tab.isPreview === false, 'the diagram\'s tab stayed a preview');
+  assert.deepEqual(keeps().map((call) => [call.uri.fsPath, call.viewType, call.options.viewColumn, call.options.preserveFocus]), [[artifact, 'mlview.diagram', 1, true]]);
+  assert.equal(h.vscode.__recorded.splitReveals.length, 0, 'kept in its own group');
+  assert.equal(h.vscode.__recorded.panels.at(-1), panel, 'the same diagram, not a new one');
+  // Once kept, nothing more is asked of VS Code.
+  h.writeJson(artifact, rev('r3', 'r2'));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(keeps().length, 1);
+});
+
+test('a preview diagram behind another tab is kept open when it comes to the front; a revision with no changes listed leaves the preview alone (UX-M4-3)', async () => {
+  const { panel, artifact, tab, text } = await previewDiagram();
+  // A revision that does not follow the shown one lists no changes: nothing to keep.
+  h.writeJson(artifact, rev('r5', 'r9'));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(comparison(lastFrame(panel)), 'replaced:r1');
+  await h.sleep(15);
+  assert.equal(tab.isPreview, true);
+  assert.equal(keeps().length, 0);
+  // Behind the text file: its child arrives, but the tab is not brought forward to keep it.
+  h.vscode.__activateTab(text);
+  assert.equal(panel.visible, false);
+  h.writeJson(artifact, rev('r6', 'r5'));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(comparison(lastFrame(panel)), 'r5');
+  await h.sleep(15);
+  assert.equal(tab.isPreview, true, 'not while it is behind another tab');
+  assert.equal(keeps().length, 0);
+  // The reader brings it to the front: kept then.
+  h.vscode.__activateTab(tab);
+  await h.waitFor(() => tab.isPreview === false, 'the tab was not kept when it came to the front');
+  assert.equal(keeps().length, 1);
+});

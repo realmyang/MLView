@@ -237,6 +237,25 @@ test('muted text is visibly muted outside high contrast, and the text colour in 
   }
 });
 
+test('About\'s notes and provenance line, the Changes section\'s field lists and removed ids, and the Selection pane\'s "changed since" line are muted text (A11Y-M4-2)', async () => {
+  // Viewer M4 review (A11Y-M4-2): this M4 copy was --mlv-text-2, VS Code's descriptionForeground:
+  // 4.40:1 on the rail in Light+ and the text colour itself in Light Modern. It is muted text now,
+  // which the tests above hold to 4.5:1 or more on the rail and to a muted share of the text's
+  // contrast in every shipped theme.
+  const rail = await css('rail.css');
+  for (const selector of ['.mlv-about__meta, .mlv-about__note', '.mlv-about__changeid, .mlv-about__changefields', '.mlv-insp__change', '.mlv-quote__fresh.is-muted']) {
+    assert.equal(block(rail, selector).color, 'var(--mlv-text-3)', selector);
+  }
+  const themes = await themeVars();
+  for (const name of ['light-plus', 'light-modern']) {
+    const { label, vars } = themes[name];
+    const surface = over(colour('var(--mlv-surface)', vars), colour('var(--mlv-bg)', vars));
+    const ink = over(colour('var(--mlv-text-3)', vars), surface);
+    assert.ok(contrast(ink, surface) >= 4.5, label + ': ' + contrast(ink, surface).toFixed(2));
+    assert.notEqual(toHex(ink), toHex(over(colour('var(--mlv-text)', vars), surface)), label + ': not the text colour');
+  }
+});
+
 let paletteModule = null;
 function palette() {
   if (!paletteModule) {

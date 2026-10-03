@@ -317,8 +317,9 @@ test('two dead diagrams of one file come back each in its own group', async () =
     { viewColumn: 2, tabs: [editorTab(fixture.artifact)] }
   ]);
   assert.equal(await controller.recoverAfterRestart(), 2);
+  // Viewer M4 review (M4R-2): the last group is handled first, so the order of opening is not checked.
   const opened = vscode.__recorded.panels.slice(before);
-  assert.deepEqual(opened.map((panel) => [panel.viewColumn, panel.customUri.fsPath]), [[1, fixture.artifact], [2, fixture.artifact]]);
+  assert.deepEqual(opened.map((panel) => [panel.viewColumn, panel.customUri.fsPath]).sort((x, y) => x[0] - y[0]), [[1, fixture.artifact], [2, fixture.artifact]]);
   assert.deepEqual(vscode.window.tabGroups.all.map(tabNames), [['run.mlview.json*'], ['run.mlview.json*']]);
 });
 
@@ -373,6 +374,103 @@ test('a registered diagram no longer in the workspace: its dead tab is closed an
   assert.equal(created(), before);
   assert.equal(vscode.__recorded.openWith.length, 0);
   assert.equal(tabGroups[1].tabs.length, 0);
+});
+
+/**
+ * Viewer M4 review (M4R-2): two folders, each with an artifact; the registry of the host before
+ * the restart lists both diagrams, each alone in its group, with code in a third group. After the
+ * restart only `kept` is a workspace folder (removing the first folder restarts the host).
+ */
+async function twoFolderRestart(order, { fresh = false } = {}) {
+  vscode.__reset();
+  const root = h.tempRoot('mlview-renumber-');
+  fixtures.push({ root });
+  const A = path.join(root, 'A');
+  const B = path.join(root, 'B');
+  for (const dir of [A, B]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'source.py'), 'fit()\n');
+    fs.writeFileSync(path.join(dir, 'run.mlview.json'), JSON.stringify(h.workflow()));
+  }
+  fs.writeFileSync(path.join(B, 'other.py'), 'x\n');
+  const gone = path.join(A, 'run.mlview.json');
+  const kept = path.join(B, 'run.mlview.json');
+  const columns = order === 'gone-first' ? { gone: 1, kept: 2 } : { gone: 2, kept: 1 };
+  const state = vscode.__memento();
+  await state.update(KEY, { 'mock-session': { at: Date.now(), panels: [editorEntry(gone, columns.gone), editorEntry(kept, columns.kept)] } });
+  vscode.__setWorkspaceFolders([B]);
+  const groups = [
+    { viewColumn: columns.gone, tabs: [editorTab(gone)] },
+    { viewColumn: columns.kept, tabs: [editorTab(kept)] },
+  ].sort((a, b) => a.viewColumn - b.viewColumn);
+  vscode.__setTabGroups([...groups, { viewColumn: 3, isActive: true, tabs: [textTab(path.join(B, 'other.py'))] }]);
+  vscode.__setCloseEmptyGroups(true);
+  vscode.__setShownEditorsTabbed(true);
+  vscode.__setFreshTabsOnGroupChange(fresh);
+  const controller = new api.AuthoredDiagramController(h.context(state), h.log(), undefined, undefined, SETTLE);
+  controller.register();
+  fixtures.push({ controller });
+  const before = created();
+  const opened = await controller.recoverAfterRestart();
+  const layout = vscode.window.tabGroups.all.map((group) => [group.viewColumn, group.tabs.map((tab) => tab.label + (tab.input instanceof vscode.TabInputCustom ? ' [' + path.basename(path.dirname(tab.input.uri.fsPath)) + ']' : '') + (tab.isActive ? '*' : ''))]);
+  return { opened, layout, made: created() - before, kept };
+}
+
+test('a dead diagram whose file left the workspace, alone in the first group, does not move the next dead diagram into the code\'s group (M4R-2)', async () => {
+  // Closing the first group's dead tab closes that group, and VS Code numbers the others from 1
+  // again. The diagram recorded in column 2 was reopened in column 2, which by then was the code's
+  // group: [other.py] [B diagram] instead of [B diagram] [other.py].
+  const { opened, layout, made } = await twoFolderRestart('gone-first');
+  assert.equal(opened, 1);
+  assert.equal(made, 1, 'one diagram drawn again');
+  assert.deepEqual(layout, [[1, ['run.mlview.json [B]*']], [2, ['other.py*']]]);
+});
+
+test('the dead tab is closed as the tabs API holds it after a group closed, so the diagram is drawn again, not the dead tab brought forward (M4R-2)', async () => {
+  // VS Code hands the extension new tab objects when the groups change. The dead tab found before
+  // that is in no group any more: closing it did nothing, and opening the diagram in its group
+  // only brought the dead tab forward.
+  const { opened, layout, made, kept } = await twoFolderRestart('kept-first', { fresh: true });
+  assert.equal(opened, 1);
+  assert.equal(made, 1, 'a new diagram, not the dead tab brought forward');
+  assert.deepEqual(layout, [[1, ['run.mlview.json [B]*']], [2, ['other.py*']]]);
+  assert.equal(vscode.window.tabGroups.all[0].tabs[0].panel, vscode.__recorded.panels.at(-1));
+  assert.equal(vscode.__recorded.panels.at(-1).customUri.fsPath, kept);
+});
+
+test('after a restart, the dead page for a file outside the folders comes back as the diagram once a folder holds the file, else as the page (M4R-3)', async () => {
+  // Adding a folder to a one-folder window restarts the extension host. The page's tab was not in
+  // the registry, so it stayed: the old host's page, for a file that is now in the workspace.
+  const fixture = await parentFolderPanel();
+  const outsideRoot = h.tempRoot('mlview-outside-');
+  fixtures.push({ root: outsideRoot });
+  fs.writeFileSync(path.join(outsideRoot, 'source.py'), 'fit()\n');
+  const outside = path.join(outsideRoot, 'x.mlview.json');
+  h.writeJson(outside, h.workflow());
+  vscode.__setTabGroups([{ viewColumn: 1, tabs: [] }, { viewColumn: 2, tabs: [] }]);
+  await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(outside), 'mlview.diagram', { viewColumn: 1 });
+  const page = vscode.__recorded.panels.at(-1);
+  assert.match(page.webview.html, /MLView cannot draw this file/);
+  await h.waitFor(() => entry(fixture.ctx.globalState)?.panels.some((p) => p.notice && p.artifact === outside && p.column === 1), 'the page was not registered with its group');
+
+  // The restart, with the page's folder added: the page's dead tab is replaced by the diagram.
+  const groups = [{ viewColumn: 1, tabs: [editorTab(outside)] }, { viewColumn: 2, tabs: [editorTab(fixture.artifact)] }];
+  const { controller } = restart(fixture, groups, { folders: [fixture.root, outsideRoot] });
+  assert.equal(await controller.recoverAfterRestart(), 2, 'the diagram and the page, both drawn as diagrams');
+  const shown = vscode.window.tabGroups.all.map((group) => group.tabs.map((tab) => [tab.label, tab.panel ? /mountWorkflow/.test(tab.panel.webview.html) : 'dead']));
+  assert.deepEqual(shown, [[['x.mlview.json', true]], [['run.mlview.json', true]]]);
+
+  // Another restart (say an extension update) while the file is still outside: the page comes back.
+  const second = await parentFolderPanel();
+  vscode.__setTabGroups([{ viewColumn: 1, tabs: [] }, { viewColumn: 2, tabs: [] }]);
+  await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(outside), 'mlview.diagram', { viewColumn: 1 });
+  await h.waitFor(() => entry(second.ctx.globalState)?.panels.some((p) => p.notice), 'the page was not registered');
+  const again = restart(second, [{ viewColumn: 1, tabs: [editorTab(outside)] }, { viewColumn: 2, tabs: [editorTab(second.artifact)] }]);
+  assert.equal(await again.controller.recoverAfterRestart(), 1, 'one diagram; the page is not counted');
+  const tabs = vscode.window.tabGroups.all.map((group) => group.tabs.map((tab) => tab.panel && /MLView cannot draw this file/.test(tab.panel.webview.html)));
+  assert.deepEqual(tabs, [[true], [false]], 'the page is shown again in its group, not closed');
+  await h.sleep(15);
+  assert.ok(entry(second.ctx.globalState).panels.some((p) => p.notice && p.artifact === outside), 'and registered again');
 });
 
 test('only this window\'s session is used; other sessions are pruned after 14 days or beyond the most recent 20', async () => {

@@ -78,17 +78,25 @@ contract change):
   comparison from every frame, so a frame without them shows none.
 - `revisionDiff(prev, next)` is pure. It compares steps, connections and
   findings by id: added, removed, or changed when one of these differs: a
-  step's label, detail, basis, phase label, parent, kind or evidence; a
+  step's label, detail, basis, phase (a move: phases are matched by id, or by
+  label when the id is gone and exactly one new phase has it), parent, kind or
+  evidence; a
   connection's source, target, label, kind, basis or evidence; a finding's
   title, message, severity, basis, suggestion, cited steps and connections (as
   sets), evidence or counter-evidence. Evidence is a sorted multiset of what
   each cited record cites (file, line, endLine, cell, quote), never its ids.
-  Its `marks` map (`kind:id`) holds the added and changed items.
+  Its `marks` map (`kind:id`) holds the added and changed items, and `phases`
+  the phases renamed under the same id (viewer M4 review, M4R-4), which About
+  lists once and which tag no step.
 - What reads it: About's first section (`Changes since <id>`, or one line for
   `replaced`; a parent the panel never showed is one line under Provenance),
   the card tag (`.mlv-rev-tag`, drawn by `render/nodes.ts` from a
   `revisionMark` option of `renderScene`, outside the scene plan, so the SVG
-  export does not draw it and no box moves), the Selection pane's line under
+  export does not draw it and no box moves; since the review it shares a row,
+  `.mlv-node__tags`, with the card's basis tag, placed as a lone basis tag and
+  capped at the card's width on screen, with "new" / "changed" cut short by an
+  ellipsis when both do not fit), the card's hover card ("Changed since
+  revision r1: label."), the Selection pane's line under
   the title, the Outline's step and relationship rows, the Findings list rows,
   and the walk's `revision` filter ("Changed in this revision", between
   Findings and Changed files, offered only when it holds a claim). The legend
@@ -208,7 +216,10 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
   muted; Light+'s (#717171) is 4.40:1 on its widget background and 3.94:1 on
   a lane header. Now Light Modern #5E5E5E, Light+ #5C5C5C, Light 2026 #5F5F60.
   Dark themes keep `descriptionForeground`, high contrast its text colour;
-  `--mlv-text-2` is unchanged. `export/palette.ts` derives the same colour
+  `--mlv-text-2` is unchanged (after the review, About's notes and provenance
+  line, the Changes field lists and removed ids, the Selection pane's "changed
+  since" line and the muted freshness words use `--mlv-text-3` instead of it).
+  `export/palette.ts` derives the same colour
   (`TEXT3_LIGHT_MIX`). `test/muted-text.test.mjs` checks 4.5:1 or more on the
   canvas, cards, rail and header, hovered rows and quotes, and lane headers in
   Dark Modern, Dark+, Light Modern, Light+ and both High Contrast themes, and

@@ -9,18 +9,24 @@ Quick Open or a link opens it as the diagram (the **MLView Diagram** editor,
 read-only, its tab named after the file). **MLView: Open Generated Diagram**
 (Command Palette, the Explorer's context menu, or the title bar of the file
 opened as text) opens it beside the editor you are in and keeps the focus
-there. To see the JSON, use **View: Reopen Editor With…** → **Text Editor**, or
-**Open With…** → **Text Editor** in the Explorer. Source Control diffs and
-Timeline comparisons of the file show text (checked in VS Code 1.139). Several
-diagrams can be open at once, the same file in two groups included; each has
-its own selection and walk. A file the viewer cannot draw (not a local file,
-not a `*.mlview.json`, or outside every workspace folder) opens a page that
-says why and how to see the JSON.
+there; if the file already has a diagram open, that diagram comes to the front
+of its own group instead. To see the JSON, use **View: Reopen Editor With…** →
+**Text Editor**, or **Open With…** → **Text Editor** in the Explorer. Source
+Control diffs and Timeline comparisons of the file show text (checked in VS
+Code 1.139; before 1.129 a diff may open the diagram editor). Several diagrams
+can be open at once, the same file in two groups included; each has its own
+selection and walk. A file the viewer cannot draw (not a local file, not a
+`*.mlview.json`, or outside every workspace folder) opens a page that says why
+and how to see the JSON. For a file outside every folder, adding its folder to
+the workspace makes that tab draw the diagram.
 
 The viewer validates the document and its source evidence against the saved
 files on disk before displaying it, and draws the artifact as saved on disk:
-unsaved edits in the JSON's text editor are reported, not drawn, until you
-save. An open panel follows the artifact file: it
+unsaved edits in the JSON's text editor are reported, not drawn. A saved edit
+is drawn when it is a new revision (a new `revision.id`, as the skill's helper
+publishes it); an edit saved under the displayed revision's id is refused and
+the diagram keeps that revision, until you run **MLView: Open Generated
+Diagram**. An open panel follows the artifact file: it
 shows each newer valid revision the assistant publishes, keeps the last valid
 revision on screen when the file is invalid, unreadable, or missing, and
 explains why in a status line. A revision the panel has already seen replaced
@@ -39,7 +45,11 @@ Outline, the Findings list and the Selection tab, and the review walk gains
 one gets no comparison, and About says so. Only revisions this panel has shown
 are compared: closing the panel, reloading the window or restarting extensions
 forgets the comparison, nothing is written to disk, and there is no setting.
-The exported SVG draws no tag.
+A diagram opened as a preview tab (a single click in the Explorer) is kept
+open once it shows changes, so opening another file does not replace it; a
+preview diagram still behind another tab can be. A phase renamed under the
+same id is listed once in About and marks none of its steps. The exported SVG
+draws no tag.
 
 When cited or inspected files change after a revision was published, the
 diagram stays visible as a historical revision and the status line names the
@@ -72,7 +82,8 @@ alone. A diagram put back this way starts with a fresh view: the selection
 and zoom start over. **Developer: Reload Window** restores diagrams by itself,
 with their selection and zoom. A diagram panel that VS Code restores from an
 earlier MLView, which had no diagram editor, reopens as the diagram editor in
-its group.
+its group, with a fresh view (its selection, zoom and walk position are not
+carried over).
 
 The rail beside the diagram has four tabs: **About**, **Findings (n)**,
 **Selection** and **Outline**. A new revision opens on About (the question,

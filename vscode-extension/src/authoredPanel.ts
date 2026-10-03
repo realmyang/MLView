@@ -108,12 +108,15 @@ const LEGACY_TAB_VIEW_TYPES = new Set([AUTHORED_VIEW_TYPE, `mainThreadWebview-${
 /**
  * One open diagram in the registry: its artifact, its tab's title, its editor group's column and,
  * for a diagram editor, `kind: 'editor'` (an earlier MLView's webview panel has no kind).
+ * `notice: true` (viewer M4 review, M4R-3): a diagram editor showing the page for a file outside
+ * every workspace folder.
  */
 interface PanelRecord {
     artifact: string;
     title: string;
     column?: number;
     kind?: 'editor';
+    notice?: true;
 }
 interface SessionRecord {
     /** When this session's entry last changed (ms since the epoch). */
@@ -129,8 +132,11 @@ function parsePanelRecord(value: unknown): PanelRecord | undefined {
     const record: PanelRecord = { artifact: item.artifact, title: item.title };
     if (typeof item.column === 'number' && Number.isInteger(item.column) && item.column > 0)
         record.column = item.column;
-    if (item.kind === 'editor')
+    if (item.kind === 'editor') {
         record.kind = 'editor';
+        if (item.notice === true)
+            record.notice = true;
+    }
     return record;
 }
 /** The registry read back from storage; malformed sessions and records are left out. */
@@ -264,6 +270,16 @@ function savedArtifact(value: unknown): ReturnType<typeof workspaceArtifact> {
     return workspaceArtifact(value);
 }
 /**
+ * Viewer M4 review (M4R-3): the file of a registered page for a file outside every folder: an
+ * absolute *.mlview.json, as a diagram editor resolves it again (`resolveCustomEditor` decides).
+ */
+function noticeArtifact(value: unknown): { uri: vscode.Uri; key: string } | undefined {
+    if (typeof value !== 'string' || !path.isAbsolute(value) || !isArtifactPath(value))
+        return undefined;
+    const resolved = path.resolve(value);
+    return { uri: vscode.Uri.file(resolved), key: resolved };
+}
+/**
  * The artifact at `fsPath` after lexical normalisation, with the workspace folder that contains
  * it; undefined when it lies outside every folder. VS Code's Uri.file and getWorkspaceFolder keep
  * `..` segments, so `<folder>/../outside/x.mlview.json` would otherwise match the folder.
@@ -391,6 +407,15 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
     private sourceWatch: vscode.Disposable | undefined;
     /** Earlier MLView webview panels being reopened as diagram editors (`migrate`). */
     private readonly migrating = new Set<vscode.WebviewPanel>();
+    /**
+     * Viewer M4 review (M4R-3): diagram editors showing the page for a file outside every workspace
+     * folder, with that file. When a folder change puts the file inside a folder, the same editor
+     * draws the diagram (`foldersChanged`): VS Code only brings an open editor forward when the file
+     * is opened again, so the page used to stay. They are in the registry too, so after an
+     * extension-host restart (adding a folder to a one-folder window is one) the next host replaces
+     * the page's dead tab (`replaceDeadTab`).
+     */
+    private readonly notices = new Map<vscode.WebviewPanel, { uri: vscode.Uri; listeners: vscode.Disposable }>();
     /** The previous host's diagrams whose dead tab has not been found yet (see `recoverAfterRestart`). */
     private pending: PanelRecord[] = [];
     private registryWrites: Promise<void> = Promise.resolve();
@@ -466,10 +491,30 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
         const target = workspaceArtifact(uri.fsPath);
         if (!target) {
             renderNotice(panel, 'folder', uri);
+            this.trackNotice(panel, uri);
             return;
         }
         panel.webview.options = this.webviewOptions();
         void this.adopt(panel, target).load();
+    }
+    /** Keep a page for a file outside every folder (see `notices`), in the registry with its group. */
+    private trackNotice(panel: vscode.WebviewPanel, uri: vscode.Uri): void {
+        const listeners = vscode.Disposable.from(
+            panel.onDidDispose(() => {
+                this.untrackNotice(panel);
+                void this.recordPanels();
+            }),
+            panel.onDidChangeViewState(() => { void this.recordPanels(); })
+        );
+        this.notices.set(panel, { uri, listeners });
+        void this.recordPanels();
+    }
+    private untrackNotice(panel: vscode.WebviewPanel): void {
+        const notice = this.notices.get(panel);
+        if (!notice)
+            return;
+        notice.listeners.dispose();
+        this.notices.delete(panel);
     }
     private webviewOptions(): vscode.WebviewOptions {
         return { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] };
@@ -624,7 +669,14 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
         const raw = this.ctx.globalState.get<unknown>(OPEN_PANELS_KEY);
         const registry = parseRegistry(raw);
         pruneRegistry(registry, session, now);
-        const panels = [...[...this.panels].map(panel => panel.record()), ...this.pending].slice(0, MAX_RECORDED_PANELS);
+        const notices = [...this.notices].map(([panel, notice]): PanelRecord => {
+            const column = panel.viewColumn;
+            const record: PanelRecord = { artifact: notice.uri.fsPath, title: panel.title, kind: 'editor', notice: true };
+            if (typeof column === 'number' && column > 0)
+                record.column = column;
+            return record;
+        });
+        const panels = [...[...this.panels].map(panel => panel.record()), ...notices, ...this.pending].slice(0, MAX_RECORDED_PANELS);
         const previous = registry.get(session);
         if (!panels.length)
             registry.delete(session);
@@ -690,7 +742,10 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
     private showsTab(tab: vscode.Tab, column: vscode.ViewColumn): boolean {
         if (isDiagramTab(tab)) {
             const key = artifactKey(tab.input.uri.fsPath);
-            return [...this.panels].some(panel => panel.showsIn(column, key));
+            return [...this.panels].some(panel => panel.showsIn(column, key)) || [...this.notices].some(([panel, notice]) => {
+                const own = panel.viewColumn;
+                return panel.visible && artifactKey(notice.uri.fsPath) === key && (own === column || !(typeof own === 'number' && own > 0));
+            });
         }
         // An earlier MLView's panel being reopened as the diagram editor (`migrate`).
         return [...this.migrating].some(panel => panel.visible && (panel.viewColumn === column || panel.title === tab.label));
@@ -724,6 +779,10 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
             }
             dead.push({ tab, entry: this.pending.splice(index, 1)[0]!, column: group.viewColumn });
         }
+        // Viewer M4 review (M4R-2): the last group first. Closing the dead tab of a file that left the
+        // workspace can close its group, and VS Code then numbers the groups after it again; taken
+        // from the last group to the first, every group still to be handled keeps its column.
+        dead.sort((a, b) => b.column - a.column);
         let opened = 0;
         for (const item of dead)
             if (await this.replaceDeadTab(item.tab, item.entry, item.column))
@@ -744,12 +803,20 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
      * meanwhile and closes afterwards (VS Code closes an empty group, and the diagram would then open
      * in a neighbour's group). An artifact no longer in the workspace closes its tab and opens
      * nothing. True when a diagram opened.
+     *
+     * A tab is closed as it is now (`currentTab`): when a group closes, VS Code hands the extension
+     * new tab objects, and one found before is no longer in any group.
      */
     private async replaceDeadTab(tab: vscode.Tab, entry: PanelRecord, column: vscode.ViewColumn): Promise<boolean> {
-        const target = savedArtifact(entry.artifact);
+        const artifact = savedArtifact(entry.artifact);
+        // Viewer M4 review (M4R-3): the page for a file outside every folder comes back as the
+        // diagram once a folder holds the file, else as the page again (never closed).
+        const notice = !artifact && entry.notice && isDiagramTab(tab) ? noticeArtifact(entry.artifact) : undefined;
+        const target = artifact ?? notice;
         const close = async (closing: vscode.Tab): Promise<void> => {
-            if (vscode.window.tabGroups.all.some(group => group.tabs.includes(closing)))
-                await vscode.window.tabGroups.close(closing, true);
+            const current = currentTab(closing, column);
+            if (current)
+                await vscode.window.tabGroups.close(current, true);
         };
         try {
             if (!target) {
@@ -771,7 +838,7 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
             await this.openEditor(target.uri, column);
             if (placeholder)
                 await close(placeholder);
-            return true;
+            return artifact !== undefined;
         }
         catch (error) {
             this.log.warn(`could not replace a dead diagram tab: ${error instanceof Error ? error.message : String(error)}`);
@@ -801,11 +868,24 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
     private foldersChanged(): void {
         for (const panel of this.panels)
             panel.foldersChanged();
+        // Viewer M4 review (M4R-3): a page for a file that a folder now holds draws the diagram.
+        for (const [panel, notice] of [...this.notices]) {
+            const target = workspaceArtifact(notice.uri.fsPath);
+            if (!target || this.disposed)
+                continue;
+            this.untrackNotice(panel);
+            panel.webview.options = this.webviewOptions();
+            void this.adopt(panel, target).load();
+            this.log.info('a workspace folder now holds a file whose diagram editor showed the outside-the-workspace page; drawing it');
+        }
     }
     dispose(): void {
         // First, so the diagrams disposed below stay in the registry for the next host.
         this.disposed = true;
         this.stopRecovery();
+        // The pages stay registered for the next host, as the diagrams do.
+        for (const panel of [...this.notices.keys()])
+            this.untrackNotice(panel);
         for (const panel of [...this.panels])
             panel.dispose();
         this.panels.clear();
@@ -814,6 +894,26 @@ export class AuthoredDiagramController implements vscode.Disposable, vscode.Cust
         for (const d of this.disposables)
             d.dispose();
     }
+}
+/** The same tab: the same input (file and view type, or a webview's view type and title). */
+function sameTab(a: vscode.Tab, b: vscode.Tab): boolean {
+    if (a.input instanceof vscode.TabInputCustom && b.input instanceof vscode.TabInputCustom)
+        return a.input.viewType === b.input.viewType && a.input.uri.fsPath === b.input.uri.fsPath;
+    if (a.input instanceof vscode.TabInputText && b.input instanceof vscode.TabInputText)
+        return a.input.uri.fsPath === b.input.uri.fsPath;
+    if (a.input instanceof vscode.TabInputWebview && b.input instanceof vscode.TabInputWebview)
+        return a.input.viewType === b.input.viewType && a.label === b.label;
+    return false;
+}
+/**
+ * `tab` as the tabs API holds it now: the object itself while it is still in a group, else the same
+ * tab in the group in `column` (VS Code replaces the tab objects when the groups change), else none.
+ */
+function currentTab(tab: vscode.Tab, column: vscode.ViewColumn): vscode.Tab | undefined {
+    const groups = vscode.window.tabGroups.all;
+    if (groups.some(group => group.tabs.includes(tab)))
+        return tab;
+    return groups.find(group => group.viewColumn === column)?.tabs.find(candidate => sameTab(candidate, tab));
 }
 /** Diagrams in order of preference: the active one, then one in front of its group, then the order they opened in. */
 function rankPanels(panels: readonly AuthoredPanel[]): AuthoredPanel[] {
@@ -833,7 +933,7 @@ function renderNotice(panel: vscode.WebviewPanel, reason: 'scheme' | 'name' | 'f
         ? `MLView draws a diagram only from a *.mlview.json file on disk, inside an open workspace folder. ${name} comes from ${displayText(uri.scheme, 40)}: rather than from a file on disk (for example, an older version shown in a diff).`
         : reason === 'name'
             ? `MLView draws a diagram only from a file named *.mlview.json. ${name} is not one.`
-            : `MLView draws a diagram only for a *.mlview.json file inside an open workspace folder, because it checks the files the diagram cites against that folder. ${name} is not inside one. Open the folder that holds it (File > Open Folder…) or add it to the workspace, then open the file again.`;
+            : `MLView draws a diagram only for a *.mlview.json file inside an open workspace folder, because it checks the files the diagram cites against that folder. ${name} is not inside one. Add the folder that holds it to the workspace (Workspaces: Add Folder to Workspace…) and this tab draws the diagram, or open that folder (File > Open Folder…) and open the file there.`;
     const how = 'To see the JSON, run View: Reopen Editor With… from the Command Palette and choose Text Editor.';
     const nonce = createNonce();
     panel.webview.options = { enableScripts: false };
@@ -943,8 +1043,12 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         this.scheduler = new ValidationScheduler(() => this.runReload(), RELOAD_DEBOUNCE_MS, systemTimers, error => this.log.warn(`authored reload failed: ${error instanceof Error ? error.message : String(error)}`));
         this.render();
         panel.onDidDispose(() => this.dispose(), null, this.disposables);
-        // A tab moved to another group: the registry keeps each panel's column.
-        panel.onDidChangeViewState(() => this.hooks.changed(), null, this.disposables);
+        // A tab moved to another group: the registry keeps each panel's column. A diagram that
+        // shows changes keeps its tab once it comes to the front (`keepTab`).
+        panel.onDidChangeViewState(() => {
+            this.hooks.changed();
+            this.keepTab();
+        }, null, this.disposables);
         panel.webview.onDidReceiveMessage((m: unknown) => { void this.message(m).catch(error => this.log.warn(`authored message failed: ${error instanceof Error ? error.message : String(error)}`)); }, null, this.disposables);
         this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) })));
         // The reader's last editor outside the panel names the group a jump reuses. A text or
@@ -1198,6 +1302,7 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
                 this.postWorkflow(document);
                 this.lastPostedFull = candidate.full;
             }
+            this.keepTab();
             const staleFiles = this.lastValid.stale;
             const toastKey = `${document.revision.id}\n${staleFiles.map(s => `${s.reason}:${s.rel}`).join('\n')}`;
             // The root hint has no notification: the panel's notice carries its two actions, and a
@@ -1221,6 +1326,35 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         // Viewer M3 (step 14): a new revision, or a changed or restored cited file, changes the
         // reveal command's list of cited files.
         this.hooks.citationsChanged();
+    }
+    /** The displayed revision names the revision this panel showed before it as its parent: About lists changes. */
+    private showsChanges(): boolean {
+        const previous = this.comparison.previous;
+        return !!previous && !!this.lastValid && previous.revision.id === this.lastValid.document.revision.parent;
+    }
+    /**
+     * Viewer M4 review (UX-M4-3): a diagram that shows changes since the revision it showed before
+     * keeps its tab, as VS Code keeps a preview text editor once its text is edited. The comparison
+     * lives only in this panel, and a preview tab is replaced by the next file opened as a preview in
+     * its group (a single click in the Explorer while the diagram's group is active), which dropped
+     * the comparison without the reader closing anything. Done when the diagram is in front of its
+     * group, or when it next comes to the front: the same editor opened again in its own group with
+     * `preview: false` is kept open and stays where it is, with the focus left where it is.
+     */
+    private keepTab(): void {
+        if (this.disposed || !this.panel.visible || !this.showsChanges())
+            return;
+        const column = this.ownColumn();
+        if (column === undefined)
+            return;
+        const tab = vscode.window.tabGroups.all.find(group => group.viewColumn === column)?.activeTab;
+        if (!isDiagramTab(tab) || artifactKey(tab.input.uri.fsPath) !== this.key || !tab.isPreview)
+            return;
+        void Promise.resolve(vscode.commands.executeCommand('vscode.openWith', this.artifact, DIAGRAM_EDITOR_VIEW_TYPE, { viewColumn: column, preserveFocus: true, preview: false })).then(() => {
+            this.log.info('kept a preview diagram tab open: it shows changes since the revision it showed before');
+        }, (error: unknown) => {
+            this.log.warn(`could not keep the diagram's tab open: ${error instanceof Error ? error.message : String(error)}`);
+        });
     }
     /**
      * The displayed revision, with what it is compared with (viewer M4, step 16): `previous`, the

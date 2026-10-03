@@ -22,8 +22,11 @@ build)** after a build). Both open the repository root in the Extension
 Development Host: click `samples/configured_training.mlview.json` in its
 Explorer, which opens as the diagram, or run **MLView: Open Generated
 Diagram** and select it. To read the JSON, use **View: Reopen Editor With…** →
-**Text Editor**; diffs of the file show text. The diagram is drawn from the
-file on disk, never from unsaved text. The artifact viewer needs no Python
+**Text Editor**; diffs of the file show text (checked in VS Code 1.139; before
+1.129 a diff may open the diagram editor). The diagram is drawn from the file
+on disk, never from unsaved text: a saved edit is drawn when it is a new
+revision, and one saved under the displayed revision's id is refused until you
+run **MLView: Open Generated Diagram**. The artifact viewer needs no Python
 installation. Publishing through the skill's helper requires Python 3.10+.
 
 Install the portable skill into the project you want to understand:
@@ -408,7 +411,9 @@ revision in it:
   compared; closing the panel, reloading the window or restarting extensions
   forgets the comparison, and nothing is written to disk. Keeping stable IDs
   across revisions keeps the list short: an item whose ID changed shows as
-  removed and added.
+  removed and added. A phase renamed under the same ID is listed once and
+  marks none of its steps; a step is changed for its phase only when it moves
+  to another phase.
 
 A copied Refine prompt always continues from the revision in the file. When
 that differs from the displayed revision, the copy notification says so, and
