@@ -366,12 +366,26 @@ test('a new page drops a numbered open the old page started', async () => {
   assert.equal(openResults(panel)[0].outcome, 'cancelled');
 });
 
-/** Count fs.promises.readFile calls for `file` while `run` runs (the bundle reads through live getters). */
+/**
+ * Count fs.promises.readFile calls for `file` while `run` runs (the bundle reads through live getters).
+ * Matched by identity on disk: the host reads a cited file at its realpath, which on a Windows runner
+ * is the long form of a temp folder that os.tmpdir() spells in 8.3 short form (RUNNER~1).
+ */
 async function countReads(file, run) {
   const original = fsp.readFile;
+  const identity = (p) => {
+    let real;
+    try {
+      real = fs.realpathSync.native(p);
+    } catch (_e) {
+      real = path.resolve(p);
+    }
+    return process.platform === 'win32' ? real.toLowerCase() : real;
+  };
+  const want = identity(file);
   let reads = 0;
   fsp.readFile = function (target, ...rest) {
-    if (String(target) === file) reads++;
+    if (typeof target === 'string' && identity(target) === want) reads++;
     return original.call(this, target, ...rest);
   };
   try {
