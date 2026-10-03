@@ -78,32 +78,37 @@ Secondary and muted text:
   4.5:1 for small text. The first M4 fix darkened the card surface for
   light-theme muted text only (Light Modern #5E5E5E, Light+ #5C5C5C), which
   left Light+'s secondary text lighter than its muted text.
-- Now both are the theme's own text colour mixed into its card surface: 90%
-  for secondary text, 80% for muted text, in light and dark themes alike; High
-  Contrast keeps its text colour for both. A mix is never stronger than the
-  text and always the same share of the way to the surface, so the text,
-  secondary and muted text keep their order in any theme, and there is no
-  per-theme rule. CSS cannot compare two colours at run time, so there is no
-  contrast clamp: the shares are chosen so that Dark 2026, the shipped theme
-  with the least contrast, clears 4.5:1 on every background.
+- Now both are derived from the theme's own text colour, and High Contrast
+  keeps its text colour for both. In a light theme they are the text mixed
+  into its card surface in CIE Lab, 87% for secondary text and 74% for muted
+  text; in a dark theme they are steps below the text's lightness, never
+  under a floor and never above the text (the hierarchy part below). Neither
+  rule names a theme, and both keep the text, secondary and muted text in
+  order in any theme. CSS cannot compare two colours at run time, so there is
+  no contrast clamp: the shares, steps and floor are chosen so that every
+  shipped theme clears 4.5:1 on every background. (The first version of this
+  change mixed the text into the card surface at 90% and 80% in sRGB in every
+  theme; the hierarchy part below replaced it.)
 - Lowest ratio on any background each is drawn on, secondary then muted,
-  computed from the harness's theme table:
-  Dark Modern #BBBBBB 6.92:1 and #AAAAAA 5.84:1, Dark+ #C3C3C3 6.98:1 and
-  #B1B1B1 5.89:1, Dark 2026 #ACAEAF 5.00:1 and #9C9FA0 4.77:1, Light Modern
-  #4E4E4E 6.56:1 and #616161 5.11:1, Light+ #181818 13.36:1 and #313131
-  9.87:1, Light 2026 #363636 8.16:1 and #4C4C4C 6.96:1. On the card surface
-  muted text has 53-70% of the text colour's contrast (Dark Modern's own
-  description colour has 59%) and secondary text 74-84%.
-- The cost: secondary text is brighter in dark themes (Dark Modern #9D9D9D to
-  #BBBBBB) and closer to the text. Light+'s editor text is pure black, so its
-  secondary and muted text are near-black too (#181818, #313131) and its
-  hierarchy rests more on size and weight. Light Modern's secondary text is no
-  longer its text colour. The dashed borders of inferred and unresolved cards,
-  a hovered connection and the ring on a traced card's neighbours use the
-  secondary colour, so they are stronger. With a third-party theme whose text
-  is weaker the order still holds, but a mix can fall under 4.5:1: in a
-  synthetic sweep, muted text on a row hovered with 8% white or black needs
-  the text at about 8:1 on a dark widget background and 9.5:1 on a light one.
+  computed from the harness's theme table: Dark Modern #B3B3B3 6.37:1 and
+  #9C9C9C 4.99:1, Dark+ #BBBBBB 6.45:1 and #A3A3A3 4.99:1, Dark 2026 #9A9D9E
+  4.67:1 for both, Light Modern #515151 6.28:1 and #676767 4.62:1, Light+
+  #202020 12.23:1 and #3B3B3B 8.44:1, Light 2026 #383838 9.41:1 and #515152
+  6.35:1 (the 90% and 80% mixes are in the table below).
+- The cost: Dark Modern's secondary text is brighter than VS Code's
+  description colour was (#9D9D9D to #B3B3B3) and its muted text about the
+  same (#9C9C9C). Light Modern's secondary text is no longer its text colour.
+  Light+'s editor text is pure black, so its secondary and muted text are
+  dark greys (#202020, #3B3B3B) and its hierarchy rests partly on size and
+  weight. The dashed borders of inferred and unresolved cards, a hovered
+  connection and the ring on a traced card's neighbours use the secondary
+  colour, so they change with it. With a third-party theme the order still
+  holds, but a colour can fall under 4.5:1: in a dark theme the floor is a
+  fixed lightness, which clears 4.5:1 on backgrounds up to #353535, so a row
+  hovered with 8% white over a widget background lighter than #232323 can
+  take muted text under it; in a light theme muted text on a row hovered with
+  8% black needs the text at about 10.7-11:1 on its widget background
+  (computed, not seen in a real theme).
 - On a hovered or focused item of the **⋯** menu, the icon, key hint and note
   now take the item's colour (VS Code's `menu.selectionForeground`), and the
   key hint's key cap keeps its outline, in that colour, but drops its fill.
@@ -115,8 +120,8 @@ Secondary and muted text:
   and 3.29:1 in Light+ (the verification below). White on the selection
   colour itself is 6.31:1 in Light Modern, 6.11:1 in Light+ and 4.53:1 in
   Dark Modern and Dark+, measured in pixels.
-- The exported SVG uses the same mixes (`TEXT2_MIX`, `TEXT3_MIX` in
-  `webview/src/export/palette.ts`).
+- The exported SVG derives the same colours (`LIGHT_TEXT_MIX`,
+  `DARK_TEXT_LEVELS` in `webview/src/export/palette.ts`).
 - `webview/test/muted-text.test.mjs` is a matrix: the harness's six themes
   outside High Contrast x both colours x every background they sit on (the
   canvas, a lane, cards and other surfaces, the hatching, `--mlv-surface-2` on
@@ -134,13 +139,16 @@ Secondary and muted text:
   stylesheet leaves it. The harness theme table gained the four menu colours (VS Code
   1.139's values, with the registry's defaults). The screenshot harness has
   Dark+, Light+, Light High Contrast, Dark 2026 and Light 2026 (`--theme`).
+  The hierarchy part below added the L* check, the second engine and the
+  dark rule's sweep.
 - Headless Chrome 154 on the vit-cc shakedown artifact at 1440x900, in the six
   themes, 11 states each: `capture.mjs` now records a computed-colour probe
   per screenshot (`facts.inks` in index.json: each element whose own text is
   painted in either colour, against the background colours composited under
   it). Before the change the lowest were 3.78:1 in Dark 2026 and 3.86:1 in
-  Light+; after, 5.71:1 (secondary) and 4.75:1 (muted) in Dark 2026, and no
-  element under 4.5:1 in any of the six themes. The probe reads computed
+  Light+; with the 90% and 80% mixes, 5.71:1 (secondary) and 4.75:1 (muted) in
+  Dark 2026, and no element under 4.5:1 in any of the six themes (the
+  hierarchy part below has the current run). The probe reads computed
   colours, not pixels, and skips background images and SVG text. Those 11
   states do not hover the **⋯** menu or a Findings row with a stale chip, and
   the probe counts only elements painted in one of the two colours, so it did
@@ -180,20 +188,97 @@ with the fix taken out):
   the screenshot), not a pass. The harness emulates
   `prefers-reduced-motion: no-preference`, so the figures above were read
   correctly.
-- Not changed, for the owner: the three text colours are close. As a share
-  of the lightness (CIE L*) distance from the text colour to the card
-  surface, secondary text is 9-12% of the way (ΔL* 5.8-6.3 in the dark
-  themes, 8.3-8.4 in Light Modern and Light+, 10.3 in Light 2026), against
-  25-50% with `descriptionForeground` where it differed from the text; muted
-  text is 18% in the dark themes (25-31% before) and 21-23% in the light
-  ones, with 69-70% of the text colour's contrast in Dark Modern, Dark+ and
-  Dark 2026, the top of the test's 50-70% window. Light+ draws the three as
-  #000000, #181818 and #313131. Muted text stays visibly quieter (ΔL*
-  11.6-20.1), but in effect there are two colour levels, not three, because
-  one pair of shares must clear Dark 2026's hovered rows. Separate light and
-  dark shares, or size and weight, are the options; either must still clear
-  Dark 2026 and Light Modern on hovered rows, the hatching and the doubled
-  layers.
+- The three text colours were close (finding F3); the next part changes
+  that.
+
+Secondary and muted text, the hierarchy (finding F3 of the verification above):
+- With the 90% and 80% mixes the three levels were close. As a share of the
+  lightness (CIE L*) distance from the text colour to the card surface,
+  secondary text sat 9-12% of the way (ΔL* 5.8-6.3 in the dark themes, 8.3-8.4
+  in Light Modern and Light+, 10.3 in Light 2026), against 25-50% with
+  `descriptionForeground` where it differed from the text, and muted text 18%
+  in the dark themes and 21-23% in the light ones; Light+ drew the three as
+  #000000, #181818 and #313131. M2's calm canvas needs step counts, notes,
+  provenance and the status bar to read as quieter than titles and claims.
+- A light theme now mixes in CIE Lab, 87% and 74%, so secondary and muted
+  text sit exactly 13% and 26% of the way to the card in every light theme.
+  Light Modern bounds the shares: its muted text clears 4.5:1 on an
+  unresolved card's hatching up to 26.8% of the way.
+- A dark theme cannot use one share. Dark 2026's text (#BBBEBF, L* 76.8) is
+  dim, so its muted text has room for 20.9% of the way before a hovered row
+  (8% white) takes it under 4.5:1, where Dark Modern and Dark+ have about
+  30%. So in a dark theme secondary and muted text are 9 and 18 L* below the
+  text, with its hue, never under L* 64.5 and never above the text (CSS
+  relative colour syntax, `lab(from var(--mlv-text) ...)` in `tokens.css`).
+  L* 64.5 is the lowest lightness that clears 4.5:1 on every background the
+  default dark themes paint under either colour (Dark+ needs 64.3 under a key
+  hint in the menu, Dark 2026 63.3 on a hovered row). Where the text is under
+  L* 79.5 a secondary step 9 below it would sit less than 6 L* above that
+  floor, so secondary text is muted text: Dark 2026 gets two levels (19% of
+  the way, ΔL* 12.3), as Dark Modern had before M4 (`descriptionForeground`
+  #9D9D9D for both), instead of a secondary level barely quieter than its
+  text. A theme whose text is under L* 64.5 (Solarized Dark, #839496) keeps
+  its text colour for both.
+- On a hovered group header the step count drops its fill, as a chip in a
+  hovered row does. In the 2026 themes `list.hoverBackground` is translucent,
+  so the count painted it twice: the lightest background under secondary text
+  in Dark 2026 (5.00:1 with the 90% mix), which would have held secondary text
+  there to 14% of the way. Themes with an opaque hover colour look as before.
+- The dark rule is behind `@supports` on its exact expression. An engine
+  without relative colour syntax (Chromium before 119; VS Code 1.100, the
+  extension's minimum, ships a later one) keeps a two-level mix, 80% in CIE
+  Lab, which also clears 4.5:1 in the six themes (lowest 4.59:1, Dark 2026).
+  Relative colour syntax was checked in headless Chrome 154 only, not in an
+  older Chromium or in VS Code.
+- Not used, and why: VS Code's `descriptionForeground` (the text colour in
+  Light Modern, 4.40:1 in Light+ and 3.80:1 on a hovered row in Dark 2026, and
+  CSS cannot tell where it passes); a fixed dark anchor in light themes (the
+  surface at 38% toward black, as the first M4 fix did, puts Light Modern's
+  muted text 20% of the way, and a clamp to the text needs relative colour
+  syntax too); separate light and dark shares alone (one dark share is bound
+  by Dark 2026 to about 20%); a rule naming a theme.
+- Tests (`webview/test/muted-text.test.mjs`): an L* check per theme, muted
+  text 25% or more of the way and secondary text a step (10% or more) from
+  the text and from muted text wherever the theme has room at 4.5:1 (found
+  by bisection on the line from the text to the card), otherwise the
+  two-level case the test names (Dark 2026), held to two equal levels that
+  use the room the theme has. The 4.5:1 matrix and its census now run for
+  both engines, with and without relative colour syntax; the static "raised
+  twice on a lane" stack is gone (only the group count was drawn on it, and
+  the nested-box census now composites it with no fill). A sweep of the
+  text's lightness (L* 40-100, three hues and #839496) holds the dark rule's
+  order in any dark theme. The 50-70% contrast window for muted text is
+  replaced by the L* check. `test/colour-lab.mjs` holds the Lab arithmetic and
+  the CSS math, written apart from the export's, and the export test compares
+  the two; `calm-canvas.test.mjs` resolves the new colours too. Each new check
+  fails with its fix taken out (the group count's fill, the floor, the cap at
+  the text, the light shares, the `@supports` block).
+- Headless Chrome 154 on the vit-cc shakedown artifact at 1440x900, the eight
+  themes, 11 states each, before and after (176 screenshots, looked at):
+  Chrome's computed colours equal the table's in the six themes outside High
+  Contrast (`facts.inks`, which now reads `lab()`), and no element painted in
+  either colour is under 4.5:1 (lowest after: 4.65:1 in Dark 2026, a finding
+  id on a selected Findings row; 4.87:1 in Light Modern, a lane's step count).
+  The states hover no group header; the matrix covers it.
+
+Before and after, computed from the harness's theme table: the colour on the
+card surface, its contrast there, the lowest contrast on any background it is
+drawn on, and its share of the L* distance from the text to the card.
+
+| Theme | Level | Before | Card | Lowest | L* share | After | Card | Lowest | L* share |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Dark Modern (#CCCCCC) | secondary | #BBBBBB | 8.47:1 | 6.92:1 | 8.9% | #B3B3B3 | 7.80:1 | 6.37:1 | 12.9% |
+| | muted | #AAAAAA | 6.98:1 | 5.84:1 | 18.0% | #9C9C9C | 5.96:1 | 4.99:1 | 25.1% |
+| Dark+ (#D4D4D4) | secondary | #C3C3C3 | 8.64:1 | 6.98:1 | 9.0% | #BBBBBB | 7.98:1 | 6.45:1 | 12.8% |
+| | muted | #B1B1B1 | 7.14:1 | 5.89:1 | 18.1% | #A3A3A3 | 6.06:1 | 4.99:1 | 25.6% |
+| Dark 2026 (#BBBEBF) | secondary | #ACAEAF | 7.25:1 | 5.00:1 | 9.0% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| | muted | #9C9FA0 | 6.03:1 | 4.77:1 | 18.1% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| Light Modern (#3B3B3B) | secondary | #4E4E4E | 7.85:1 | 6.56:1 | 11.4% | #515151 | 7.51:1 | 6.28:1 | 13.0% |
+| | muted | #616161 | 5.85:1 | 5.11:1 | 22.3% | #676767 | 5.29:1 | 4.62:1 | 26.0% |
+| Light+ (#000000) | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #202020 | 14.61:1 | 12.23:1 | 13.0% |
+| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #3B3B3B | 10.08:1 | 8.44:1 | 26.0% |
+| Light 2026 (#202020) | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #383838 | 11.28:1 | 9.41:1 | 13.0% |
+| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #515152 | 7.57:1 | 6.35:1 | 26.0% |
 
 Changes since the previous revision (roadmap step 16, built fresh; the legacy
 diff was deleted in M1):

@@ -92,12 +92,103 @@ export const EDGE_MIX: Record<ThemeKind, number> = { light: 0.64, dark: 0.54, hc
 export const NODE_EDGE_MIX: Record<ThemeKind, number> = { light: 0.58, dark: 0.46, hc: 1 };
 
 /**
- * Viewer M4: secondary (`--mlv-text-2`) and muted (`--mlv-text-3`) text are the text colour mixed
- * into the card surface at these shares, color-mix(in srgb, text 90% / 80%, surface), in light and
- * dark themes; high contrast uses the text colour for both.
+ * Viewer M4: secondary (`--mlv-text-2`) and muted (`--mlv-text-3`) text in a light theme are the
+ * text colour mixed into the card surface in CIE Lab at these shares,
+ * color-mix(in lab, text 87% / 74%, surface): 13% and 26% of the L* distance to the card.
  */
-export const TEXT2_MIX = 0.9;
-export const TEXT3_MIX = 0.8;
+export const LIGHT_TEXT_MIX = { text2: 0.87, text3: 0.74 } as const;
+
+/**
+ * Viewer M4: in a dark theme each is a step below the text's L*, kept above a floor and never
+ * above the text, with the text's a and b (tokens.css, relative colour syntax):
+ * muted L* = min(L, max(floor, L - step3)); secondary L* = min(L, max(floor, L - step2)), and the
+ * floor where L is under `split`. High contrast uses the text colour for both.
+ */
+export const DARK_TEXT_LEVELS = { floor: 64.5, step2: 9, step3: 18, split: 79.5 } as const;
+
+/*
+ * CSS Color 4's sRGB <-> CIE Lab (D50, Bradford-adapted from sRGB's D65), the arithmetic a browser
+ * uses for lab() and color-mix(in lab, ...).
+ */
+const SRGB_TO_XYZ65 = [
+  [0.41239079926595934, 0.357584339383878, 0.1804807884018343],
+  [0.21263900587151027, 0.715168678767756, 0.07219231536073371],
+  [0.01933081871559182, 0.11919477979462598, 0.9505321522496607],
+];
+const XYZ65_TO_SRGB = [
+  [3.2409699419045226, -1.537383177570094, -0.4986107602930034],
+  [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559],
+  [0.05563007969699366, -0.20397695888897652, 1.0569715142428786],
+];
+const D65_TO_D50 = [
+  [1.0479297925449969, 0.022946870601609652, -0.05019226628920524],
+  [0.02962780877005599, 0.9904344267538799, -0.017073799063418826],
+  [-0.009243040646204504, 0.015055191490298152, 0.7518742814281371],
+];
+const D50_TO_D65 = [
+  [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
+  [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323],
+  [0.012314014864481998, -0.020507649298898964, 1.330365926242124],
+];
+const D50_WHITE = [0.3457 / 0.3585, 1, (1 - 0.3457 - 0.3585) / 0.3585];
+const LAB_E = 216 / 24389;
+const LAB_K = 24389 / 27;
+
+function times(m: number[][], v: number[]): number[] {
+  return m.map((row) => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
+}
+
+/** An sRGB colour, channels 0..255, as CIE Lab [L, a, b]. */
+export function srgbToLab(rgb: number[]): [number, number, number] {
+  const linear = rgb.slice(0, 3).map((v) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  const f = times(D65_TO_D50, times(SRGB_TO_XYZ65, linear)).map((v, i) => {
+    const t = v / D50_WHITE[i];
+    return t > LAB_E ? Math.cbrt(t) : (LAB_K * t + 16) / 116;
+  });
+  return [116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])];
+}
+
+/** A CIE Lab colour as sRGB channels 0..255, clipped to the sRGB gamut. */
+export function labToSrgb(lab: number[]): [number, number, number] {
+  const fy = (lab[0] + 16) / 116;
+  const fx = fy + lab[1] / 500;
+  const fz = fy - lab[2] / 200;
+  const xyz = [
+    fx * fx * fx > LAB_E ? fx * fx * fx : (116 * fx - 16) / LAB_K,
+    lab[0] > LAB_K * LAB_E ? fy * fy * fy : lab[0] / LAB_K,
+    fz * fz * fz > LAB_E ? fz * fz * fz : (116 * fz - 16) / LAB_K,
+  ].map((v, i) => v * D50_WHITE[i]);
+  return times(XYZ65_TO_SRGB, times(D50_TO_D65, xyz)).map((v) => {
+    const c = Math.max(0, Math.min(1, v));
+    return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+  }) as [number, number, number];
+}
+
+/** `a` mixed into `b` at `share` (0..1) in CIE Lab, as color-mix(in lab, a share, b); '' when either is unreadable. */
+export function mixLabHex(a: string, b: string, share: number): string {
+  const ca = parseColor(a);
+  const cb = parseColor(b);
+  if (!ca || !cb) return '';
+  const la = srgbToLab(ca);
+  const lb = srgbToLab(cb);
+  return toHex(labToSrgb(la.map((v, i) => v * share + lb[i] * (1 - share))));
+}
+
+/** A dark theme's secondary and muted text for its text colour, as tokens.css derives them; null when the text is unreadable. */
+export function darkTextLevels(text: string): { text2: string; text3: string } | null {
+  const rgb = parseColor(text);
+  if (!rgb) return null;
+  const [l, a, b] = srgbToLab(rgb);
+  const { floor, step2, step3, split } = DARK_TEXT_LEVELS;
+  // clamp(0, (split - l) * 100, 100): 0 at or above the split, the whole range just under it.
+  const below = Math.min(100, Math.max(0, (split - l) * 100));
+  const l2 = Math.min(l, Math.max(floor, l - step2 - below));
+  const l3 = Math.min(l, Math.max(floor, l - step3));
+  return { text2: toHex(labToSrgb([l2, a, b])), text3: toHex(labToSrgb([l3, a, b])) };
+}
 
 /** The two numeric tokens, kept apart because they are opacities, not paints. */
 export const TINT_TOKENS: Record<string, string> = {
@@ -112,8 +203,8 @@ const LIGHT: Palette = {
   border: '#E3E5EB',
   borderStrong: '#C9CDD6',
   text: '#16181D',
-  text2: '#2D2F34', // derive(): color-mix(in srgb, text 90%, surface), as tokens.css (viewer M4)
-  text3: '#45464A', // derive(): color-mix(in srgb, text 80%, surface)
+  text2: '#2F3135', // derive(): color-mix(in lab, text 87%, surface), as tokens.css (viewer M4)
+  text3: '#4A4B50', // derive(): color-mix(in lab, text 74%, surface)
   link: '#2B57C4',
   accent: '#3B6CF6',
   edge: '#8C93A3',
@@ -138,8 +229,8 @@ const DARK_OVERRIDES: Partial<Palette> = {
   border: '#2C3038',
   borderStrong: '#3B414C',
   text: '#E6E8EE',
-  text2: '#D2D4DA', // derive(), as above
-  text3: '#BDBFC5',
+  text2: '#CDCFD5', // derive(): 9 and 18 L* below the text, as tokens.css (viewer M4)
+  text3: '#B4B6BC',
   link: '#8FB0FF',
   accent: '#6E96FF',
   edge: '#79808F',
@@ -198,7 +289,7 @@ export function phaseColor(palette: Palette, phaseIndex: number | undefined): st
   return palette.phases[((phaseIndex % n) + n) % n] || palette.stageUnknown;
 }
 
-/** The colours the stylesheet derives with color-mix(), recomputed from the resolved text, background and card surface. */
+/** The colours the stylesheet derives (color-mix() and the dark theme's relative colours), recomputed from the resolved text, background and card surface. */
 function derive(palette: Palette, theme: ThemeKind): Palette {
   if (theme === 'hc') {
     palette.edge = palette.border;
@@ -207,8 +298,16 @@ function derive(palette: Palette, theme: ThemeKind): Palette {
   }
   palette.edge = mixHex(palette.text, palette.bg, EDGE_MIX[theme]) || palette.edge;
   palette.nodeEdge = mixHex(palette.text, palette.bg, NODE_EDGE_MIX[theme]) || palette.border;
-  palette.text2 = mixHex(palette.text, palette.surface, TEXT2_MIX) || palette.text2;
-  palette.text3 = mixHex(palette.text, palette.surface, TEXT3_MIX) || palette.text3;
+  if (theme === 'light') {
+    palette.text2 = mixLabHex(palette.text, palette.surface, LIGHT_TEXT_MIX.text2) || palette.text2;
+    palette.text3 = mixLabHex(palette.text, palette.surface, LIGHT_TEXT_MIX.text3) || palette.text3;
+  } else {
+    const levels = darkTextLevels(palette.text);
+    if (levels) {
+      palette.text2 = levels.text2;
+      palette.text3 = levels.text3;
+    }
+  }
   return palette;
 }
 
@@ -240,13 +339,14 @@ export function mixHex(a: string, b: string, share: number): string {
 }
 
 /**
- * A `color-mix(in srgb, <colour> <p>%, <colour>)` whose colours are literals (what a custom
+ * A `color-mix(in srgb | lab, <colour> <p>%, <colour>)` whose colours are literals (what a custom
  * property holds once its var() references are substituted), as a hex literal; '' otherwise.
  */
 export function resolveColorMix(value: string): string {
-  const m = /^color-mix\(\s*in srgb\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s*\)$/i.exec(value.trim());
+  const m = /^color-mix\(\s*in (srgb|lab)\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s*\)$/i.exec(value.trim());
   if (!m) return '';
-  return mixHex(m[1], m[3], Number(m[2]) / 100);
+  const share = Number(m[3]) / 100;
+  return m[1].toLowerCase() === 'lab' ? mixLabHex(m[2], m[4], share) : mixHex(m[2], m[4], share);
 }
 
 export function severityColor(palette: Palette, severity: string | null): string {
@@ -267,8 +367,9 @@ export function severityInk(palette: Palette, severity: string | null): string {
  *
  * Per TOKEN, not per palette: a host that supplies some `--vscode-*` colours and
  * not others would otherwise force an all-or-nothing choice, and half a theme is
- * worse than either whole one. A value that still contains `var(` or `color-mix(`
- * is refused — the export may not carry an unresolved reference.
+ * worse than either whole one. A value that still contains `var(` or `color-mix(`,
+ * or is a relative colour (`lab(from …)`), is refused — the export may not carry an
+ * unresolved reference.
  */
 export function resolvePalette(root: Element | null, theme: ThemeKind): Palette {
   const base = paletteFor(theme);
@@ -327,5 +428,8 @@ function clean(raw: string | null | undefined): string {
   const value = (raw || '').trim();
   if (!value) return '';
   if (value.indexOf('var(') >= 0 || value.indexOf('color-mix(') >= 0) return '';
+  // A relative colour, `lab(from <colour> ...)` (a dark theme's secondary and muted text): the
+  // export derives it from the resolved text colour instead.
+  if (/\(\s*from\s/i.test(value)) return '';
   return value;
 }

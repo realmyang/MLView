@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { cascadeWinner, loadBundle, recordingBridge, WEBVIEW_ROOT } from './helpers.mjs';
+import { mixLab, relativeLab, splitSupports } from './colour-lab.mjs';
 
 const STYLES = join(WEBVIEW_ROOT, 'src', 'styles');
 const css = async (name) => (await readFile(join(STYLES, name), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
@@ -86,18 +87,22 @@ function colour(expr, vars, depth = 0) {
   }
   if (text.startsWith('color-mix(')) {
     const [space, first, second] = args(text.slice(10, -1));
-    assert.equal(space, 'in srgb');
+    assert.ok(space === 'in srgb' || space === 'in lab', space);
     const m = /^(.*\S)\s+((?:calc\(.*\))|(?:[\d.]+%))$/.exec(first);
     assert.ok(m, 'colour-mix share in ' + first);
     const p = share(m[2], vars);
     const a = colour(m[1], vars, depth + 1);
     const b = colour(second, vars, depth + 1);
+    // Viewer M4: secondary and muted text in a light theme (test/colour-lab.mjs).
+    if (space === 'in lab') return mixLab(a, b, p);
     // Premultiplied interpolation, as CSS Color 5 mixes colours with alpha.
     const alpha = a[3] * p + b[3] * (1 - p);
     if (alpha === 0) return [0, 0, 0, 0];
     const rgb = [0, 1, 2].map((i) => (a[i] * a[3] * p + b[i] * b[3] * (1 - p)) / alpha);
     return [...rgb, alpha];
   }
+  // Viewer M4: secondary and muted text in a dark theme, lab(from var(--mlv-text) <L> a b).
+  if (text.startsWith('lab(from ')) return relativeLab(text, (origin) => colour(origin, vars, depth + 1));
   throw new Error('cannot resolve colour ' + text);
 }
 
@@ -169,12 +174,16 @@ const LIGHT_ROOT = ':root, .mlv-root[data-theme="light"]';
 const DARK_BODY = 'body.vscode-dark, :root[data-theme="dark"], .mlv-root[data-theme="dark"]';
 const HC_BODY = 'body.vscode-high-contrast, body.vscode-high-contrast-light, :root[data-theme="hc"], .mlv-root[data-theme="hc"]';
 
-/** The custom properties in force on the canvas for a harness theme, as tokens.css declares them. */
+/**
+ * The custom properties in force on the canvas for a harness theme, as tokens.css declares them
+ * for an engine with relative colour syntax (every VS Code the extension supports): its @supports
+ * block (viewer M4, secondary and muted text in a dark theme) applies over the dark block.
+ */
 async function themeVars() {
-  const tokens = await css('tokens.css');
+  const { blocks, rest: tokens } = splitSupports(await css('tokens.css'));
   const themes = await harnessThemes();
   const light = block(tokens, LIGHT_ROOT);
-  const dark = block(tokens, DARK_BODY);
+  const dark = { ...block(tokens, DARK_BODY), ...Object.assign({}, ...blocks.map((b) => block(b.body, DARK_BODY))) };
   const hc = block(tokens, HC_BODY);
   const root = block(tokens, '.mlv-root');
   const out = {};

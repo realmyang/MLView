@@ -154,26 +154,51 @@ titles, smaller in some wider panels than in narrower ones) and the M4 plan
 opens at 90% (11.7 px) everywhere, measured with the screenshot harness; a
 wide panel now shows fewer whole titles at first. Where the rail docks (a
 1260 px panel) the canvas loses 360 px, so a document that fits whole can open
-smaller there, never under 75%. Secondary and muted text are the theme's
-text colour mixed into its card surface (90% and 80%) instead of VS Code's
-description colour, which is Light Modern's text colour, 3.68-4.41:1 on cards,
-hovered rows and lane headers in Light+, and 3.30-4.36:1 on hovered rows, lane
-headers and other raised backgrounds in Dark 2026, VS Code's default dark
-theme. Computed from the harness's VS Code 1.139 colours, both now clear
+smaller there, never under 75%. Secondary and muted text are derived from
+the theme's own text colour instead of VS Code's description colour, which is
+Light Modern's text colour, 3.68-4.41:1 on cards, hovered rows and lane
+headers in Light+, and 3.30-4.36:1 on hovered rows, lane headers and other
+raised backgrounds in Dark 2026, VS Code's default dark theme. In a light
+theme they are the text mixed into the card surface in CIE Lab (87% and 74%,
+13% and 26% of the lightness distance from the text to the card). In a dark
+theme they are 9 and 18 L* below the text, never under L* 64.5 and never above
+the text, and secondary text is muted text where the text is under L* 79.5,
+which gives Dark 2026 two levels (CSS relative colour syntax behind
+`@supports`; an engine without it keeps a two-level mix). High Contrast keeps
+its text colour. Computed from the harness's VS Code 1.139 colours, both clear
 4.5:1 on every background they are drawn on in the six themes outside High
-Contrast (lowest 4.77:1, muted text on a hovered row in Dark 2026), keep their
-order under the text colour and stay quieter (muted text at 53-70% of the
-text's contrast). High Contrast keeps its text colour. After an independent
-verification, a hovered **⋯** menu item's key hint drops VS Code's key-cap
-fill (3.29-3.34:1 in Light+ and Light Modern before), a chip in a hovered or
-selected Findings row drops its fill (4.49:1 computed in Dark 2026 before), and
-About's `k=v` tokens use the text colour (3.82:1 in Dark 2026 and invisible in
-Light High Contrast before). The three text colours are close together
-(secondary text 9-12% of the lightness distance from the text to the card);
-that trade-off is left for the owner.
+Contrast (lowest 4.62:1, muted text on an unresolved card's hatching in Light
+Modern) and keep their order under the text colour. A first version mixed the
+text at 90% and 80% in every theme, which left secondary text 9-12% of the
+lightness distance from the text (finding F3 of an independent verification).
+That verification also had a hovered **⋯** menu item's key hint drop VS
+Code's key-cap fill (3.29-3.34:1 in Light+ and Light Modern before), a chip in
+a hovered or selected Findings row drop its fill (4.49:1 computed in Dark 2026
+before), and About's `k=v` tokens use the text colour (3.82:1 in Dark 2026 and
+invisible in Light High Contrast before); a group's step count now drops its
+fill on a hovered group header as well. Before (90% and 80%) and after, on
+the card surface, the lowest on any background, and the share of the L*
+distance to the card:
+
+| Theme | Level | Before | Card | Lowest | L* share | After | Card | Lowest | L* share |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Dark Modern | secondary | #BBBBBB | 8.47:1 | 6.92:1 | 8.9% | #B3B3B3 | 7.80:1 | 6.37:1 | 12.9% |
+| | muted | #AAAAAA | 6.98:1 | 5.84:1 | 18.0% | #9C9C9C | 5.96:1 | 4.99:1 | 25.1% |
+| Dark+ | secondary | #C3C3C3 | 8.64:1 | 6.98:1 | 9.0% | #BBBBBB | 7.98:1 | 6.45:1 | 12.8% |
+| | muted | #B1B1B1 | 7.14:1 | 5.89:1 | 18.1% | #A3A3A3 | 6.06:1 | 4.99:1 | 25.6% |
+| Dark 2026 | secondary | #ACAEAF | 7.25:1 | 5.00:1 | 9.0% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| | muted | #9C9FA0 | 6.03:1 | 4.77:1 | 18.1% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| Light Modern | secondary | #4E4E4E | 7.85:1 | 6.56:1 | 11.4% | #515151 | 7.51:1 | 6.28:1 | 13.0% |
+| | muted | #616161 | 5.85:1 | 5.11:1 | 22.3% | #676767 | 5.29:1 | 4.62:1 | 26.0% |
+| Light+ | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #202020 | 14.61:1 | 12.23:1 | 13.0% |
+| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #3B3B3B | 10.08:1 | 8.44:1 | 26.0% |
+| Light 2026 | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #383838 | 11.28:1 | 9.41:1 | 13.0% |
+| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #515152 | 7.57:1 | 6.35:1 | 26.0% |
+
 No contract change, no new setting and no geometry change. Checked by local
-jsdom tests and headless-Chrome screenshots of a simulated host only, not in
-live VS Code or as a usability check ([changelog](../CHANGELOG.md)).
+jsdom tests and headless-Chrome 154 screenshots of a simulated host only
+(Chrome's computed colours match the table), not in live VS Code, in an older
+Chromium or as a usability check ([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M4, step 16 (changes since the previous revision): when a
 new revision names the one the panel is showing as its parent, About opens on

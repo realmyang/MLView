@@ -579,8 +579,8 @@
  * (--mlv-text-3), which clears 4.5:1 and is muted in every shipped theme
  * (test/muted-text.test.mjs). --mlv-text-2 was VS Code's descriptionForeground then: 4.40:1 on
  * the rail in Light+ (#717171) and the text colour in Light Modern, so this small text was under
- * 4.5:1 or not muted at all. Both tokens are mixes of the text colour now (tokens.css); this copy
- * stays muted.
+ * 4.5:1 or not muted at all. Both tokens are derived from the text colour now (tokens.css); this
+ * copy stays muted.
  */
 .mlv-about__meta,
 .mlv-about__note {

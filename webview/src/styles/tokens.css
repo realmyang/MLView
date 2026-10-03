@@ -56,17 +56,21 @@
  * every background the stylesheets paint under text (a census there classifies each one):
  *
  * @contrast (4.5:1): --mlv-text-2 on every background: the canvas, a lane, --mlv-surface, a
- *   hatched card, --mlv-surface-2 on a surface, on the canvas and once or twice on a lane, a lane
- *   header, a phase index row in view, the menu, the bundle badge, VS Code's key cap under a
- *   <kbd>, every overview block, and a --mlv-surface-2 box (a chip, a group count) inside a
- *   hovered or selected row or group header with the fill the stylesheet gives it there
+ *   hatched card, --mlv-surface-2 on a surface, on the canvas and on a lane, a lane header, a
+ *   phase index row in view, the menu, the bundle badge, VS Code's key cap under a <kbd>, every
+ *   overview block, and a --mlv-surface-2 box (a chip, a group count) inside a hovered or
+ *   selected row or group header with the fill the stylesheet gives it there (none)
  * @contrast (4.5:1): menu.selectionForeground on a hovered or focused ... menu item, its key
  *   hint included (the key cap drops its fill there)
  * @contrast (4.5:1): About's k=v tokens (<code>) in every theme, High Contrast included
  * @contrast (4.5:1): --mlv-text-3 on the backgrounds its selectors sit on: the canvas,
  *   --mlv-surface, a hatched card, --mlv-surface-2 on a surface and a lane header
+ * @contrast (4.5:1): the same for an engine without relative colour syntax (the dark fallback)
  * @order: --mlv-text at least as strong as --mlv-text-2, and --mlv-text-2 as --mlv-text-3, on
- *   every background; --mlv-text-3 at 50-70% of --mlv-text's contrast on --mlv-surface
+ *   every background
+ * @hierarchy: on the L* line from --mlv-text to --mlv-surface, --mlv-text-3 at 25% or more and
+ *   --mlv-text-2 a step of 10% or more from each, where the theme has room for that at 4.5:1;
+ *   otherwise --mlv-text-2 equals --mlv-text-3 (Dark 2026)
  *
  * The connection and card-border colours are the theme's own text colour
  * mixed into its background, so they follow any theme, not only the defaults.
@@ -177,19 +181,16 @@
   --mlv-border: var(--vscode-widget-border, #E3E5EB);
   --mlv-border-strong: var(--vscode-widget-border, #C9CDD6);
   --mlv-text: var(--vscode-editor-foreground, #16181D);
-  /* Viewer M4: secondary (--mlv-text-2) and muted (--mlv-text-3) text are the theme's own text
-   * colour mixed into its card surface, 90% and 80%, in light and dark themes alike (the dark
-   * blocks below restate them, because a var() resolves where it is declared). They no longer read
-   * descriptionForeground: Light Modern sets it to its text colour (#3B3B3B), Light+'s (#717171)
-   * is 4.40:1 on its widget background and Dark 2026's (#8C8C8C) about 3.8:1 on a hovered row.
-   * A mix is never stronger than the text and always the same share of the way to the surface, so
-   * the order text > secondary > muted holds in any theme. CSS cannot compare two run-time
-   * colours, so there is no contrast clamp: the shares are the clamp, chosen so that Dark 2026, the
-   * shipped theme with the least contrast, clears 4.5:1 on every background (muted 4.77:1 on a
-   * hovered row, secondary 5.00:1 on a group count over a hovered group header) while muted text
-   * keeps 53-70% of the text colour's contrast. No per-theme rule (test/muted-text.test.mjs). */
-  --mlv-text-2: color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface));
-  --mlv-text-3: color-mix(in srgb, var(--mlv-text) 80%, var(--mlv-surface));
+  /* Viewer M4: secondary (--mlv-text-2) and muted (--mlv-text-3) text are derived from the theme's
+   * own text colour, never from descriptionForeground: Light Modern sets that to its text colour
+   * (#3B3B3B), Light+'s (#717171) is 4.40:1 on its widget background and Dark 2026's (#8C8C8C)
+   * about 3.8:1 on a hovered row. In a light theme they are the text mixed into the card surface
+   * in CIE Lab, 87% and 74%: exactly 13% and 26% of the L* distance from the text to the card, a
+   * step each, and on the surface's side of the text, so the order text > secondary > muted holds
+   * in any theme. Light Modern bounds the shares (muted text clears 4.5:1 on its hatching up to
+   * 26.8%). The dark rule is below the dark blocks (test/muted-text.test.mjs). */
+  --mlv-text-2: color-mix(in lab, var(--mlv-text) 87%, var(--mlv-surface));
+  --mlv-text-3: color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface));
   --mlv-link: var(--vscode-textLink-foreground, #2B57C4);
   --mlv-accent: var(--vscode-focusBorder, #3B6CF6);
   --mlv-accent-solid: var(--vscode-button-background, #2B57C4);
@@ -238,8 +239,9 @@
     --mlv-border: var(--vscode-widget-border, #2C3038);
     --mlv-border-strong: var(--vscode-widget-border, #3B414C);
     --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
-    --mlv-text-2: color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface));
-    --mlv-text-3: color-mix(in srgb, var(--mlv-text) 80%, var(--mlv-surface));
+    /* the fallback for an engine without relative colours; the rule is in the @supports below */
+    --mlv-text-2: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
+    --mlv-text-3: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
     --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
     --mlv-accent: var(--vscode-focusBorder, #6E96FF);
     --mlv-accent-solid: var(--vscode-button-background, #3355C4);
@@ -282,8 +284,8 @@ body.vscode-dark,
   --mlv-border: var(--vscode-widget-border, #2C3038);
   --mlv-border-strong: var(--vscode-widget-border, #3B414C);
   --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
-  --mlv-text-2: color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface));
-  --mlv-text-3: color-mix(in srgb, var(--mlv-text) 80%, var(--mlv-surface));
+  --mlv-text-2: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
+  --mlv-text-3: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
   --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
   --mlv-accent: var(--vscode-focusBorder, #6E96FF);
   --mlv-accent-solid: var(--vscode-button-background, #3355C4);
@@ -313,6 +315,47 @@ body.vscode-dark,
   --mlv-sev-high-ink: #1A0405;
   --mlv-sev-medium-ink: #2A1A00;
   --mlv-sev-low-ink: #0B1020;
+}
+
+/*
+ * Viewer M4: secondary and muted text in a dark theme. One share toward the card cannot serve the
+ * dark themes: Dark 2026's text (#BBBEBF, L* 76.8) is dim, so muted text has room for only 20.9%
+ * of the L* distance to its card before a hovered row (list.hoverBackground, 8% white) takes it
+ * under 4.5:1, where Dark Modern and Dark+ have about 30%. So each level is a step below the
+ * text's own L*, kept above a floor and never above the text, with the text's a and b:
+ *
+ *   muted text      L* = min(L, max(64.5, L - 18))
+ *   secondary text  L* = min(L, max(64.5, L - 9)), and the floor where L is under 79.5
+ *
+ * L* 64.5 is the lowest lightness that clears 4.5:1 on every background VS Code's default dark
+ * themes paint under secondary or muted text (Dark+ needs 64.3 under a key hint in the menu,
+ * Dark 2026 63.3 on a hovered row, Dark Modern 62.1). Under L* 79.5 a secondary step 9 below the
+ * text would sit less than 6 L* above that floor, nearly muted text and barely quieter than the
+ * text, so secondary text is muted text: two levels, as Dark Modern had before viewer M4
+ * (descriptionForeground #9D9D9D for both). Never above the text: a theme whose text is under
+ * L* 64.5 (Solarized Dark, #839496) keeps its text colour for both. Dark Modern and Dark+: 9 and
+ * 17.5-18 L* below the text (13% and 25-26% of the way to the card); Dark 2026: both at the floor
+ * (19%). CSS cannot compare two run-time colours, so the rule reads only the text: the floor is an
+ * absolute level, not measured against the theme's own backgrounds. Relative colour syntax with
+ * math on the channels (Chromium 119 and later; VS Code 1.100, the extension's minimum, ships a
+ * later one) is gated on the exact expression; an engine without it keeps the two-level mix in
+ * the blocks above (20% of the way). No per-theme rule (test/muted-text.test.mjs).
+ */
+@supports (color: lab(from #000 min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100))) a b)) {
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not([data-theme="hc"]),
+    .mlv-root:not([data-theme="light"]):not([data-theme="hc"]) {
+      --mlv-text-2: lab(from var(--mlv-text) min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100))) a b);
+      --mlv-text-3: lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b);
+    }
+  }
+
+  body.vscode-dark,
+  :root[data-theme="dark"],
+  .mlv-root[data-theme="dark"] {
+    --mlv-text-2: lab(from var(--mlv-text) min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100))) a b);
+    --mlv-text-3: lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b);
+  }
 }
 
 /* high contrast: fills drop to strokes, the glyph letter is retained */

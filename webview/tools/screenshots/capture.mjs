@@ -387,14 +387,29 @@ function pageHelpers() {
      * colours, down to the page. Not counted: background images (a card's hatching), anything that
      * is not an ancestor, and SVG text; elements under an ancestor with opacity below 1 (a dimmed
      * lane, a disabled item) are counted apart. Computed colours, not pixels. A token whose colour
-     * is not rgb() or color(srgb), or that no shown element is painted in, is an `error`, not a pass.
+     * is not rgb(), color(srgb) or lab(), or that no shown element is painted in, is an `error`,
+     * not a pass.
      */
     inks() {
+      // CIE Lab (D50) to sRGB 0..255, as CSS Color 4 converts it: the viewer's secondary and muted
+      // text compute to lab() (color-mix(in lab, ...) and lab(from ...), viewer M4 hierarchy).
+      const fromLab = (L, a, b) => {
+        const e = 216 / 24389, k = 24389 / 27;
+        const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+        const w = [0.3457 / 0.3585, 1, (1 - 0.3457 - 0.3585) / 0.3585];
+        const xyz = [fx ** 3 > e ? fx ** 3 : (116 * fx - 16) / k, L > k * e ? fy ** 3 : L / k, fz ** 3 > e ? fz ** 3 : (116 * fz - 16) / k].map((v, i) => v * w[i]);
+        const mul = (m, v) => m.map((r) => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+        const d65 = mul([[0.955473421488075, -0.02309845494876471, 0.06325924320057072], [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323], [0.012314014864481998, -0.020507649298898964, 1.330365926242124]], xyz);
+        const rgb = mul([[3.2409699419045226, -1.537383177570094, -0.4986107602930034], [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559], [0.05563007969699366, -0.20397695888897652, 1.0569715142428786]], d65);
+        return rgb.map((v) => { const c = Math.max(0, Math.min(1, v)); return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055); });
+      };
       const parse = (css) => {
         let m = /^rgba?\(([^)]+)\)$/.exec(css);
         if (m) { const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; }
         m = /^color\(srgb ([^)]+)\)$/.exec(css);
         if (m) { const p = m[1].split(/[\s/]+/).filter(Boolean).map(Number); return [p[0] * 255, p[1] * 255, p[2] * 255, p.length > 3 ? p[3] : 1]; }
+        m = /^lab\(([^)]+)\)$/.exec(css);
+        if (m) { const p = m[1].split(/[\s/]+/).filter(Boolean).map(Number); return p.slice(0, 3).every(Number.isFinite) ? [...fromLab(p[0], p[1], p[2]), p.length > 3 ? p[3] : 1] : null; }
         return null;
       };
       const over = (top, under) => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3])).concat([1]);
@@ -431,7 +446,7 @@ function pageHelpers() {
       for (const key of ['text2', 'text3']) {
         const ink = parse(tokens[key]);
         if (!ink) {
-          out[key] = { colour: tokens[key], computed: tokens[key], elements: 0, faded: 0, lowest: null, below45: null, grounds: [], error: `the token's computed colour ${tokens[key]} is not rgb() or color(srgb)` };
+          out[key] = { colour: tokens[key], computed: tokens[key], elements: 0, faded: 0, lowest: null, below45: null, grounds: [], error: `the token's computed colour ${tokens[key]} is not rgb(), color(srgb) or lab()` };
           continue;
         }
         const grounds = new Map();

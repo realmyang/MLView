@@ -209,32 +209,45 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
     a small and a medium document, and the viewer's own layout of the
     `VIT_SHAPE`, `YOLO_SHAPE` and regression fixtures, and the panel widths
     320-1920 px through the measured panel-to-canvas sizes.
-- Viewer M4 secondary and muted text (`--mlv-text-2`, `--mlv-text-3`): the
-  theme's text colour mixed into its card surface,
-  `color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface))` and the same
-  at 80%, in light and dark themes; high contrast keeps its text colour for
-  both. They no longer read `descriptionForeground`, which is Light Modern's
-  text colour (#3B3B3B), 4.40:1 on Light+'s widget background (#717171) and
-  about 3.8:1 on a hovered row in Dark 2026 (#8C8C8C). No per-theme rule and
-  no contrast clamp (CSS cannot compare two run-time colours): the shares hold
-  the order text > secondary > muted in any theme and clear 4.5:1 in Dark
-  2026, the shipped theme with the least contrast. Lowest, secondary then
-  muted: Dark Modern 6.92:1 and 5.84:1, Dark+ 6.98:1 and 5.89:1, Dark 2026
-  5.00:1 and 4.77:1, Light Modern 6.56:1 and 5.11:1, Light+ 13.36:1 and
-  9.87:1, Light 2026 8.16:1 and 6.96:1. A hovered **⋯** menu item's icon, key
-  hint and note take the item's colour, and the key hint's key cap (VS Code
-  paints every `<kbd>`) drops its fill there. A chip in a hovered or selected
-  Findings row drops its fill (the row's own `--mlv-surface-2`, translucent in
-  the 2026 themes). About's `k=v` tokens (`<code>`) take their paragraph's
-  text colour, not VS Code's `textPreformat.foreground`. `export/palette.ts`
-  mixes the same (`TEXT2_MIX`, `TEXT3_MIX`). `test/muted-text.test.mjs` is the
-  theme x token x background matrix, nested `--mlv-surface-2` boxes included,
-  with a census of the stylesheets' backgrounds, the muted-text selectors, the
+- Viewer M4 secondary and muted text (`--mlv-text-2`, `--mlv-text-3`),
+  derived from the theme's text colour; high contrast keeps its text colour
+  for both. In a light theme, `color-mix(in lab, var(--mlv-text) 87%,
+  var(--mlv-surface))` and the same at 74%: 13% and 26% of the L* distance
+  from the text to the card. In a dark theme, 9 and 18 L* below the text,
+  never under L* 64.5 (the lowest that clears 4.5:1 on every background
+  VS Code's default dark themes paint under them) and never above the text,
+  with secondary text joining muted text where the text is under L* 79.5:
+  `lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b)` and its
+  secondary form, behind `@supports` on the exact expression, with a
+  two-level `color-mix(in lab, ... 80%, ...)` for an engine without relative
+  colour syntax. Dark 2026's dim text gets two levels. They no longer read
+  `descriptionForeground`, which is Light Modern's text colour (#3B3B3B),
+  4.40:1 on Light+'s widget background (#717171) and about 3.8:1 on a hovered
+  row in Dark 2026 (#8C8C8C). No per-theme rule; CSS cannot compare two
+  run-time colours, so the floor is a fixed lightness, not measured against a
+  third-party theme's backgrounds. Lowest, secondary then muted: Dark Modern
+  6.37:1 and 4.99:1, Dark+ 6.45:1 and 4.99:1, Dark 2026 4.67:1 for both,
+  Light Modern 6.28:1 and 4.62:1, Light+ 12.23:1 and 8.44:1, Light 2026
+  9.41:1 and 6.35:1. A hovered **⋯** menu item's icon, key hint and note take
+  the item's colour, and the key hint's key cap (VS Code paints every
+  `<kbd>`) drops its fill there. A chip in a hovered or selected Findings row,
+  and a group's step count on a hovered group header, drop their fill (the
+  row's or header's own `--mlv-surface-2`, translucent in the 2026 themes).
+  About's `k=v` tokens (`<code>`) take their paragraph's text colour, not VS
+  Code's `textPreformat.foreground`. `export/palette.ts` derives the same
+  (`LIGHT_TEXT_MIX`, `DARK_TEXT_LEVELS`). `test/muted-text.test.mjs` is the
+  theme x token x background matrix for engines with and without relative
+  colour syntax, nested `--mlv-surface-2` boxes included, with a census of
+  the stylesheets' backgrounds, the muted-text selectors, the
   `--mlv-surface-2` boxes with their own secondary or muted text, and the
-  `<kbd>` and `<code>` elements; `tools/screenshots/capture.mjs` records a
-  computed-colour probe per screenshot (`facts.inks`), reading each colour
-  through a fresh element and reporting a colour no element matched as an
-  `error`.
+  `<kbd>` and `<code>` elements, an L* check per theme (muted text 25% or
+  more of the way to the card and secondary text a step from each, or the
+  named two-level case) and a sweep of the dark rule over text lightness;
+  `test/colour-lab.mjs` holds the Lab arithmetic and CSS math the token tests
+  share. `tools/screenshots/capture.mjs` records a computed-colour probe per
+  screenshot (`facts.inks`, reading rgb(), color(srgb) and lab()), reading
+  each colour through a fresh element and reporting a colour no element
+  matched as an `error`.
 - The Selection pane (viewer M2 below) shows the claim first; its quotes sit
   under a caption saying that a matching quote does not show support, and one
   line links to the document-wide limitations in About.
