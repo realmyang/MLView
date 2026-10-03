@@ -17,6 +17,7 @@
  *   `app/keys.ts`       the keyboard binding
  *   `app/messages.ts`   the host protocol, inbound
  *   `app/state.ts`      `ViewState`, both directions
+ *   `app/walk.ts`       the review walk (viewer M3)
  *
  * Those modules are this class's own halves, not an API: every field and method
  * below is public only because they reach it, and nothing outside `app/` may
@@ -47,6 +48,9 @@ import { applyState, safeLoad, snapshotState } from './app/state.js';
 import { sanitizeRailTab, sanitizeSelection } from './ui/commands.js';
 import { screenReaderActive } from './motion.js';
 import { selectionAnnouncement } from './ui/selection.js';
+import { ReviewWalk } from './app/walk.js';
+import { WalkBar } from './ui/walkbar.js';
+import { sameClaim } from './walk.js';
 import type { SearchHit } from './search.js';
 import type {
   ActionResult,
@@ -100,6 +104,9 @@ export interface ShowAboutOptions {
 }
 
 type RequestFrame = UiToHost & { requestId?: string };
+
+/** Viewer M3 (step 14): how long after a reveal a window focus puts the keyboard back on the claim. */
+export const REVEAL_FOCUS_HOLD_MS = 1500;
 
 export interface SelectOptions {
   /** Open the selection's cited source beside the panel (Enter, double-click). Focus stays here. */
@@ -201,6 +208,8 @@ export class App implements MLViewApp {
   private requestSerial = 0;
   private disposers: (() => void)[] = [];
   private destroyed = false;
+  /** Viewer M3 (step 14): stops putting the keyboard back on a revealed claim (`holdRevealFocus`). */
+  private releaseRevealFocus: (() => void) | null = null;
 
   view!: CanvasView;
   chrome!: Chrome;
@@ -214,6 +223,9 @@ export class App implements MLViewApp {
   notice!: HostNotice;
   /** Viewer M1 review: the second click of a double-click opens what the first one selected. */
   doubleClick: DoubleClickOpener;
+  /** Viewer M3: the review walk, and its bar at the foot of the diagram (above the bottom sheet). */
+  walk: ReviewWalk;
+  walkBar!: WalkBar;
 
   saveSoon = debounce(() => this.bridge.saveState(this.getState()), 250);
 
@@ -224,6 +236,7 @@ export class App implements MLViewApp {
     this.themes = new ThemeController(root, bridge.theme || 'light');
     this.doubleClick = new DoubleClickOpener(root);
     this.disposers.push(() => this.doubleClick.dispose());
+    this.walk = new ReviewWalk(this);
     buildAppUi(this);
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
@@ -237,6 +250,8 @@ export class App implements MLViewApp {
     const selection = restored && typeof restored.workflowRevision === 'string' ? sanitizeSelection(restored.selection) : null;
     if (restored && selection) this.restoredSelection = { revision: restored.workflowRevision as string, selection };
     if (restored && typeof restored.workflowRevision === 'string' && restored.sheetOpen === true) this.restoredSheet = restored.workflowRevision;
+    // Viewer M3: the review walk's place, for the revision it was saved with.
+    if (restored && typeof restored.workflowRevision === 'string') this.walk.restore(restored.workflowRevision, restored.walk);
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.onResize()));
     // Viewer M2: the find key (Cmd+F on macOS, Ctrl+F elsewhere) focuses the search from anywhere
@@ -251,6 +266,17 @@ export class App implements MLViewApp {
       if (this.modalOpen(ev.target)) return;
       ev.preventDefault();
       this.focusSearch();
+    }));
+    // Viewer M3: Escape always ends the review walk, wherever the focus is in the viewer (the
+    // header, a docked rail), not only on the canvas, whose cascade ends it first. A surface that
+    // used the Escape itself (a menu, the shortcut sheet, the Refine… popover, the search box)
+    // marks it handled first, and a modal surface keeps it. Marked handled here, so the panel's
+    // bootstrap keeps VS Code from also acting on it.
+    this.disposers.push(on(root, 'keydown', (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape' || ev.defaultPrevented || !this.walk.active) return;
+      if (this.modalOpen(ev.target)) return;
+      if (!this.walk.stop()) return;
+      ev.preventDefault();
     }));
     this.chrome.setWidth(this.rootWidth());
     this.view.setPanelWidth(this.rootWidth());
@@ -270,7 +296,11 @@ export class App implements MLViewApp {
   /** The panel was resized: the header's shape and the rail's width rule follow it. */
   private onResize(): void {
     const before = this.chrome.headerLayout;
-    if (this.chrome.setWidth(this.rootWidth()) !== before) renderChrome(this);
+    if (this.chrome.setWidth(this.rootWidth()) !== before) {
+      renderChrome(this);
+      // Viewer M3: the walk bar's narrow form follows the header's.
+      this.renderWalkBar();
+    }
     this.view.setPanelWidth(this.rootWidth());
     this.autoRail();
     // The sheet's Selection pane changes between one and two columns at 620 px.
@@ -356,6 +386,7 @@ export class App implements MLViewApp {
    * for this same revision is restored instead of fitting (VIEWUI-3).
    */
   setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void {
+    const revisionChanged = this.workflowRevision !== document.revision.id;
     let next = preserve;
     if (!preserve || !preserve.viewport) {
       let viewport: Viewport | null = null;
@@ -390,6 +421,8 @@ export class App implements MLViewApp {
     this.restoredSheet = null;
     this.workflowDocument = document;
     this.workflowRevision = document.revision.id;
+    // Viewer M3: another revision closes the phase overview drawn for the one before.
+    if (revisionChanged) this.view.closeOverview(false);
     // Before the first fit, so the fit sees the canvas the rail leaves (issue 6).
     this.autoRail();
     setGraph(this, normalizeWorkflow(document), next, true);
@@ -398,6 +431,9 @@ export class App implements MLViewApp {
     // The header is built after the fit ran; refit a viewport nobody moved to
     // the canvas that is actually left (issue 1).
     this.view.afterChromeChange();
+    // Viewer M3: another revision ends the walk and starts it fresh; a remount brings it back.
+    this.walk.onDocument(revisionChanged);
+    this.syncNoticeReview();
   }
 
   /**
@@ -439,11 +475,15 @@ export class App implements MLViewApp {
    * marked, their Open links are disabled with the reason, and the status bar counts them.
    */
   setStale(files: StaleFile[]): void {
+    const previous = this.freshness.list();
     if (!this.freshness.set(files)) return;
     this.view.setStale(this.freshness.list());
     if (this.index) this.view.refresh(this.selection);
     renderChrome(this);
     renderRail(this);
+    // Viewer M3: the walk's Changed files filter and the notice's "Review affected claims" follow.
+    this.walk.onStale(previous);
+    this.syncNoticeReview();
   }
 
   /**
@@ -460,17 +500,209 @@ export class App implements MLViewApp {
     if (checking) return;
     const before = this.notice.root.hidden;
     this.notice.update(message, codes);
+    this.syncNoticeReview();
     const body = this.root.querySelector('.mlv-body');
     if (body && this.notice.root.nextSibling !== body) this.root.insertBefore(this.notice.root, body);
     if (this.graph && before !== this.notice.root.hidden) this.view.afterChromeChange();
   }
 
-  /** VIEW-12: the toolbar's copy of the minimap chevron. */
-  setMinimapCollapsed(next: boolean): void {
-    this.view.setMinimapCollapsed(next);
+  /* ── the review walk (viewer M3) ────────────────────────────────────── */
+
+  /** The stale notice offers "Review affected claims" while claims cite a changed file. */
+  syncNoticeReview(): void {
+    const count = this.graph && this.walk.changedOffered() ? this.walk.counts().changed : 0;
+    this.notice.setReview(count, this.walk.active);
+  }
+
+  /** The walk bar for the walk's state, or hidden. */
+  renderWalkBar(): void {
+    if (!this.walkBar) return;
+    const walk = this.walk;
+    if (!walk.active) {
+      this.walkBar.update(null);
+      return;
+    }
+    this.walkBar.update({
+      position: walk.position,
+      total: walk.list.length,
+      filter: walk.filter,
+      counts: walk.counts(),
+      offered: walk.offered(),
+      status: walk.status,
+      narrow: this.chrome.headerLayout === 'narrow',
+    });
+  }
+
+  /**
+   * The walk started or ended: the bar above the bottom sheet shows or goes, Review is pressed or not,
+   * the notice's action follows, and the canvas, which changed height, keeps its picture (no refit)
+   * with the selection in view, as for the bottom sheet.
+   */
+  onWalkShown(shown: boolean): void {
+    this.renderWalkBar();
+    renderChrome(this);
+    this.syncNoticeReview();
+    if (!shown) renderRail(this);
+    if (this.graph) this.view.afterSheetToggle();
+  }
+
+  /** Starting the walk shows a docked rail the reader hid (the walk reads claims in its Selection tab). */
+  openRailForWalk(): void {
+    if (this.railMode !== 'docked' || this.railOpen) return;
+    this.railChosen = true;
+    this.setRailOpen(true);
+  }
+
+  /** The walk's current claim is `sel`. */
+  walkOwns(sel: Sel | null): boolean {
+    return sameClaim(this.walk.current(), sel);
+  }
+
+  /**
+   * One step of the walk on the canvas: the claim's boxes are drawn (a collapsed group around it
+   * opens), it is selected and shown in the Selection tab (a collapsed bottom sheet opens), and it
+   * is brought into view above the sheet: a finding frames every step it cites; a step or a
+   * connection is zoomed to reading size when the diagram is below it, else panned the least
+   * distance that shows it whole. The keyboard stays on the diagram: a card or connection that
+   * held the focus hands it to the canvas, so the walk's keys keep answering there. The hover card
+   * goes and stays away until the pointer moves (`CanvasView.holdHover`).
+   */
+  showWalkClaim(claim: Sel): void {
+    const index = this.index;
+    if (!index) return;
+    // Viewer M3 (live check, W3): no hover card for what the step pans under a resting pointer.
+    this.view.holdHover();
+    const expandEnds = (edgeId: string) => {
+      const edge = index.edgeById.get(edgeId);
+      if (!edge) return;
+      this.view.expandAncestors(edge.source);
+      this.view.expandAncestors(edge.target);
+    };
+    if (claim.kind === 'issue') {
+      const issue = index.issueById.get(claim.id);
+      if (!issue) return;
+      for (const id of issue.nodeIds) this.view.expandAncestors(id);
+      for (const id of issue.edgeIds) expandEnds(id);
+    } else if (claim.kind === 'node') this.view.expandAncestors(claim.id);
+    else expandEnds(claim.id);
+    this.select(claim, { tab: 'inspector', showClaim: true });
+    if (claim.kind === 'issue') this.view.frameIssue(claim.id);
+    else this.view.revealTarget({ kind: claim.kind, id: claim.id });
+    const canvas = this.view.canvasEl;
+    const active = canvas.ownerDocument ? (canvas.ownerDocument.activeElement as HTMLElement | null) : null;
+    if (active && active !== canvas && canvas.contains(active)) {
+      try {
+        canvas.focus();
+      } catch (_e) {
+        /* the canvas may already be torn down */
+      }
+    }
+  }
+
+  /**
+   * Viewer M3 (step 14), MLView: Reveal in Diagram. The reader chose this claim from the code in the
+   * editor, and VS Code moved the keyboard focus to this panel because they asked for the diagram.
+   * The shortcut sheet, the Refine… popover (its text is kept) and the phase overview close; the
+   * claim's boxes are drawn (a collapsed group around it opens); it is selected and shown in the
+   * Selection tab (a side panel the reader hid opens, as for the walk, and so does a collapsed bottom
+   * sheet); and it is brought into view above the sheet and clear of the phase index: a step is
+   * centred, zoomed to reading size when the diagram is smaller (`center` false: panned the least
+   * distance instead), a connection frames both its ends (or its source, when they are too far
+   * apart), and a finding frames every step it cites.
+   * The keyboard lands on the step's card or the connection (the canvas for a finding), so the
+   * diagram's keys answer at once. A claim the displayed revision lacks changes nothing and says so.
+   * Returns whether the claim was shown.
+   */
+  revealClaim(sel: Sel, opts: { center?: boolean } = {}): boolean {
+    const index = this.index;
+    if (!index) return false;
+    const known = sel.kind === 'node' ? index.nodeById.has(sel.id) : sel.kind === 'edge' ? index.edgeById.has(sel.id) : index.issueById.has(sel.id);
+    if (!known) {
+      const text = 'That claim is not in the revision shown here.';
+      this.view.toast(text);
+      this.announce(text);
+      return false;
+    }
+    if (this.sheet.open) this.sheet.hide(null);
+    closeComposer(this, false);
+    if (this.view.closeOverview(false)) renderChrome(this);
+    const expandEnds = (edgeId: string) => {
+      const edge = index.edgeById.get(edgeId);
+      if (!edge) return;
+      this.view.expandAncestors(edge.source);
+      this.view.expandAncestors(edge.target);
+    };
+    if (sel.kind === 'issue') {
+      const issue = index.issueById.get(sel.id)!;
+      for (const id of issue.nodeIds) this.view.expandAncestors(id);
+      for (const id of issue.edgeIds) expandEnds(id);
+    } else if (sel.kind === 'node') this.view.expandAncestors(sel.id);
+    else expandEnds(sel.id);
+    this.openRailForWalk();
+    const center = opts.center !== false;
+    if (sel.kind === 'node') this.select(sel, { tab: 'inspector', showClaim: true, center, reveal: center, pulse: center });
+    else this.select(sel, { tab: 'inspector', showClaim: true });
+    if (sel.kind === 'issue') this.view.frameIssue(sel.id);
+    else if (sel.kind === 'edge') this.view.frameEdge(sel.id);
+    else if (sel.kind === 'node' && !center) this.view.revealTarget({ kind: 'node', id: sel.id });
+    const target = sel.kind === 'issue' ? null : { kind: sel.kind, id: sel.id };
+    this.view.focusTarget(target);
+    this.holdRevealFocus(target);
+    return true;
+  }
+
+  /**
+   * Viewer M3 (step 14), measured live in VS Code 1.139: the host moves the focus into the panel
+   * just after it posts the reveal, and VS Code hands it over in two steps (the panel's outer frame,
+   * then this page's window), which leaves this page's focus on <body>: the card focused on arrival
+   * lost it 3 ms later, and the window was focused again 50 ms after that with nothing focused in
+   * it. So for REVEAL_FOCUS_HOLD_MS after a reveal, a window focus that finds nothing focused puts
+   * the keyboard back on the revealed claim. A focus the reader moved anywhere else is left alone.
+   */
+  private holdRevealFocus(target: { kind: 'node' | 'edge'; id: string } | null): void {
+    if (this.releaseRevealFocus) this.releaseRevealFocus();
+    const doc = this.root.ownerDocument;
+    const win = doc ? doc.defaultView : null;
+    if (!doc || !win) return;
+    const onFocus = () => {
+      const active = doc.activeElement;
+      if (!active || active === doc.body || active === doc.documentElement) this.view.focusTarget(target);
+    };
+    win.addEventListener('focus', onFocus);
+    const timer = win.setTimeout(() => release(), REVEAL_FOCUS_HOLD_MS);
+    const release = () => {
+      win.removeEventListener('focus', onFocus);
+      win.clearTimeout(timer);
+      if (this.releaseRevealFocus === release) this.releaseRevealFocus = null;
+    };
+    this.releaseRevealFocus = release;
+  }
+
+  /** Viewer M3: the ... menu shows or hides the phase index (it replaced the minimap). */
+  setPhaseIndexShown(shown: boolean): void {
+    this.view.setPhaseIndex({ hidden: !shown });
     renderChrome(this);
     this.saveSoon();
-    this.announce('Overview minimap ' + (next ? 'hidden' : 'shown') + '.');
+    this.announce('Phase index ' + (shown ? 'shown' : 'hidden') + '.');
+  }
+
+  /**
+   * Viewer M3: the phase overview (Shift+0, the ... menu). Open it over the canvas, or close it and
+   * go back to where the reader was. `fromMenu`: the menu gave the focus back to its button, so the
+   * focus is moved into the overview (opening) or onto the canvas (closing).
+   */
+  toggleOverview(fromMenu = false): void {
+    if (this.view.overviewOpen) {
+      this.view.closeOverview(true);
+      if (fromMenu) {
+        try {
+          this.view.canvasEl.focus();
+        } catch (_e) {
+          /* the canvas may already be torn down */
+        }
+      }
+    } else this.view.openOverview();
+    renderChrome(this);
   }
 
   setLegend(next: boolean): void {
@@ -706,6 +938,8 @@ export class App implements MLViewApp {
 
   select(sel: Sel, opts?: SelectOptions): void {
     if (sel.kind !== 'edge') this.edgeAnchor = null;
+    // Viewer M3: a selection replaces the phase a move to a phase left the arrow keys on.
+    this.view.clearArrowLane();
     this.selection = sel;
     // Viewer M2: a selection shows its claim in the Selection tab, unless it was made from the
     // Findings list or the Outline on screen (a list the reader is walking keeps its place).
@@ -720,9 +954,15 @@ export class App implements MLViewApp {
     else if (opts && opts.center) this.view.centerOnNode(sel.id, !!opts.pulse);
     else if (openedRail && sel.kind !== 'issue') this.view.keepInView({ kind: sel.kind, id: sel.id });
     this.announceSelection();
+    // Viewer M3: a selection the reader made while walking moves the walk there when it holds it.
+    this.walk.followSelection(sel);
     if (opts && opts.open) {
-      const loc = this.locOf(sel);
-      if (loc) this.openLocation(loc, !!opts.focusEditor);
+      // Viewer M3: opening the walk's own claim (Enter, a double-click) opens its current quote.
+      if (this.walk.active && this.walkOwns(sel)) this.walk.reopen(!!opts.focusEditor);
+      else {
+        const loc = this.locOf(sel);
+        if (loc) this.openLocation(loc, !!opts.focusEditor);
+      }
     }
     this.saveSoon();
   }
@@ -896,6 +1136,11 @@ export class App implements MLViewApp {
   openIssue(id: string, focusEditor = false): void {
     this.focusIssue(id, { fromList: 'issues' });
     if (!this.selection || this.selection.kind !== 'issue' || this.selection.id !== id) return;
+    // Viewer M3: the walk's own claim opens as the walk's current quote.
+    if (this.walk.active && this.walkOwns(this.selection)) {
+      this.walk.reopen(focusEditor);
+      return;
+    }
     const loc = this.locOf({ kind: 'issue', id });
     if (loc) this.openLocation(loc, focusEditor);
   }
@@ -916,6 +1161,8 @@ export class App implements MLViewApp {
     if (this.destroyed) return;
     this.destroyed = true;
     this.saveSoon.cancel();
+    if (this.releaseRevealFocus) this.releaseRevealFocus();
+    this.walk.destroy();
     this.pending.clear();
     for (const dispose of this.disposers) {
       try {
@@ -927,6 +1174,7 @@ export class App implements MLViewApp {
     this.disposers = [];
     this.themes.destroy();
     this.chrome.destroy();
+    this.walkBar.destroy();
     this.view.destroy();
     this.releasePage();
     clear(this.root);

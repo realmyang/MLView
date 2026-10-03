@@ -53,6 +53,12 @@ export interface EmphasisContext {
   keep(issue: Issue): boolean;
   announce(text: string): void;
   toast(text: string): void;
+  /**
+   * Viewer M3 (live check, W3): true while a keyboard move holds the hover back, until the pointer
+   * really moves (`CanvasView.holdHover`). A card that only passed under a resting pointer while
+   * the diagram panned gets no hover card.
+   */
+  hoverHeld?(): boolean;
 }
 
 export class Emphasis {
@@ -208,6 +214,7 @@ export class Emphasis {
    * the diagram costs nothing until the pointer actually settles.
    */
   hoverIntent(id: string | null): void {
+    if (id && this.ctx.hoverHeld && this.ctx.hoverHeld()) return;
     if (this.hoverTimer !== null) {
       // Already on the way to this target: keep the timer that is running.
       if (this.pendingHover === id) return;
@@ -230,6 +237,19 @@ export class Emphasis {
       this.pendingHover = null;
       this.setHover(id);
     }, delay);
+  }
+
+  /**
+   * Viewer M3 (live check, W3): drop the hover now, without the close delay: the pending open, the
+   * card's trace and its hover card. Nothing happens when nothing is hovered or on the way.
+   */
+  dropHover(): void {
+    if (this.hoverTimer !== null) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+      this.pendingHover = null;
+    }
+    if (this.hoverId) this.setHover(null);
   }
 
   setHover(id: string | null): void {

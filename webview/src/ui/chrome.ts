@@ -5,7 +5,7 @@
  * and the authored header. In order:
  *
  *   title · provenance chip (host · revision) · search · severity toggles · "N not observed" ·
- *   ... menu · Refine…
+ *   Review (viewer M3) · ... menu · Refine…
  *
  * The row never wraps. How much of it shows depends on the panel's width (`headerLayout`):
  *
@@ -21,10 +21,10 @@
  * Viewer M2 review (M2R-2, A11Y-8): how wide the controls are depends on the document (two-digit
  * counts, three severities) and on whether the search field is open, so the layout alone could
  * not keep Refine… inside the panel. After every change `fitRow` measures the row and, while it
- * overflows, folds in this order: the revision chip (About stays in the ... menu), the "not
- * observed" toggle (into the ... menu, with its count and units), then the title (kept for screen
- * readers) and, only while the search field is open at mid or narrow widths, the severity toggles
- * (back when it closes). The roving tab stop is re-derived after each fold. A layout engine is
+ * overflows, folds in this order: the revision chip and, since viewer M3, the Review button (About
+ * and Review stay in the ... menu, and `r` starts the walk), the "not observed" toggle (into the
+ * ... menu, with its count and units), then the title (kept for screen readers) and, only while
+ * the search field is open at mid or narrow widths, the severity toggles (back when it closes). The roving tab stop is re-derived after each fold. A layout engine is
  * needed to measure; jsdom folds nothing.
  *
  * The status bar (about 22 px) carries the step and connection counts, the coverage status with the
@@ -73,8 +73,10 @@ export interface ChromeCallbacks {
   onZoom(dir: number): void;
   onToggleLegend(next: boolean): void;
   onToggleFlow(next: boolean): void;
-  /** `collapsed`: the minimap's new state (VIEW-12: the keyboard's way to it). */
-  onToggleMinimap(collapsed: boolean): void;
+  /** Viewer M3: show or hide the phase index (it replaced the minimap). */
+  onTogglePhaseIndex(shown: boolean): void;
+  /** Viewer M3: open the phase overview (Shift+0), or close it. */
+  onOverview(): void;
   onToggleRail(): void;
   onFitWhole(): void;
   onZoomToSelection(): void;
@@ -82,6 +84,8 @@ export interface ChromeCallbacks {
   onShortcuts(): void;
   /** The ... menu is opening: repaint, so its checkboxes and disabled items are current. */
   onMenuOpen(): void;
+  /** Viewer M3: the Review button or the ... menu's item: start the review walk, or end it. */
+  onReview(): void;
 }
 
 export interface ChromeState {
@@ -93,9 +97,12 @@ export interface ChromeState {
   visibleCounts: { low: number; medium: number; high: number };
   flowOn: boolean;
   legendOpen: boolean;
-  minimapCollapsed: boolean;
-  /** Viewer M2 live fix: why the minimap is not drawn now, or null when it is (the ... menu says it). */
-  minimapUnavailable: string | null;
+  /** Viewer M3: the reader has not hidden the phase index. */
+  phaseIndexShown: boolean;
+  /** Why the phase index is not drawn (fewer than two phases), or null when it is (the ... menu says it). */
+  phaseIndexUnavailable: string | null;
+  /** Viewer M3: the phase overview is open. */
+  overviewOpen: boolean;
   railOpen: boolean;
   /** The status bar's freshness item, or null before a document arrives. */
   freshness: FreshnessStatus | null;
@@ -106,6 +113,8 @@ export interface ChromeState {
   exceptionsOn: boolean;
   /** Viewer M2: the rail is docked beside the canvas or a bottom sheet under it (the menu names it). */
   railMode: 'docked' | 'sheet';
+  /** Viewer M3: the review walk is running (Review is pressed). */
+  walking: boolean;
 }
 
 /** Viewer M2: inferred or unresolved claims, counted by what they are. */
@@ -137,8 +146,9 @@ export function coverageText(document: WorkflowDocument): string {
 }
 
 /**
- * How far `fitRow` may fold the row: the revision chip, then "not observed", then the title; and,
- * only while the search field is open, the severity toggles (they come back when it closes).
+ * How far `fitRow` may fold the row: the revision chip and the Review button (viewer M3), then "not
+ * observed", then the title; and, only while the search field is open, the severity toggles (they
+ * come back when it closes).
  */
 export const HEADER_FIT_MAX = 4;
 
@@ -172,6 +182,8 @@ export class Chrome {
   /** The word after the severity toggles, "findings": the unit their numbers count. */
   private sevUnit: HTMLElement;
   private exceptionsBtn: HTMLButtonElement;
+  /** Viewer M3: starts or ends the review walk; folds with the revision chip. */
+  private reviewBtn: HTMLButtonElement;
   private counts: HTMLElement;
   private coverage: HTMLButtonElement;
   private fresh: HTMLElement;
@@ -279,6 +291,18 @@ export class Chrome {
     on(this.exceptionsBtn, 'click', () => cb.onToggleExceptions(this.exceptionsBtn.getAttribute('aria-pressed') !== 'true'));
     this.toolbar.appendChild(this.exceptionsBtn);
 
+    // Viewer M3: the review walk. A toggle: pressed while the walk runs. Like the revision chip it
+    // is left out below 620 px and folds first when the row is short (the ... menu always has it,
+    // and `r` starts it anywhere).
+    this.reviewBtn = el('button', 'mlv-btn mlv-header__review') as HTMLButtonElement;
+    this.reviewBtn.type = 'button';
+    this.reviewBtn.setAttribute('aria-pressed', 'false');
+    this.reviewBtn.appendChild(uiIcon('review', 14));
+    add(this.reviewBtn, el('span', 'mlv-header__reviewlabel', 'Review'));
+    this.reviewBtn.hidden = true;
+    on(this.reviewBtn, 'click', () => cb.onReview());
+    this.toolbar.appendChild(this.reviewBtn);
+
     this.more = new MoreMenu((id, byKeyboard) => this.pick(id, byKeyboard), () => cb.onMenuOpen());
     this.toolbar.appendChild(this.more.button);
 
@@ -371,13 +395,16 @@ export class Chrome {
    * Viewer M2 review (M2R-1): the `hidden` attribute on every control the current shape leaves
    * out, so the roving tab stop, the ... menu and a test agree with what the stylesheet draws. The
    * revision chip: no document, below 620 px, or folded. The search icon: only at `mid` with the
-   * field closed. "Not observed": nothing to count, or folded.
+   * field closed. "Not observed": nothing to count, or folded. Viewer M3: Review goes with the
+   * revision chip (below 620 px, or folded), so the 541 px row keeps the M2 controls; the ... menu
+   * always has it.
    */
   private syncControls(): void {
     this.provenance.hidden = !this.hasDocument || this.layout === 'narrow' || this.fitLevel >= 1;
     const searchFolded = (this.layout === 'mid' || this.layout === 'narrow') && this.header.getAttribute('data-search') !== 'open';
     this.searchBtn.hidden = !(this.layout === 'mid' && searchFolded);
     this.exceptionsBtn.hidden = !this.hasExceptions || this.fitLevel >= 2;
+    this.reviewBtn.hidden = !this.hasDocument || this.layout === 'narrow' || this.fitLevel >= 1;
     for (const [sev, b] of this.sevButtons) b.hidden = !this.sevShown.has(sev) || this.fitLevel >= 4;
     this.sevUnit.hidden = this.sevShown.size === 0 || this.fitLevel >= 4;
     this.header.setAttribute('data-fit', String(this.fitLevel));
@@ -422,9 +449,11 @@ export class Chrome {
       exceptionsOn: s.exceptionsOn,
       legendOpen: s.legendOpen,
       flowOn: s.flowOn,
-      minimapShown: !s.minimapCollapsed,
-      minimapUnavailable: s.minimapUnavailable,
+      phaseIndexShown: s.phaseIndexShown,
+      phaseIndexUnavailable: s.phaseIndexUnavailable,
+      overviewOpen: s.overviewOpen,
       railOpen: s.railOpen,
+      walking: s.walking,
       railMode: s.railMode,
       hasSelection: s.hasSelection,
       canExport: !!s.graph,
@@ -438,11 +467,13 @@ export class Chrome {
     else if (id === 'exceptions') cb.onToggleExceptions(!(this.state && this.state.exceptionsOn));
     else if (id === 'legend') cb.onToggleLegend(!(this.state && this.state.legendOpen));
     else if (id === 'flow') cb.onToggleFlow(!(this.state && this.state.flowOn));
-    else if (id === 'minimap') cb.onToggleMinimap(!(this.state && this.state.minimapCollapsed));
+    else if (id === 'phaseindex') cb.onTogglePhaseIndex(!(this.state && this.state.phaseIndexShown));
+    else if (id === 'overview') cb.onOverview();
     else if (id === 'rail') cb.onToggleRail();
     else if (id === 'fit') cb.onFitWhole();
     else if (id === 'zoomsel') cb.onZoomToSelection();
     else if (id === 'shortcuts') cb.onShortcuts();
+    else if (id === 'review') cb.onReview();
     else cb.onExport(id);
   }
 
@@ -492,6 +523,14 @@ export class Chrome {
     // The unit after the toggles: "finding" only when the one number shown is 1.
     const shown = SEVERITY_ORDER.filter((sev) => this.sevShown.has(sev));
     this.sevUnit.textContent = shown.length === 1 && s.visibleCounts[shown[0]] === 1 ? 'finding' : 'findings';
+
+    this.reviewBtn.setAttribute('aria-pressed', s.walking ? 'true' : 'false');
+    this.reviewBtn.title = s.walking
+      ? 'End the review walk (Escape). It remembers its place for this revision.'
+      : 'Review the claims one by one (R): each is selected here and its cited lines are opened and highlighted in the editor beside. Focus stays here.';
+    // One name; `aria-pressed` carries the state (M3 review, A11Y-M3-7): "Review the claims, toggle
+    // button, pressed" while the walk runs.
+    this.reviewBtn.setAttribute('aria-label', 'Review the claims');
 
     this.syncSearch();
     this.renderStatus(s);

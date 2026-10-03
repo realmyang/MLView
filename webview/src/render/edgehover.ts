@@ -30,7 +30,7 @@ import type { ViewportController } from './canvas.js';
 export const EDGE_PICK_PX = 10;
 
 /** Anything on this list owns its own pixels outright; cables never win there. */
-const OPAQUE = '.mlv-node, .mlv-group, .mlv-minimap, .mlv-zoom, .mlv-tooltip, .mlv-toasts, .mlv-state';
+const OPAQUE = '.mlv-node, .mlv-group, .mlv-phaseindex, .mlv-overview, .mlv-zoom, .mlv-tooltip, .mlv-toasts, .mlv-state';
 
 export interface EdgeHoverHost {
   canvas: HTMLElement;
@@ -57,6 +57,11 @@ export interface EdgeHoverHost {
   changed?(route: RoutedEdge | null): void;
   openDelayMs: number;
   closeDelayMs: number;
+  /**
+   * Viewer M3 (live check, W3): true while a keyboard move holds the hover back, until the pointer
+   * really moves; no cable takes the pointer meanwhile.
+   */
+  held?(): boolean;
 }
 
 export class EdgeHover {
@@ -80,7 +85,29 @@ export class EdgeHover {
 
   /** A hit path took the pointer. The resolver may still overrule it. */
   enter(route: RoutedEdge): void {
+    if (this.host.held && this.host.held()) return;
     this.set(route);
+  }
+
+  /**
+   * Viewer M3 (live check, W3): give the pointer up now, without the close delay: the cable's
+   * `.is-hover`, a pending open and its hover card. Nothing happens when no cable has it.
+   */
+  drop(): void {
+    const pending = this.timer !== null;
+    if (pending) {
+      clearTimeout(this.timer!);
+      this.timer = null;
+    }
+    if (!this.currentId) {
+      if (pending) this.host.close();
+      return;
+    }
+    const previous = this.host.edges().get(this.currentId);
+    if (previous) previous.classList.remove('is-hover');
+    this.currentId = null;
+    if (this.host.changed) this.host.changed(null);
+    this.host.close();
   }
 
   /** Only the cable that OWNS the pointer gives it up. */
@@ -108,6 +135,7 @@ export class EdgeHover {
   }
 
   private resolve(ev: PointerEvent): void {
+    if (this.host.held && this.host.held()) return;
     const routes = this.host.routes();
     if (!routes.length) return;
     if (this.host.canvas.classList.contains('is-panning')) return;

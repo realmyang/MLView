@@ -131,9 +131,11 @@ test('the first paint is the readable plan, and key 0 returns to it from any zoo
   ctx.app.view.viewport.set({ x: 50, y: 60, zoom: 2 });
   ctx.press('0');
   assert.deepEqual(viewport(ctx), { x: plan.x, y: plan.y, zoom: plan.zoom }, 'from 200 %');
-  // Shift+0 is still Overview, which fits the whole document.
+  // Viewer M3 step 13 (deliberate): Shift+0 is the phase overview, an overlay; the diagram under
+  // it does not move (it used to fold every group and fit the whole document).
   ctx.press('0', { shiftKey: true });
-  assert.ok(ctx.app.getState().viewport.zoom < plan.zoom, 'Overview is not the readable view');
+  assert.equal(ctx.app.view.overviewOpen, true, 'Shift+0 opens the phase overview');
+  assert.deepEqual(viewport(ctx), { x: plan.x, y: plan.y, zoom: plan.zoom }, 'and leaves the diagram where it was');
   ctx.app.destroy();
 });
 
@@ -161,7 +163,7 @@ test('"Fit the whole diagram" fits the whole document with its groups as they ar
   const f = ctx.app.view.frameData;
   const zoom = fitPlan(f.width, f.height, 1200, 800).zoom;
   assert.deepEqual(viewport(ctx), { x: (1200 - f.width * zoom) / 2, y: Math.max(24, (800 - f.height * zoom) / 2), zoom });
-  assert.deepEqual(ctx.app.getState().collapsed, collapsed, 'unlike Overview, no group is folded');
+  assert.deepEqual(ctx.app.getState().collapsed, collapsed, 'no group is folded');
   ctx.app.destroy();
 });
 
@@ -188,7 +190,8 @@ test('the shortcut sheet names key 0 the readable view', async () => {
     return dt && dt.nextElementSibling ? dt.nextElementSibling.textContent : null;
   };
   assert.match(describe('0'), /^Readable view: the whole diagram if it fits at reading size, otherwise phase 1/);
-  assert.match(describe('Shift+0'), /^Overview: collapse every group and fit the whole diagram/);
+  // Viewer M3 step 13 (deliberate): Shift+0 is the phase overview.
+  assert.match(describe('Shift+0'), /^Phase overview: every phase as a block of its step titles/);
   ctx.app.destroy();
 });
 

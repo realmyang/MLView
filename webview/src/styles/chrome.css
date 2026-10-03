@@ -1,5 +1,6 @@
 /*
- * The header row, the ... menu, the search box and the status bar (viewer M2), then the minimap.
+ * The header row, the ... menu, the search box and the status bar (viewer M2). The phase index
+ * that replaced the minimap is in overview.css (viewer M3).
  *
  * The first of three `chrome*.css` layers: the toasts and the empty states
  * are in `chromestates.css`, the sheet and legend in `chromepanels.css`.
@@ -456,23 +457,23 @@
   font-size: var(--mlv-fs-11);
 }
 
-/* Viewer M2 live fix: the overview map's item says why the map is not drawn, on a second line in
+/* Viewer M2 live fix: the overview map's item said why the map was not drawn, on a second line in
  * the description colour, so the disabled item keeps readable text (no fade) and its check mark
- * stays on the first line. */
-.mlv-moremenu__item[data-more-item="minimap"] {
+ * stays on the first line. Viewer M3: the phase index's item, which replaced it, does the same. */
+.mlv-moremenu__item[data-more-item="phaseindex"] {
   flex-wrap: wrap;
   row-gap: 0;
 }
 
-.mlv-moremenu__item[data-more-item="minimap"]::after {
+.mlv-moremenu__item[data-more-item="phaseindex"]::after {
   order: 2;
 }
 
-.mlv-moremenu__item[data-more-item="minimap"][disabled] {
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled] {
   opacity: 1;
 }
 
-.mlv-moremenu__item[data-more-item="minimap"][disabled] .mlv-moremenu__label,
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled] .mlv-moremenu__label,
 .mlv-moremenu__note {
   color: var(--mlv-text-2);
 }
@@ -601,76 +602,3 @@
   display: none;
 }
 
-/* minimap */
-.mlv-minimap {
-  position: absolute;
-  right: var(--mlv-s5);
-  bottom: var(--mlv-s5);
-  z-index: 20;
-  width: 200px;
-  border: 1px solid var(--mlv-border-strong);
-  border-radius: var(--mlv-r-btn);
-  background: var(--mlv-surface);
-  box-shadow: var(--mlv-sh-2);
-  overflow: hidden;
-}
-
-.mlv-minimap[hidden] {
-  display: none;
-}
-
-/* collapsed: a 28 px chevron tab instead of 200x130 of occluded diagram. */
-.mlv-minimap.is-collapsed {
-  width: 28px;
-  height: 28px;
-}
-
-.mlv-minimap.is-collapsed .mlv-minimap__svg {
-  display: none;
-}
-
-.mlv-minimap__toggle {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  z-index: 1;
-  width: 24px;
-  height: 24px;
-  min-height: 0;
-  padding: 0;
-  border-radius: var(--mlv-r-btn);
-  background: var(--mlv-surface);
-  color: var(--mlv-text-2);
-}
-
-.mlv-minimap__toggle .mlv-uicon {
-  transform: rotate(-90deg);
-}
-
-.mlv-minimap.is-collapsed .mlv-minimap__toggle .mlv-uicon {
-  transform: rotate(90deg);
-}
-
-.mlv-minimap__svg {
-  display: block;
-  width: 100%;
-  height: 130px;
-  cursor: pointer;
-}
-
-.mlv-minimap__node {
-  fill: var(--mlv-stage, var(--mlv-stage-unknown));
-  opacity: 0.75;
-}
-
-.mlv-minimap__node--issue {
-  stroke: var(--mlv-sev, var(--mlv-sev-low));
-  stroke-width: 1.5;
-}
-
-.mlv-minimap__view {
-  fill: var(--mlv-accent);
-  fill-opacity: 0.12;
-  stroke: var(--mlv-accent);
-  stroke-width: 1;
-}

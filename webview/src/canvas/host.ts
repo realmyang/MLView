@@ -25,21 +25,18 @@ export const DOUBLE_CLICK_MS = 220;
 export const HOVER_OPEN_MS = 400;
 export const HOVER_CLOSE_MS = 120;
 
-/** The graph size at which an overview earns the corner it occupies (UX_DESIGN §1). */
-export const MINIMAP_MIN_NODES = 30;
+/**
+ * Viewer M3: the phase index is a panel of rows when the panel is this wide or wider, and a pill
+ * below it (the bottom sheet's layout, beside the code). It replaced the minimap and its rules
+ * (30 or more cards, a panel wider than 900 px).
+ */
+export const PHASE_INDEX_LIST_MIN_W = 1000;
 
 /**
- * Below this canvas height the minimap is not drawn (Campaign 3, issue 6): at
- * 270-310 px its 200x132 panel covered the lower right of the diagram.
+ * Below this canvas height the phase index is its pill whatever the width (Campaign 3, issue 6:
+ * a panel over a 270-310 px canvas covered a third of the diagram it was meant to summarise).
  */
-export const MINIMAP_MIN_CANVAS_H = 350;
-
-/**
- * A panel this wide or narrower has no room for the minimap beside the diagram (it was an
- * `@media (max-width: 900px)` rule). Viewer M2 live fix: the App applies it from the panel's
- * width (`CanvasView.setPanelWidth`), so the ... menu can say why the map is not shown.
- */
-export const MINIMAP_NARROW_W = 900;
+export const PHASE_INDEX_LIST_MIN_H = 350;
 
 export interface CanvasHost {
   /** The App's issue filter — a marker is drawn only for issues this keeps. */
@@ -64,8 +61,8 @@ export interface CanvasHost {
   /** After a collapse/expand: the App re-applies selection, rail and state. */
   afterCollapse(): void;
   onViewportChange(vp: Viewport): void;
-  /** The minimap was collapsed or expanded; the App persists the flag. */
-  onMinimapCollapsed(collapsed: boolean): void;
+  /** Viewer M3: the phase index was folded or unfolded; the App saves it and repaints the menu. */
+  onPhaseIndexChanged(): void;
   onKeyDown(ev: KeyboardEvent): void;
   onBackgroundClick(): void;
   /** The node or connection the current selection points at, kept in view across a resize. */

@@ -49,6 +49,9 @@ const STATES = {
   'stale': 'opened with a stale frame for one cited file',
   'stale-selected': 'opened with a stale frame, then clicked a step that cites that file',
   'narrow-selected': `${NARROW[0]}x${NARROW[1]} panel, clicked a step card`,
+  'overview': 'pressed Shift+0: the phase overview (viewer M3)',
+  'overview-go': 'pressed Shift+0, Home, then ArrowDown twice (the third phase) and Enter (the move to it, 240 ms)',
+  'phase-list': 'opened the phase index\'s list: the pill\'s rows below 1000 px, else the panel as drawn',
 };
 
 const USAGE = `Usage: node webview/tools/screenshots/capture.mjs [options]
@@ -277,7 +280,7 @@ function pageHelpers() {
   const shown = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const txt = (e) => (e ? (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim() : '');
   const main = () => rect(document.querySelector('.mlv-main'));
-  const blockers = () => ['.mlv-minimap', '.mlv-zoom', '.mlv-legend', '.mlv-toasts', '.mlv-tooltip'].map((s) => document.querySelector(s)).filter(shown).map(rect);
+  const blockers = () => ['.mlv-phaseindex__panel', '.mlv-phaseindex__pill', '.mlv-zoom', '.mlv-legend', '.mlv-toasts', '.mlv-tooltip'].map((s) => document.querySelector(s)).filter(shown).map(rect);
   const overlaps = (a, b) => !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
   const insideMain = (r) => { const m = main(); return r.w > 0 && r.x >= m.x + 4 && r.y >= m.y + 4 && r.x + r.w <= m.x + m.w - 4 && r.y + r.h <= m.y + m.h - 4; };
   /** A point inside `element` that the browser would really hit, or null. */
@@ -445,6 +448,36 @@ function pageHelpers() {
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
         searchCount: txt(document.querySelector('.mlv-result__count')) || null,
+        // Viewer M3: the phase index's form, box and marks, and whether it covers the selection.
+        phaseIndex: (() => {
+          const p = document.querySelector('.mlv-phaseindex');
+          if (!p || !shown(p)) return null;
+          const parts = ['.mlv-phaseindex__panel', '.mlv-phaseindex__pill'].map((sel) => p.querySelector(sel)).filter(shown).map(rect);
+          const sel = document.querySelector('.mlv-node.is-selected, .mlv-group.is-selected');
+          return {
+            form: p.getAttribute('data-form'), open: p.getAttribute('data-open') === 'true',
+            boxes: parts.map((r) => `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}`),
+            inView: [...p.querySelectorAll('.mlv-phaseindex__row[data-in-view="true"] .mlv-phaseindex__label')].map(txt),
+            pill: shown(p.querySelector('.mlv-phaseindex__pill')) ? txt(p.querySelector('.mlv-phaseindex__pill')) : null,
+            coversSelection: sel ? parts.some((r) => overlaps(r, rect(sel))) : null,
+          };
+        })(),
+        // Viewer M3: the phase overview: its blocks, the smallest title size, titles cut by their
+        // block, and whether it scrolls.
+        overview: (() => {
+          const o = document.querySelector('.mlv-overview');
+          if (!o || !shown(o)) return null;
+          const blocks = [...o.querySelectorAll('.mlv-ovblock')];
+          const titles = [...o.querySelectorAll('.mlv-ovitem__title')].filter(shown);
+          const sizes = titles.map((t) => parseFloat(getComputedStyle(t).fontSize)).sort((a, b) => a - b);
+          const outside = [...o.querySelectorAll('.mlv-ovitem')].filter((i) => { const b = i.closest('.mlv-ovblock').getBoundingClientRect(), r = i.getBoundingClientRect(); return r.right > b.right + 0.5 || r.bottom > b.bottom + 0.5; }).length;
+          return {
+            blocks: blocks.length, listed: titles.length, more: [...o.querySelectorAll('.mlv-ovitem--more')].map(txt),
+            titlePx: sizes.length ? { min: sizes[0], max: sizes[sizes.length - 1] } : null,
+            itemsOutsideBlock: outside, scrolls: o.scrollHeight > o.clientHeight + 1,
+            focused: document.activeElement && document.activeElement.classList.contains('mlv-ovblock') ? document.activeElement.getAttribute('data-phase-id') : null,
+          };
+        })(),
       };
     },
   };
@@ -518,6 +551,16 @@ try {
     const base = { key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
     await page.send('Input.dispatchKeyEvent', { type: k.length === 1 ? 'keyDown' : 'rawKeyDown', ...base, ...(k.length === 1 ? { text: k } : {}) });
     await page.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+  async function shiftZero() {
+    const base = { key: ')', code: 'Digit0', windowsVirtualKeyCode: 48, nativeVirtualKeyCode: 48, modifiers: 8 };
+    await page.send('Input.dispatchKeyEvent', { type: 'keyDown', ...base, text: ')' });
+    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+  async function arrow(k) {
+    const vk = { ArrowDown: 40, ArrowUp: 38 }[k];
+    await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k, code: k, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code: k, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
   }
   async function rest() {
     const p = await evaluate('window.__shots.restPoint()');
@@ -800,6 +843,43 @@ try {
       const node = await clickNode(input, input.staleNodeOrder.concat(input.nodeOrder));
       if (!node) return { skip: 'no step card visible to click' };
       return { frames, did: `${input.staleSimulated ? 'simulated' : 'real'} stale: ${input.staleSet.map((s) => s.path).join(', ')}; clicked ${node.id}`, target: { node: node.id, citesStaleFile: input.staleNodeOrder.includes(node.id) } };
+    },
+    async 'overview'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      await evaluate(`(document.querySelector('.mlv-canvas') || document.body).focus()`);
+      await shiftZero();
+      await sleep(400);
+      if (!(await evaluate(`!!document.querySelector('.mlv-overview:not([hidden])')`))) return { skip: 'Shift+0 opened no phase overview (the viewer predates it)' };
+      await rest();
+      return { frames, did: 'pressed Shift+0' };
+    },
+    async 'overview-go'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      await evaluate(`(document.querySelector('.mlv-canvas') || document.body).focus()`);
+      await shiftZero();
+      await sleep(300);
+      if (!(await evaluate(`!!document.querySelector('.mlv-overview:not([hidden])')`))) return { skip: 'Shift+0 opened no phase overview (the viewer predates it)' };
+      await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36, nativeVirtualKeyCode: 36 });
+      await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36, nativeVirtualKeyCode: 36 });
+      await arrow('ArrowDown');
+      await arrow('ArrowDown');
+      await key('Enter');
+      await sleep(700);
+      await rest();
+      return { frames, did: 'pressed Shift+0, Home, ArrowDown twice, Enter' };
+    },
+    async 'phase-list'(input, theme, size) {
+      const frames = await open(input, theme, size, input.freshness.stale);
+      const pill = await evaluate(`window.__shots.pointOf('.mlv-phaseindex__pill')`);
+      if (pill) {
+        await click(pill.x, pill.y);
+        await sleep(400);
+        await rest();
+        return { frames, did: 'clicked the phase index\'s pill' };
+      }
+      if (!(await evaluate(`!!document.querySelector('.mlv-phaseindex__panel:not([hidden])')`))) return { skip: 'no phase index (one phase, or the viewer predates it)' };
+      await rest();
+      return { frames, did: 'the phase index panel, as drawn' };
     },
     async 'narrow-selected'(input, theme) {
       const frames = await open(input, theme, NARROW, input.freshness.stale);

@@ -59,7 +59,9 @@ export class ShortcutSheet {
       'Click a card, connection, finding or Outline row to select it and read its claim. ' +
       'Double-click a step, connection, finding or Outline step, or press Enter on it, to open the cited source beside the diagram; focus stays here. ' +
       'Double-click a group to collapse it. ' +
-      alt + '+click an Open link, or press ' + keyLabel('Alt+Enter', mac) + ', to move focus to the editor.'));
+      alt + '+click an Open link, or press ' + keyLabel('Alt+Enter', mac) + ', to move focus to the editor. ' +
+      // Viewer M3 (step 14): the way back from the code, an editor command with no default key.
+      'From the code: right-click a cited line in the editor and choose Reveal in Diagram to show the claim that cites it here.'));
     const list = add(panel, el('dl', 'mlv-sheet__list'));
     for (const binding of KEYMAP) {
       const keys = add(list, el('dt', 'mlv-sheet__keys'));

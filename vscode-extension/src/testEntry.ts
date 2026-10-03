@@ -1,4 +1,4 @@
-export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText, rootHintCandidates, mostlyMissing, findRootHint, rootHintText, rootHintJumpText, hintFolderName } from './authoredSupport';
+export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText, blockedOpenText, rootHintCandidates, mostlyMissing, findRootHint, rootHintText, rootHintJumpText, hintFolderName } from './authoredSupport';
 export {
   decodeExportPayload,
   defaultExportName,
@@ -33,5 +33,8 @@ export {
   OPEN_PANELS_TTL_MS,
   MAX_OTHER_SESSIONS,
   RECOVERY_SETTLE_MS,
-  OPEN_AUTHORED_COMMAND
+  OPEN_AUTHORED_COMMAND,
+  REVEAL_REPLAY_MS
 } from './authoredPanel';
+export { CitationIndex, claimsAt, nearestClaims, claimPickText, pickText, linesText } from './citationIndex';
+export { RevealInDiagram, editorPlace, selectionLines, citedPathForms, REVEAL_COMMAND, CITED_FILES_CONTEXT, NEAREST_LIMIT } from './revealCommand';

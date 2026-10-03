@@ -19,6 +19,8 @@ const WARN_CODES = new Set(['stale', 'root-hint']);
 export interface HostNoticeCallbacks {
   /** The root hint's actions; the host decides which folder. */
   onWorkspaceHint(action: 'add' | 'open'): void;
+  /** Viewer M3: the stale notice's "Review affected claims" starts the walk on Changed files. */
+  onReviewAffected(): void;
 }
 
 export class HostNotice {
@@ -27,6 +29,12 @@ export class HostNotice {
   private text: HTMLElement;
   private actions: HTMLElement;
   private cb: HostNoticeCallbacks;
+  /** Viewer M3: "Review affected claims", offered under a stale notice while claims cite those files. */
+  private review: HTMLButtonElement;
+  private reviewCount = 0;
+  private walking = false;
+  private message = '';
+  private codes: readonly string[] = [];
 
   constructor(cb: HostNoticeCallbacks) {
     this.cb = cb;
@@ -37,6 +45,22 @@ export class HostNotice {
     this.icon.setAttribute('aria-hidden', 'true');
     this.text = add(this.root, el('p', 'mlv-hostnotice__text'));
     this.actions = add(this.root, el('div', 'mlv-hostnotice__actions'));
+    this.review = button('mlv-btn mlv-hostnotice__review', 'Review affected claims');
+    this.review.setAttribute('data-notice-action', 'review');
+    on(this.review, 'click', () => this.cb.onReviewAffected());
+  }
+
+  /**
+   * Viewer M3: how many claims cite a changed or missing file (the walk's Changed files count), and
+   * whether the walk is running. The action is offered under the host's `stale` notice when that
+   * count is above zero and the walk is not already running (it would be a second tab stop before
+   * the diagram, and the walk bar has the filter).
+   */
+  setReview(count: number, walking: boolean): void {
+    if (count === this.reviewCount && walking === this.walking) return;
+    this.reviewCount = count;
+    this.walking = walking;
+    this.syncActions();
   }
 
   /** Show the host's text, or hide the notice when it is empty. */
@@ -49,8 +73,21 @@ export class HostNotice {
     this.text.textContent = message;
     clear(this.icon);
     if (kind !== 'info') this.icon.appendChild(uiIcon('warning', 14));
+    this.message = message;
+    this.codes = list;
+    this.syncActions();
+  }
+
+  private syncActions(): void {
+    const message = this.message;
+    const list = this.codes;
     clear(this.actions);
     this.actions.hidden = true;
+    if (message && list.indexOf('stale') >= 0 && this.reviewCount > 0 && !this.walking) {
+      this.review.title = 'Walk the ' + this.reviewCount + (this.reviewCount === 1 ? ' claim' : ' claims') + ' whose quotes cite a file that changed or went missing; nothing stale is opened';
+      this.actions.appendChild(this.review);
+      this.actions.hidden = false;
+    }
     if (message && list.indexOf('root-hint') >= 0) {
       const addBtn = button('mlv-btn mlv-btn--primary', 'Add folder to workspace');
       addBtn.setAttribute('data-workspace-hint', 'add');

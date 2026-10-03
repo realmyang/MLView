@@ -34,7 +34,9 @@ function stubEnvironment() {
     }
   };
   elements.set('mlview-root', root);
+  const documentListeners = [];
   const document = {
+    addEventListener(type, listener, options) { documentListeners.push({ type, listener, options }); },
     getElementById: (id) => elements.get(id) || null,
     createElement: (tag) => {
       const element = {
@@ -61,7 +63,9 @@ function stubEnvironment() {
     loadState() { return state; }
   };
   const mounts = [];
+  const windowListeners = [];
   const window = {
+    addEventListener(type, listener, options) { windowListeners.push({ type, listener, options }); },
     MLView: {
       bridges: { vscode: () => bridge },
       mountWorkflow(target, doc, withBridge) {
@@ -70,7 +74,7 @@ function stubEnvironment() {
       }
     }
   };
-  return { window, document, root, bridge, mounts, deliver: (message) => listener(message) };
+  return { window, document, root, bridge, mounts, windowListeners, documentListeners, deliver: (message) => listener(message) };
 }
 
 test('bootstrap posts one ready, stashes init before mount, and mounts on the first workflow only', async () => {
@@ -140,4 +144,30 @@ test('after the mount the bootstrap draws no banner and removes a leftover one',
   env.deliver({ v: 1, type: 'stale', files: [{ path: 'source.py', reason: 'changed' }] });
   assert.equal(env.root.children.length, 0, 'the bootstrap ignores the stale frame');
   assert.equal(env.bridge.posted.length, 1, 'only the bootstrap ready is ever posted');
+});
+
+// Viewer M3: VS Code's webview host forwards every keydown to the workbench from a listener on the
+// page's window, even a key the page already handled. Once the viewer has mounted, the bootstrap
+// stops an Escape the viewer acted on at the document, before it reaches that window; any other
+// key, and an Escape nobody handled, still goes to VS Code.
+test('after the mount the bootstrap stops an Escape the viewer handled before VS Code forwards it', async () => {
+  const source = await bootstrapSource();
+  const env = stubEnvironment();
+  vm.runInNewContext(source, { window: env.window, document: env.document, Object });
+  const keydown = () => env.documentListeners.filter((entry) => entry.type === 'keydown');
+  assert.equal(keydown().length, 0, 'nothing is intercepted before the viewer mounts');
+  env.deliver({ v: 1, type: 'workflow', document: { revision: { id: 'r1' } } });
+  env.deliver({ v: 1, type: 'workflow', document: { revision: { id: 'r2' } } });
+  assert.equal(keydown().length, 1, 'one document keydown listener, added once at the mount');
+  assert.notEqual(keydown()[0].options, true, 'a bubble-phase listener, so it runs after the viewer handled the key');
+  assert.equal(env.windowListeners.length, 0, 'nothing on the window, where VS Code forwards from');
+  const press = (key, defaultPrevented) => {
+    const event = { key, defaultPrevented, stopped: false, stopPropagation() { event.stopped = true; } };
+    keydown()[0].listener(event);
+    return event.stopped;
+  };
+  assert.equal(press('Escape', true), true, 'a handled Escape stops at the document');
+  assert.equal(press('Escape', false), false, 'an Escape the viewer did not use still reaches VS Code');
+  assert.equal(press('Enter', true), false, 'other keys are left alone');
+  assert.equal(press('p', true), false);
 });

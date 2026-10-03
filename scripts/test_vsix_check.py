@@ -70,6 +70,16 @@ def test_legacy_command_fails(tmp_path):
     assert any("commands" in p for p in module.check(tmp_path, package(tmp_path, commands=["mlview.visualize"]))[0])
 
 
+def test_reveal_in_diagram_command_passes(tmp_path):
+    vsix = package(tmp_path, commands=["mlview.openGeneratedDiagram", "mlview.revealInDiagram"])
+    assert module.check(tmp_path, vsix, payload_only=True).problems == []
+
+
+def test_reveal_without_the_open_command_fails(tmp_path):
+    vsix = package(tmp_path, commands=["mlview.revealInDiagram"])
+    assert any("commands" in p for p in module.check(tmp_path, vsix, payload_only=True)[0])
+
+
 def test_retired_show_output_command_fails(tmp_path):
     vsix = package(tmp_path, commands=["mlview.openGeneratedDiagram", "mlview.showOutput"])
     assert any("commands" in p for p in module.check(tmp_path, vsix)[0])

@@ -49,7 +49,9 @@ const EDGE_ROWS: LegendRow[] = [
 ];
 
 const PHASE_ROWS: LegendRow[] = [
-  { group: 'phase', key: 'order', label: 'phase colour', detail: 'Each phase gets a colour by its place in the document, shown on the lane\'s left rule, the swatch before its number and name, and the card\'s left edge. It means nothing else. Problems are the only other colour on the diagram.' },
+  { group: 'phase', key: 'order', label: 'phase colour', detail: 'Each phase gets a colour by its place in the document, shown on the lane\'s left rule, the swatch before its number and name, the card\'s left edge, and its number in the phase index and the phase overview. It means nothing else. Problems are the only other colour on the diagram.' },
+  // Viewer M3: the labelled phase index (it replaced the minimap) and the phase overview.
+  { group: 'phase', key: 'index', label: 'phase index', detail: 'The list in the lower right corner of the diagram: each phase\'s number, name, the findings that touch it and its step count, with the phases in view marked. A row goes to that phase. Beside the code it is one line, such as "4/6 Data loading", that opens the list. Shift+0 shows every phase as a block of its step titles (the phase overview).' },
 ];
 
 const FRESHNESS_ROWS: LegendRow[] = [
@@ -153,7 +155,7 @@ function swatchFor(row: LegendRow): Node {
     if (row.key === 'kinds') return el('span', 'mlv-chip', 'data');
     return edgeSwatch('observed', row.key === 'back');
   }
-  if (row.group === 'phase') return phaseSwatch();
+  if (row.group === 'phase') return row.key === 'index' ? el('span', 'mlv-chip', '4/6') : phaseSwatch();
   if (row.key === 'stale') {
     const chip = el('span', 'mlv-chip mlv-chip--stale');
     chip.appendChild(uiIcon('warning', 11));
@@ -164,8 +166,8 @@ function swatchFor(row: LegendRow): Node {
 }
 
 /**
- * The panel itself: anchored to the minimap corner of the canvas, collapsible,
- * and remembered per viewer through `ViewState.legendOpen`.
+ * The panel itself: anchored to the lower right corner of the canvas (over the phase index while
+ * it is open), collapsible, and remembered per viewer through `ViewState.legendOpen`.
  */
 export class Legend {
   readonly root: HTMLElement;

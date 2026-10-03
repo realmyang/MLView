@@ -53,9 +53,10 @@ in the runbook. Only install one copy of the skill in each discovery path.
 To refine a particular node, edge, or finding, select it and use **Refine →
 Copy prompt**. Choose an intent or enter a specific question, then paste the
 prompt into the same assistant. The header is one row: the title, the
-assistant and revision, search, the severity toggles, **N not observed**, a
-**⋯** menu (legend, flow animation, fit, exports, shortcuts) and **Refine…**.
-In a narrow panel, such as beside your code, search and the revision move
+assistant and revision, search, the severity toggles, **N not observed**,
+**Review**, a **⋯** menu (legend, flow animation, fit, exports, shortcuts) and
+**Refine…**.
+In a narrow panel, such as beside your code, search, the revision and **Review** move
 into the **⋯** menu, and a row that is still too full folds **N not
 observed** into it too, so **Refine…** stays in view. The status bar counts steps and connections, shows the
 coverage status with its limitations, and says whether the cited files are
@@ -81,6 +82,36 @@ Incoming, Outgoing and Unresolved views alongside the diagram. In a panel
 narrower than about 1260 px the rail is a bottom sheet under the diagram: a
 tab strip until you select something, then about half the height, with the
 selected card kept in view above it; Escape collapses it.
+
+To check a diagram claim by claim, press `r` (or **Review**). The review walk
+starts on the claims marked inferred or unresolved, the header's **N not
+observed** count, and can also walk the findings, every claim, or, after a
+cited file changed, the claims citing it. Each step selects the claim, shows
+it in Selection and, after a short pause, opens its cited lines beside the
+diagram, highlighted, while the keyboard stays on the diagram: `j` / `k` (or
+↓ / ↑, or the walk bar's up and down buttons) move, `[` / `]` change quote,
+Enter opens again and Escape ends the walk. A quote whose file changed is not
+opened; the walk says why. The walk remembers its place for each revision and
+records nothing else.
+
+To see the whole workflow at once, press Shift+0 (or **Phase overview** in the
+**⋯** menu). The overview shows each phase as a block of its step titles, with
+inferred and unresolved marks and the F labels of findings. Arrows count the
+connections from one phase to the next, and brackets count those that skip
+ahead or go back. Arrow keys and Enter (or a click) go to a phase; Escape
+returns you to where you were. The phase index in the diagram's lower right
+corner lists every phase with its findings and step count and marks the ones
+in view. Beside the code it shrinks to one line such as "4/6 Objective,
+optimizer & scheduler".
+
+To go the other way, from the code to the diagram, right-click a line in the
+editor and choose **Reveal in Diagram** (also **MLView: Reveal in Diagram** in
+the Command Palette; there is no default keybinding). It is offered on a file
+an open diagram cites that has not changed since the revision was published.
+The claim citing that line, or the selected lines, is selected and
+shown in the diagram, and the keyboard moves there. When several claims cite
+the line, a list asks which; on a line no claim cites, it offers the nearest
+claims in the file. It works in notebook cells too.
 
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.

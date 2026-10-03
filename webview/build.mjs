@@ -34,6 +34,8 @@ const CSS_FILES = [
   'edge.css',
   'flow.css',
   'rail.css',
+  // Viewer M3: the phase index and the phase overview, overlays inside the canvas.
+  'overview.css',
   // PERF-04. After `edge.css`, because `.mlv-edge--weighted .mlv-edge__path`
   // has the same specificity as the per-kind stroke rules and has to win on
   // source order.

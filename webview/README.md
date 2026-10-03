@@ -70,7 +70,8 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
   - Phase colour by document order. `GraphIndex.phaseIndexOf(id)` is the
     phase's position among the declared phases; `render/phase.ts` stamps
     `data-phase-index` and `data-phase-tone` (index mod 8) on lanes, cards,
-    groups, connections, trunks and minimap dots, and node.css
+    groups, connections, trunks and (since viewer M3) the phase index's rows and
+    the phase overview's blocks, and node.css
     binds `--mlv-stage` from the tone (`--mlv-phase-0` … `--mlv-phase-7` in
     tokens.css, eight literals per theme kind, the contrast border in high
     contrast). `data-stage` stays, because the golden hashes it.
@@ -112,7 +113,8 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
     anchored top-left at 0.9. A document narrower or shorter than the canvas
     at that zoom is centred on that axis. `ViewportController.fit()` runs it
     (first paint, key 0, a refit on resize); `fitWhole()` is the ⋯ menu's
-    **Fit the whole diagram** and Overview.
+    **Fit the whole diagram** (Shift+0 was Overview, fold every group and fit
+    the whole, until viewer M3 made it the phase overview).
     The old top-anchored tall branch (`TALL_SCREENS`, `MIN_FIT_ZOOM`) is gone.
     `App.setWorkflow` still restores a viewport saved for the same revision.
   - Compact level (`data-lod="compact"`, below 0.62): node.css hides the icon
@@ -154,8 +156,8 @@ golden is byte-identical):
   keys on these attributes, so the row never wraps.
 - `MoreMenu` (`src/ui/moremenu.ts`) is a menu button. Items carry
   `data-more-item` (`search`, `about` and `exceptions` only while the row has
-  folded them, marked `data-folded`; then `legend`, `flow`,
-  `minimap`, `rail`, `fit`, `zoomsel`, `svg`, `png`, `copy-svg`,
+  folded them, marked `data-folded`; then `review`, `overview`, `legend`,
+  `flow`, `phaseindex`, `rail`, `fit`, `zoomsel`, `svg`, `png`, `copy-svg`,
   `shortcuts`); the exports also carry `data-export-action`. The panel is
   mounted on the app root and repaints its checkboxes as it opens. The
   exports are always the whole diagram; Copy PNG, Print and the region
@@ -182,7 +184,9 @@ golden is byte-identical):
   canvas (the extension sets no `enableFindWidget`, so the webview has no find
   bar of its own; Ctrl/Cmd+K did the same until the live-check fixes). Search rows print the title first and the location under
   it, cut from the start; `.mlv-result__count` heads the list.
-- Chrome icons are 19 inline SVG paths in `src/icons.ts` (`uiIcon`), drawn in
+- Chrome icons are 21 inline SVG paths in `src/icons.ts` (`uiIcon`; viewer M3
+  added `review`, and step 13 replaced `minimap` with `phases` and
+  `phaseindex`), drawn in
   the codicon style; there is no icon font, so the CSP is unchanged.
 - `test/header-m2.test.mjs` injects the shipped stylesheet and stubs the root
   width to check the header at 1440, 900 and 541 px, the ⋯ menu, the removed
@@ -301,13 +305,11 @@ byte-identical):
   accepts the new size (no refit of the first view) and reveals the
   selection. A selection already out of view, or no selection, keeps the old
   behaviour (`onResize`).
-- The overview map's width rule is `CanvasView.setPanelWidth(width)`, which
-  sets `.mlv-minimap.is-narrow` at `MINIMAP_NARROW_W` (900 px,
-  `src/canvas/host.ts`) or less, in place of a media query.
-  `CanvasView.minimapUnavailable()` returns the reason the map is not drawn
-  (fewer than 30 cards, `is-narrow`, `is-short`) or `null`; the ⋯ menu's
-  `minimap` item is disabled and unchecked while it is not null and prints
-  the reason in `.mlv-moremenu__note`.
+- The overview map's width rule was `CanvasView.setPanelWidth(width)`, with
+  `CanvasView.minimapUnavailable()` giving the ⋯ menu's disabled item its
+  reason. Viewer M3 step 13 replaced the map with the phase index; the
+  panel width now picks the index's form, and `phaseIndexUnavailable()` gives
+  the reason (below).
 - Keys: the only Ctrl/Cmd chord the viewer answers is `Mod+F`
   (`handleCanvasKey` in `src/ui/keymap.ts` returns false for the others, so
   they reach the workbench). `b` toggles the rail (was Ctrl+B) and `t` calls
@@ -329,22 +331,246 @@ byte-identical):
 - `test/m2-live.test.mjs` holds the regression tests for fixes 1, 4, 5, 6
   and 7; the hue test for fix 3 is in `test/calm-canvas.test.mjs`.
 
+Viewer M3 review walk, host side, and Escape (no contract change, no new
+setting; the golden is byte-identical):
+
+- `openLocation` takes four optional fields (`UiToHost` in `src/types.ts`):
+  `seq`, a positive integer that increases with every numbered open of a
+  page; `requestId`, which asks for one `actionResult`; `walk: true`, an open
+  from the review walk; and `highlight: false`, which selects the range
+  without the whole-range highlight. Opens without them behave as in M2.
+- The host drops a numbered open whose `seq` is not above the last one it saw
+  on this page (answered `cancelled`), and an open a later open overtook while
+  it waited (a notebook's cell editor, for example). A new page (`ready`)
+  starts the numbering again. The walk sends a jump only after the reader has
+  stopped moving for `WALK_OPEN_DEBOUNCE_MS` (150 ms, `src/app/walk.ts`).
+- `actionResult` answers `openLocation` too: `done`, `blocked` (not opened,
+  with `reason` and a short `message` such as "train.py changed after
+  revision r3 was published; not opened."), `cancelled` or `failed`. It
+  repeats the request's `seq`. `reason` is one of `changed`, `missing`,
+  `unreadable`, `too-large`, `elsewhere`, `unsaved`, `cell-missing`,
+  `unchecked` or `unknown` (`OpenBlockReason`). The message never holds an
+  absolute path.
+- A blocked walk open raises no VS Code notification; the reason is only in
+  the result. A blocked open from Enter, a double-click or an Open link still
+  shows the M2 warning notification, and is answered as well when it carried
+  a `requestId`.
+- `{ type: 'walk', state: 'end' }` is new: the walk ended, so the host clears
+  the cited-range highlight (and its overview-ruler mark) and drops a walk open
+  still waiting. Closing the panel clears it too. `state: 'clear'` (added with
+  step 11) does the same while the walk goes on: the walk moved to a claim it
+  opens nothing for (no quotes, or a claim the reader only selected). A
+  blocked walk open also clears the previous claim's highlight; a blocked
+  ordinary open keeps it.
+- The checks behind a jump are cached per revision and freshness version, keyed
+  by each cited file's device, inode, size, and modification and change times
+  (`checkCitedFile` in `vscode-extension/src/authoredPanel.ts`). The first jump
+  into a file hashes that file once; later jumps into it read no file content
+  while those stay the same. A file whose stat changed without a watcher event
+  is checked again.
+- Escape: `KeyCommands.escape()` returns whether the cascade did anything.
+  When the focus is already off the canvas and nothing is open or selected,
+  `handleCanvasKey` leaves Escape unconsumed so VS Code can use it (for
+  example to hide a notification). VS Code's webview host forwards every
+  keydown to the workbench, even one the page called `preventDefault()` on,
+  and its window listener runs before any page script. So after the mount
+  the panel's bootstrap (`render()` in `vscode-extension/src/authoredPanel.ts`)
+  adds a document-level keydown listener that stops an Escape the viewer
+  already handled (`defaultPrevented`) before it reaches that window
+  listener. The search box's Escape (`SearchController.handleKey`) is marked
+  handled too. `authoredEscapeHandshake` in `test/authored-handshake.mjs` pins
+  both with a stand-in forwarder attached before the scripts.
+
+Viewer M3 review walk, the viewer (roadmap step 11; no contract change, no new
+setting; the golden is byte-identical):
+
+- `src/walk.ts` is pure: `claimOrder(index)` walks the drawn order (lanes, then
+  `roots` and `laneChildren` depth first, as the Outline lists them): each
+  step, its `outEdges`, then the findings whose first cited step in that order
+  it is; then any connection whose source no lane reached (none can today),
+  then findings citing no step, in document order (the roadmap is silent on
+  those). It also holds the
+  filters (`notObserved` uses `isNotObserved`, the same test as the header's
+  count; `changed` is offered unless every stale file is only in another
+  folder, the root hint's case),
+  `positionFor` (keep the claim, else the next one in drawn order), and the
+  bar, pane and live-region wording.
+- `src/app/walk.ts` (`ReviewWalk`) runs it: start, stop, step, quotes, the
+  `u` and `n` / `p` jumps, filters, the debounced numbered open
+  (`openLocation` with `walk: true`, `seq`, `requestId` via
+  `App.postRequest`), only the latest answer shown, `walk: 'clear'` for a
+  claim with nothing to open, and the place per revision. A reader's own
+  selection of a claim in the list moves the walk without opening it.
+  M3 review fixes: `start(filter)` resumes the remembered claim only for the
+  same filter (another starts at position 0); any move resets `latestSeq`, so
+  a late answer for a claim or quote the walk has left is dropped; a claim the
+  walk is on but has not asked for gets `unansweredStatus('idle')` (the
+  viewer's own stale reason, never "Enter shows" for a stale file), and a
+  filter that keeps the claim keeps the status; `onStale()` shows (selects, announces, clears
+  the old highlight, does not open) the claim that takes the place of one that
+  left Changed files; a `done` after Alt+Enter carries `focusEditor`, and the
+  bar says the focus moved; `walkResultAnnouncement` says "not opened" once.
+- `src/ui/walkbar.ts` is the bar: a labelled region at the end of `.mlv-main`
+  (after the canvas, before the rail), one `role="toolbar"` tab stop for
+  Previous and Next (`[data-walk-step]`, as k and j), the filters and Exit,
+  `data-layout="narrow"` below 620 px, where the visible place is "3/16"
+  (`aria-hidden`) and `.mlv-walkbar__posspoken` holds the whole sentence for a
+  screen reader. Escape inside it ends the walk; j, k, [, ], u, n and p
+  pressed there go to the walk. The header's Review and the ⋯ menu's item
+  focus the canvas when they start the walk (`buildAppUi`).
+- `ViewState.walk` (`WalkViewState`: `filter`, `claim`, `quote` when not the
+  first, `active` while running) is written only once a walk ran for the
+  displayed revision, restored only for the same `workflowRevision`
+  (`sanitizeWalk`), and a remount resumes a running walk without posting an
+  open. No other walk state is kept; nothing is a verdict.
+- Keys (`KEYMAP`, `handleCanvasKey`): `r` toggles, `u` / Shift+U, and only
+  while walking `j` / `k`, ↓ / ↑ and `[` / `]`; `n` / `p` follow the walk's
+  order while it runs (`CommandPort.walkFindings`). The Escape cascade ends
+  the walk after the legend and before the bottom sheet (`appkeys.ts`), and an
+  Escape inside the open sheet ends a running walk first.
+- The header's `.mlv-header__review` goes with the revision chip (below
+  620 px or at fit level 1); the ⋯ menu always has `review`. `HostNotice`
+  offers `[data-notice-action="review"]` for `stale` while claims cite a
+  changed file. The Selection pane marks the walk's quote (`applyWalkMark`:
+  `.mlv-quote.is-walk`, `.mlv-quote__walk`) in place and scrolls it into view
+  on `[` / `]`.
+- `test/walk.test.mjs` covers the order on synthetic documents with the
+  vit-cc and yolov5-cc2 shapes (79 and 176 claims), filter counts against the
+  header, keys, debounce and `seq`, blocked answers, announcements, the place
+  per revision, Changed files, Tab order and 541 / 900 px.
+  `authoredWalkHandshake` in `test/authored-handshake.mjs` drives the real
+  host with the built viewer.
+
+Viewer M3 phase overview and phase index (roadmap step 13; no contract
+change, no new setting; the golden is byte-identical):
+
+- `src/render/phaseoverview.ts` is pure. `overviewInput(index, keep)` lists
+  each lane's steps in the walk's and the Outline's order (`roots`, then
+  `laneChildren` depth first) with basis, depth and the F labels the severity
+  toggles keep, the findings per phase from `laneCounts` (the PR #14 rule), and
+  the connections as a partition: inside a phase, one `OverviewLink` per
+  ordered pair of phases, and any with a missing end. `phaseOverviewLayout(input,
+  w, h)` turns that into blocks, arrows (links to the next phase) and brackets
+  (all other links, an adjacent backward one included, packed into as few
+  slots as do not overlap). There are two title columns when a block is 600 px
+  wide or more, and one below 620 px of canvas. Blocks are trimmed from the one
+  with the most rows until the whole fits, never below `MIN_SLOTS` (two titles
+  and "… N more steps"); below that the overview scrolls. Per block
+  `listed + more` is its step count.
+- `src/ui/overview.ts` (`PhaseOverview`) draws it as a `section.mlv-overview`
+  inside `.mlv-canvas`, beside (never inside) `.mlv-world`, so the routed
+  picture does not move. Blocks are `role="button"` with a roving tab stop,
+  named by `blockName()` and described by their list of titles. ↑ ↓ ← →, Home
+  and End move, Enter or Space go, and `)` or Shift+0 go back. The overview
+  stops only those keys. Escape goes on to the canvas's cascade, which closes
+  a legend (or phase list) opened over the overview before it leaves the
+  overview. Any other key reaches the canvas, where
+  `closingOverview` (`src/app/keys.ts`) closes it and then acts, except the
+  `KEEP_OPEN` commands (the shortcut sheet, search, legend, rail). The ◌ mark is
+  a drawn `.mlv-ovmark` ring, because macOS system fonts show nothing for the
+  character. The header's key is `OVERVIEW_KEY` (one line at 900 px) or, below
+  620 px, the shorter `OVERVIEW_KEY_NARROW`; both say what a bracket's number
+  counts. A row's F tags are `aria-hidden` (the screen-reader text names them
+  once) and each row ends with a screen-reader separator.
+- `src/render/phaseindex.ts` (`PhaseIndex`) replaced the minimap: a
+  `nav.mlv-phaseindex` inside the canvas, as a list of row buttons when the
+  panel is 1000 px wide or more and the canvas 350 px tall or more
+  (`PHASE_INDEX_LIST_MIN_W` / `_H` in `src/canvas/host.ts`) and the reader
+  has not folded it; otherwise as a pill, "k/N label", that opens the rows as
+  a popover (an Escape rung before the legend). The panel grows from
+  `INDEX_W` (288 px) to fit its longest name, up to `INDEX_MAX_W` (360 px);
+  jsdom's `coveredRect` takes the widest. A row's tooltip is the action; the
+  full name is on its label. `phasesInView` marks the lanes
+  on the canvas and picks the current one by visible share of the canvas plus
+  visible share of the lane. `ViewState.phaseIndex` is `'folded'` or
+  `'hidden'` when not the default; a state saved with `minimapCollapsed: true`
+  opens folded and is not written back.
+- `ViewportController` (`src/render/canvas.ts`): `setCovered(fn)` takes the
+  index's `coveredRect` (measured, or its stylesheet sizes in jsdom).
+  `isVisible` counts a target under it as out of view, and `centerOn`,
+  `revealRect` and `frameRect` (for its anchor) pan the least distance off
+  it (`clearOf`). `animateTo(target, VIEW_ANIMATION_MS)` (240 ms, instant
+  under `motionMode() === 'reduced'`) moves the canvas-centre point in a
+  straight line with the zoom on a log scale; any other move cancels it.
+  `phasePlan(frame, k, w, h)` is the view of phase k at reading size, the
+  readable plan's rule for phase 1.
+- `test/phase-overview.test.mjs` covers the geometry at the three sizes on the
+  vit-cc and yolov5-cc2 shapes (counts, partition, blocks inside the canvas,
+  columns, scrolling), link classification and slot sharing, reading order
+  and F labels, the keys, Escape giving the focus back, the animation and
+  reduced motion, names, the routed geometry unchanged by the overlay, the
+  index's rows, pill and position, and the focused card never under the
+  index (arrows, Outline, search, host reveal, findings, the walk) at
+  1440x900, 900x800 and 541x798.
+
+Viewer M3 Reveal in Diagram (roadmap step 14; no contract change, no new
+setting; the golden is byte-identical). The host side lives in
+`vscode-extension/` (`src/revealCommand.ts`, `src/citationIndex.ts`); the
+viewer's part is one inbound frame:
+
+- `reveal {v: 1, kind: 'node' | 'edge' | 'issue', id}` (`src/types.ts`).
+  `src/protocol.ts` checks that `id` is a non-empty string and dispatches to
+  `revealNode(id, true)`, `revealEdge(id)` or `revealIssue(id)`. The older
+  `revealNode {nodeId}` and `revealIssue {issueId}` frames now check their id
+  the same way and take the same path. A frame with a missing or empty id is
+  dropped.
+- `App.revealClaim(sel, {center})` (`src/app.ts`): an id the displayed
+  revision lacks gets a toast and the announcement "That claim is not in the
+  revision shown here." Otherwise it closes the shortcut sheet, the Refine
+  popover (keeping its text) and the phase overview; expands the claim's
+  ancestors (both ends of a connection; the cited steps and connection ends
+  of a finding); opens a hidden docked rail or a collapsed sheet as the walk
+  does (`openRailForWalk`); selects with `showClaim` on the Selection tab; and
+  frames the claim: a step centred with one pulse, a finding through
+  `frameIssue`, a connection through `CanvasView.frameEdge`. A running walk
+  follows the selection (`followSelection`) without opening anything.
+- `CanvasView.frameEdge(id)` frames the union of the connection's route and
+  its two ends at reading size with the source as anchor, so the anchor is
+  panned clear of the phase index. If the target end is then out of view, it
+  zooms out to the larger of the fits above and beside the index, when that
+  zoom is at least `FRAME_MIN_ZOOM` (0.45); otherwise the reading-size frame
+  stays.
+- Focus: `CanvasView.focusTarget(target)` focuses the step's card (a group's
+  header), the connection's `.mlv-edge__hit`, or the canvas for a finding or a
+  bundled connection with no element of its own. The host moves the panel's
+  focus right after posting the frame, and VS Code 1.139 hands it over in two
+  steps that leave the page's `activeElement` on `<body>` (measured live), so
+  `holdRevealFocus` refocuses the claim on a window `focus` that finds nothing
+  focused, for `REVEAL_FOCUS_HOLD_MS` (1500 ms). A focus elsewhere is left
+  alone.
+- The host posts the frame again after the page's next `ready` (within
+  `REVEAL_REPLAY_MS`, 5 s, while the revision is still shown), because VS Code
+  discards a hidden panel's page and the panel does not retain its context.
+- The shortcut sheet's note ends with the command
+  (`src/ui/shortcuts.ts`).
+- `test/reveal.test.mjs` covers the three kinds and the focus each leaves,
+  the focus hold, folded groups, connections and findings, the older frames,
+  malformed frames and unknown ids, the overlays closing, the walk following,
+  a hidden rail opening, and every step card and every connection (all 41 and
+  113 since the M3 review, not the first 40) on the canvas, above the sheet
+  and clear of the index at 1440x900, 900x800 and 541x798 on the vit-cc and
+  yolov5-cc2 shapes; a group, whose box can be larger than the canvas, is
+  checked as selected only. `authoredRevealHandshake` in
+  `test/authored-handshake.mjs` drives the real host with the built viewer.
+
 Viewer M1 cleanup (no contract change):
 
 - The bundle contains only the authored path. Inbound, the viewer handles
   `init`, `theme`, `workflow`, `workflowError`, `stale` and `actionResult`,
-  plus `revealNode` and `revealIssue` (kept for the planned "Reveal in
-  Diagram") and `restoreState` (the tests drive collapse with it); any other
+  plus `reveal`, `revealNode` and `revealIssue` (Reveal in Diagram, since
+  viewer M3) and `restoreState` (the tests drive collapse with it); any other
   type is answered with a `log` frame and ignored. Outbound it posts
   `openLocation`, `workspaceHint`, `refineWorkflow`, `copy`, `exportFile` and
-  `log`; the host bootstrap posts `ready`.
+  `log`, and since viewer M3 `walk` (sent by the review walk); the host
+  bootstrap posts `ready`.
 - A saved `ViewState` with keys the viewer no longer writes (for example
   `showSuppressed` or `railGroupBy`) still loads; those keys are ignored.
 - `MLGraph` carries only what an authored document fills in. Fields of the
   retired analyzer graph (ghost, confidence, suppression, ports, diff and
   rollup data) and the `concern:` scope presets are gone.
-- The stylesheet is 13 files concatenated in the order `build.mjs` lists
-  (viewer M2 removed `scope.css`).
+- The stylesheet is 14 files concatenated in the order `build.mjs` lists
+  (viewer M2 removed `scope.css`; viewer M3 added `overview.css` after
+  `rail.css`).
 
 ## Screenshots (opt-in)
 
@@ -373,7 +599,10 @@ node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/sh
   diagram**, from the ⋯ menu), `filter` (the lowest severity with findings
   turned off), `search` (through the search icon or the ⋯ menu when the
   field is folded), `finding` (a finding with its suggestion),
-  `finding-pane` (that finding, then the Selection tab), `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
+  `finding-pane` (that finding, then the Selection tab), `stale`, `stale-selected`, `narrow-selected` (900x800),
+  and since viewer M3 `overview` (Shift+0), `overview-go` (Shift+0, Home, ↓ ↓,
+  Enter: the move to phase 3) and `phase-list` (the phase index's list, opened
+  from its pill below 1000 px). Pick some with
   `--states`. `index.json` records, per shot, how many connections are lit
   and moving, whether the flow has settled, the canvas box, the header and
   status bar heights (`bars`), the chrome above and below the canvas

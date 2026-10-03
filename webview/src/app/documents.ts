@@ -1,7 +1,7 @@
 /**
  * The DOCUMENT: the graph the canvas draws and the collapse set that goes with it.
  *
- * `setGraph` owns both. Chrome, rail, outline, minimap and layout all read only
+ * `setGraph` owns both. Chrome, rail, outline, phase index and layout all read only
  * the index, so a new document needs no further edits (FEATURES 5.1). Viewer M2
  * removed the scope picker and its projection: the whole document is always drawn.
  */

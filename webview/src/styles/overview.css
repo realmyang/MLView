@@ -1,0 +1,582 @@
+/*
+ * Viewer M3, roadmap step 13: the phase index (it replaced the minimap) and the phase overview.
+ *
+ * Both are overlays inside the canvas and outside the world layer, so neither moves the routed
+ * picture. Sizes here are the ones `render/phaseindex.ts` (INDEX_W, INDEX_MAX_W, INDEX_HEAD_H, INDEX_ROW_H,
+ * PILL_H, INDEX_MARGIN) and `render/phaseoverview.ts` (HEAD_H, ROW_H, …) compute with; change them
+ * together. Colours are tokens only: the phase tone (`--mlv-stage`, bound from `data-phase-tone`
+ * in node.css) on the number and the block's left rule, severity on the glyphs, the accent on
+ * what is in view. No motion here: the move to a phase is the viewport's (240 ms, none under
+ * reduced motion).
+ */
+
+/* ── the phase index ───────────────────────────────────────────────────── */
+
+.mlv-phaseindex {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  pointer-events: none;
+}
+
+.mlv-phaseindex[hidden] {
+  display: none;
+}
+
+.mlv-phaseindex__panel,
+.mlv-phaseindex__pill {
+  pointer-events: auto;
+}
+
+.mlv-phaseindex__panel {
+  display: flex;
+  flex-direction: column;
+  /* From 288 px, growing to fit the longest phase name up to 360 px (INDEX_W, INDEX_MAX_W). */
+  width: max-content;
+  min-width: min(288px, 100%);
+  max-width: min(360px, 100%);
+  min-height: 0;
+  padding: 4px 0;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-2);
+  overflow: hidden;
+}
+
+.mlv-phaseindex__panel[hidden] {
+  display: none;
+}
+
+.mlv-phaseindex__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  flex: none;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-phaseindex__title {
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-phaseindex__total {
+  flex: 1 1 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-phaseindex__fold {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  color: var(--mlv-text-2);
+}
+
+/* The chevron points down: fold the panel to its line. */
+.mlv-phaseindex__fold .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-phaseindex__rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.mlv-phaseindex__row {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  height: 24px;
+  padding: 0 10px 0 7px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: none;
+  color: var(--mlv-text);
+  font: inherit;
+  font-size: var(--mlv-fs-12);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlv-phaseindex__row:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-phaseindex__row:focus-visible {
+  outline: 1px solid var(--mlv-focus);
+  outline-offset: -1px;
+}
+
+/* In view: an accent rule and a faint accent wash, never colour alone (the name says "in view"). */
+.mlv-phaseindex__row[data-in-view="true"] {
+  border-left-color: var(--mlv-accent);
+  background: color-mix(in srgb, var(--mlv-accent) 12%, transparent);
+}
+
+.mlv-phaseindex__num,
+.mlv-phaseindex__pillnum {
+  flex: none;
+  color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-phaseindex__num {
+  min-width: 14px;
+}
+
+/* The phase's colour, as the lane's swatch: a small square before the number. */
+.mlv-phaseindex__row::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-phaseindex__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-phaseindex__sev {
+  flex: none;
+}
+
+.mlv-phaseindex__steps {
+  flex: none;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The pill: the phase most in view, "4/6 Objective, optimizer & scheduler ▴". */
+.mlv-phaseindex__pill {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  max-width: min(360px, 100%);
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: 14px;
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-2);
+  color: var(--mlv-text);
+  font: inherit;
+  font-size: var(--mlv-fs-12);
+  cursor: pointer;
+}
+
+.mlv-phaseindex__pill[hidden] {
+  display: none;
+}
+
+.mlv-phaseindex__pill:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-phaseindex__pill:focus-visible {
+  outline: 1px solid var(--mlv-focus);
+  outline-offset: 1px;
+}
+
+.mlv-phaseindex__pilllabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ▴: the rows open above the pill (or unfold the panel). */
+.mlv-phaseindex__pillchev {
+  flex: none;
+  color: var(--mlv-text-2);
+  transform: rotate(-90deg);
+}
+
+.mlv-phaseindex[data-open="true"] .mlv-phaseindex__pillchev {
+  transform: rotate(90deg);
+}
+
+/* The pill's open rows sit above it, inside the canvas (so above the bottom sheet). */
+.mlv-phaseindex[data-form="pill"] .mlv-phaseindex__panel {
+  max-height: calc(100% - 32px);
+}
+
+.mlv-phaseindex[data-form="pill"] .mlv-phaseindex__fold {
+  display: none;
+}
+
+/* ── the phase overview ────────────────────────────────────────────────── */
+
+.mlv-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  background: var(--mlv-bg);
+  cursor: default;
+}
+
+.mlv-overview[hidden] {
+  display: none;
+}
+
+.mlv-overview__content {
+  position: relative;
+}
+
+/*
+ * The header is the content's first box (ui/overview.ts sets its size and padding from the layout).
+ * M3 live check, W4: while the overview scrolls it sticks to the overlay's top, on the overlay's
+ * own background and above the blocks, links and counts that scroll under it, so Back, the counts
+ * and the key stay on screen. A header taller than half the overlay scrolls with the blocks.
+ */
+.mlv-overview__header {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  background: var(--mlv-bg);
+}
+
+.mlv-overview__header[data-sticky="true"] {
+  position: sticky;
+  top: 0;
+  box-shadow: 0 1px 0 var(--mlv-border);
+}
+
+.mlv-overview__top {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  height: 24px;
+}
+
+.mlv-overview__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-overview__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  flex: none;
+  height: 22px;
+  min-height: 0;
+  padding: 0 6px;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-overview__kbd {
+  padding: 0 4px;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: 3px;
+  color: var(--mlv-text-2);
+  font-family: inherit;
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-overview__summary,
+.mlv-overview__key {
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  line-height: 17px;
+}
+
+.mlv-overview__summary {
+  color: var(--mlv-text);
+}
+
+.mlv-overview__links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.mlv-overview__arrow,
+.mlv-overview__bracket {
+  fill: none;
+  stroke: var(--mlv-edge, var(--mlv-text-2));
+  stroke-width: 1.5;
+}
+
+.mlv-overview__arrow {
+  stroke-width: 2;
+}
+
+.mlv-overview__bracket[data-back="true"] {
+  stroke-dasharray: 5 3;
+}
+
+.mlv-overview__head {
+  fill: var(--mlv-edge, var(--mlv-text-2));
+}
+
+.mlv-overview__arrowlabel {
+  position: absolute;
+  transform: translateY(-50%);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* A bracket's count, on a plate so it reads over the lines beside it. */
+.mlv-overview__count {
+  position: absolute;
+  min-width: 14px;
+  padding: 0 3px;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: 7px;
+  background: var(--mlv-bg);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-10);
+  line-height: 13px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  transform: translate(-50%, -50%);
+}
+
+.mlv-overview__count[data-back="true"] {
+  border-style: dashed;
+}
+
+.mlv-overview__blocks,
+.mlv-overview__item {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mlv-ovblock {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--mlv-stage, var(--mlv-text-2)) 45%, var(--mlv-border-strong));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mlv-stage, var(--mlv-text-2)) 7%, var(--mlv-surface));
+  cursor: pointer;
+}
+
+/* The phase's colour as the lane's left rule. */
+.mlv-ovblock::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-ovblock:hover {
+  border-color: var(--mlv-stage, var(--mlv-border-strong));
+}
+
+.mlv-ovblock:focus-visible,
+.mlv-ovblock:focus {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: 1px;
+}
+
+.mlv-ovblock__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s5);
+  box-sizing: border-box;
+  padding: 0 12px 0 16px;
+}
+
+.mlv-ovblock[data-head="two-lines"] .mlv-ovblock__head {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+}
+
+.mlv-ovblock[data-head="two-lines"] .mlv-ovblock__name {
+  flex: none;
+}
+
+.mlv-ovblock__name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mlv-s3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mlv-ovblock__num {
+  flex: none;
+  color: var(--mlv-text-2);
+  font-size: 15px;
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-ovblock__label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mlv-text);
+  font-size: 15px;
+  font-weight: var(--mlv-fw-semi);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-ovblock__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.mlv-ovblock__steps {
+  flex: none;
+}
+
+.mlv-ovblock__meta .mlv-cluster {
+  flex: none;
+}
+
+.mlv-ovblock__unit {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-ovblock__unit::before {
+  content: "· ";
+}
+
+.mlv-ovblock__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mlv-ovitem {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  box-sizing: border-box;
+  height: 18px;
+  color: var(--mlv-text);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* The basis mark: nothing for observed (the calm canvas rule), ◌ inferred, ? unresolved. */
+.mlv-ovitem__mark {
+  flex: none;
+  width: 14px;
+  color: var(--mlv-text-2);
+  text-align: center;
+}
+
+.mlv-ovitem[data-basis] .mlv-ovitem__mark {
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-semi);
+}
+
+/* ◌ drawn as a dotted ring: macOS system fonts show nothing for the character. */
+.mlv-ovmark {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px dotted currentColor;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.mlv-overview__key .mlv-ovmark {
+  margin-right: 3px;
+}
+
+.mlv-ovitem__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-ovitem__tags {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  flex: none;
+  margin-left: var(--mlv-s3);
+}
+
+.mlv-ovitem__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-ovitem--more {
+  padding-left: 16px;
+  color: var(--mlv-text-2);
+}
+
+/* High contrast: no tints; the contrast border carries the shapes. */
+.mlv-root[data-theme="hc"] .mlv-ovblock {
+  border-color: var(--vscode-contrastBorder, var(--mlv-border-strong));
+  background: var(--mlv-surface);
+}
+
+.mlv-root[data-theme="hc"] .mlv-phaseindex__row[data-in-view="true"] {
+  background: none;
+  outline: 1px dashed var(--mlv-accent);
+  outline-offset: -2px;
+}

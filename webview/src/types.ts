@@ -232,9 +232,17 @@ export interface ViewState {
    * it, and a new revision opens on About.
    */
   railTab: RailTab;
-  /** Optional: the minimap's collapsed tab survives a reload the way `collapsed` does. */
+  /**
+   * Viewer M3: the phase index folded to its pill, or hidden (the ... menu). Absent at its default
+   * (shown, unfolded).
+   */
+  phaseIndex?: 'folded' | 'hidden';
+  /**
+   * Written before viewer M3, when the minimap was collapsed to its tab. No longer written; a saved
+   * `true` with no `phaseIndex` opens the phase index folded.
+   */
   minimapCollapsed?: boolean;
-  /** Optional: flow animation on/off, like `minimapCollapsed`. Absent = on. */
+  /** Optional: flow animation on/off. Absent = on. */
   flow?: boolean;
   /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
   legendOpen?: boolean;
@@ -257,6 +265,23 @@ export interface ViewState {
    * `railTab` and, since the same fix, `selection`.
    */
   sheetOpen?: boolean;
+  /**
+   * Viewer M3: the review walk's place for `workflowRevision`: its filter, the claim it is on, the
+   * quote of that claim, and whether it was running. Absent until the walk has been started, and
+   * restored on a remount only when `workflowRevision` matches; another revision starts fresh. It
+   * records no verdict and no "checked" mark, only the position.
+   */
+  walk?: WalkViewState;
+}
+
+/** Viewer M3: the review walk's saved place (`ViewState.walk`). */
+export interface WalkViewState {
+  filter: 'notObserved' | 'findings' | 'changed' | 'all';
+  claim: Sel;
+  /** The claim's quote (0-based) the walk last showed; absent at 0. */
+  quote?: number;
+  /** The walk was running; absent when it was not. */
+  active?: boolean;
 }
 
 /** A Refine composer's reader-visible state. */
@@ -282,22 +307,36 @@ export interface Capabilities {
 export type RefineIntent = 'explain' | 'expand' | 'challenge' | 'trace' | 'custom';
 
 /** The requests that carry a `requestId` and are answered by one `actionResult`. */
-export type ResultAction = 'exportFile' | 'copy' | 'refineWorkflow';
+export type ResultAction = 'exportFile' | 'copy' | 'refineWorkflow' | 'openLocation';
 
 /**
- * The host's single answer to an `exportFile`, `copy` or `refineWorkflow`
- * request that carried a valid `requestId` (§1e). `message` is host-authored
+ * Why the host did not open a cited range (viewer M3): a stale reason, `elsewhere` (the root
+ * hint), unsaved text that lost the cited lines, a removed notebook cell, a file that could not be
+ * checked, or evidence the displayed revision does not have.
+ */
+export type OpenBlockReason = 'changed' | 'missing' | 'unreadable' | 'too-large' | 'elsewhere' | 'unsaved' | 'cell-missing' | 'unchecked' | 'unknown';
+
+/**
+ * The host's single answer to an `exportFile`, `copy`, `refineWorkflow` or (viewer M3)
+ * `openLocation` request that carried a valid `requestId` (§1e). `message` is host-authored
  * and never contains an absolute path; `name` is the saved basename and is sent
  * only for a completed export.
+ *
+ * For `openLocation`: `done` (shown beside the panel), `blocked` (not opened; `reason` and a short
+ * `message` such as "train.py changed after revision r3 was published; not opened."), `cancelled`
+ * (a later open, a new revision or a freshness change overtook it) or `failed` (VS Code could not
+ * show the file). `seq` repeats the request's own `seq` when it had one.
  */
 export interface ActionResult {
   v: 1;
   type: 'actionResult';
   requestId: string;
   action: ResultAction;
-  outcome: 'done' | 'cancelled' | 'failed';
+  outcome: 'done' | 'cancelled' | 'failed' | 'blocked';
   message?: string;
   name?: string;
+  reason?: OpenBlockReason;
+  seq?: number;
 }
 
 /**
@@ -316,9 +355,17 @@ export interface StaleFile {
 export type HostToUi =
   | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string }
   | { v: 1; type: 'theme'; kind: ThemeKind }
-  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  /**
+   * Viewer M3 (step 14), MLView: Reveal in Diagram: the reader chose this claim from the code in the
+   * editor, and the host moved the keyboard focus to this panel. The viewer selects it, brings it
+   * into view (above the bottom sheet, clear of the phase index), shows it in the Selection tab and
+   * puts the keyboard on it. `issue` is a finding. A frame with another kind, or an id the displayed
+   * revision lacks, changes nothing.
+   */
+  | { v: 1; type: 'reveal'; kind: 'node' | 'edge' | 'issue'; id: string }
+  /** The host sends `reveal`; these older single-kind frames are still answered the same way. */
   | { v: 1; type: 'revealNode'; nodeId: string; center?: boolean }
-  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  /** The host sends `reveal`; these older single-kind frames are still answered the same way. */
   | { v: 1; type: 'revealIssue'; issueId: string }
   /**
    * Viewer M1. The displayed revision's stale files, each with its reason, posted after the
@@ -342,8 +389,23 @@ export type UiToHost =
   /**
    * `focus: true` (viewer M1) is the explicit open-and-focus gesture (Alt+Enter, Alt+click); every
    * other open keeps the keyboard on the diagram.
+   *
+   * Viewer M3, for the review walk (the host side; the walk debounces its opens about 150 ms):
+   * `seq` is a positive integer that increases with every numbered open of a page (the host drops
+   * an open whose `seq` is not above the last one it saw, and one a later open overtook);
+   * `requestId` asks for one `actionResult`; `walk: true` marks an open from the walk, which never
+   * raises a VS Code notification when it is blocked (the reason comes back in the result
+   * instead); `highlight: false` selects the range without the whole-range decoration.
    */
-  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean }
+  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean; seq?: number; requestId?: string; walk?: boolean; highlight?: boolean }
+  /**
+   * Viewer M3: the review walk ended (`end`), or it moved to a claim it opens nothing for (`clear`:
+   * a claim with no quote, or one it only selected). Either way the host clears the cited-range
+   * highlight, collapses the selection the walk set if the editor still has it, and drops a walk
+   * open still on its way, so the editor never shows an earlier claim's lines as if they were this
+   * one's.
+   */
+  | { v: 1; type: 'walk'; state: 'end' | 'clear' }
   /** Viewer M1: the workspace-root hint's two actions. The host owns the folder. */
   | { v: 1; type: 'workspaceHint'; action: 'add' | 'open' }
   /**

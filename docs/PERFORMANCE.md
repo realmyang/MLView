@@ -158,3 +158,42 @@ limits timing precision. Its different Chromium version, host capabilities and
 much narrower viewport mean these values and DOM counts cannot be compared
 directly with the standalone Chrome table. The heap samples are live JavaScript
 heap snapshots, not total or peak process memory.
+
+## Notebook cell jumps in VS Code (viewer M3, 2026-10-02)
+
+A synthetic notebook (200 cells, 171 of them code with outputs, 3,826,440
+bytes) and a diagram citing 60 of its cells were opened in an isolated VS Code
+1.139.0 Extension Development Host on macOS. A script sent 60 cell jumps
+through the viewer's bridge over the DevTools protocol, either one every
+150 ms ("paced") or all at once ("burst"), and recorded a CPU profile of the
+extension host and of the workbench renderer (0.5 ms sampling). These are
+single runs on one machine: read them as an attribution of costs, not as a
+budget.
+
+| Run | Extension host busy | MLView's own code | Hashing the notebook | Garbage collection |
+|---|---:|---:|---:|---:|
+| Paced, before the jump cache | 466 ms of 12.1 s | 36 ms | 93 ms (60 reads) | 45 ms |
+| Paced, with the jump cache | 310 ms of 12.1 s | 45 ms | 1.3 ms (1 read) | 11 ms |
+| Burst, before the jump cache | 206 ms of 3.2 s | 11 ms | 101 ms | 22 ms |
+| Burst, with the jump cache | 70 ms of 3.2 s | 13 ms | none sampled | under 1 ms |
+
+"Busy" is the profile's time not spent idle. Before the cache every jump
+hashed the whole notebook again to prove it unchanged; now the first jump
+hashes it once and later jumps compare the file's size, inode and times. In a burst the host opens only the last jump, and a jump a later one
+has overtaken now stops before it reads the file.
+
+The workbench renderer was busy for about 2.2 to 2.3 s of each 12 s paced run
+(VS Code's own notebook and editor code); MLView runs no code there outside
+its webview. Creating and then deleting 2,000 files in the workspace, in one
+profiled run with counting breakpoints on MLView's listener, called MLView's
+file-watcher listener 1,157 times, about 1 ms of MLView code and 5 ms of path
+handling in total. Unlike the table above, these figures cannot be re-derived:
+that run's output and profile were not kept. The watcher (`**/*`) shares VS Code's own workspace
+watching and adds no operating-system watcher, and it has to see every cited
+or inspected file, whatever its name, so it was left as it is.
+
+With Pylance 2026.4.1 installed and a Python language server running, the same
+paced run spent 42 ms in MLView's code and 528 ms busy in the extension host;
+the renderer was busy for 2.6 s. The extra time is outside MLView's code (in
+Pylance, VS Code's messaging and the workbench); these runs cannot divide it
+further. No freeze was reproduced.

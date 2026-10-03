@@ -16,6 +16,7 @@ import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
 import type { RelationMode } from './outline.js';
 import { renderSelectionPane } from './selection.js';
+import type { WalkMark } from './selection.js';
 import { renderAboutPane } from './about.js';
 import type { Issue, Loc, MLEdge, MLNode, RailTab, RelatedLoc, StaleReason, WorkflowDocument } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
@@ -81,6 +82,8 @@ export interface RailState {
   document: WorkflowDocument | null;
   /** Viewer M2: the Selection pane's columns (two in a sheet at least 620 px wide). */
   columns: 1 | 2;
+  /** Viewer M3: the review walk's quote mark for the Selection pane, while it shows the walk's claim. */
+  walk?: WalkMark | null;
 }
 
 /** The tabs, in order. The Selection tab keeps the id `inspector` (saved view states use it). */
@@ -112,6 +115,12 @@ export class Rail {
   private current: RailTab = 'about';
   private mode: 'docked' | 'sheet' = 'docked';
   private open = true;
+  /**
+   * The claim the Selection pane was last built for (kind, id and revision). A new claim starts the
+   * pane at its top, so its title shows: the pane is one scroller kept across claims, and it used to
+   * keep the offset of the claim before (M3 live check, W1).
+   */
+  private selectionKey = '';
 
   constructor(cb: RailCallbacks) {
     this.cb = cb;
@@ -494,6 +503,7 @@ export class Rail {
       columns: s.columns,
       document: s.document,
       staleReason: s.staleReason,
+      walk: s.walk || null,
     }, {
       onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onShowNode: (id) => this.cb.onShowNode(id),
@@ -503,6 +513,14 @@ export class Rail {
       onRefine: () => this.cb.onRefine(),
       onShowLimitations: () => this.cb.onShowLimitations(),
     });
+    // The same claim built again (a host answer, a freshness change, a resize) keeps the reader's
+    // place; another claim starts at the top. The walk then brings its quote into view.
+    const claim = s.selectedIssue ? 'issue:' + s.selectedIssue.id : s.selectedEdge ? 'edge:' + s.selectedEdge.id : s.selectedNode ? 'node:' + s.selectedNode.id : '';
+    const key = claim + '@' + (s.document && s.document.revision ? s.document.revision.id : '');
+    if (key !== this.selectionKey) {
+      this.selectionKey = key;
+      panel.scrollTop = 0;
+    }
   }
 
   private renderOutline(s: RailState): void {

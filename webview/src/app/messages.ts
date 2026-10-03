@@ -35,8 +35,10 @@ export function onHostMessage(app: App, msg: HostToUi): void {
     stale: (files) => app.setStale(files),
     actionResult: (result) => app.onActionResult(result),
     theme: (kind) => app.setTheme(kind),
-    revealNode: (nodeId, center) => app.focusNode(nodeId, { center, pulse: true }),
-    revealIssue: (issueId) => app.focusIssue(issueId),
+    // Viewer M3 (step 14): MLView: Reveal in Diagram.
+    revealNode: (nodeId, center) => app.revealClaim({ kind: 'node', id: nodeId }, { center }),
+    revealEdge: (edgeId) => app.revealClaim({ kind: 'edge', id: edgeId }),
+    revealIssue: (issueId) => app.revealClaim({ kind: 'issue', id: issueId }),
     restoreState: (state) => applyState(app, state, true),
     onUnknown: (type) =>
       app.bridge.post({ v: 1, type: 'log', level: 'debug', message: 'ignored unknown message type: ' + type }),

@@ -49,14 +49,30 @@
         "title": "Open Generated Diagram",
         "category": "MLView",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "mlview.revealInDiagram",
+        "title": "Reveal in Diagram",
+        "category": "MLView"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "mlview.revealInDiagram",
+          "when": "resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles"
+        }
+      ],
       "editor/context": [
         {
           "command": "mlview.openGeneratedDiagram",
           "when": "resourceFilename =~ /\\.mlview\\.json$/",
           "group": "mlview@0"
+        },
+        {
+          "command": "mlview.revealInDiagram",
+          "when": "resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles",
+          "group": "mlview@1"
         }
       ],
       "editor/title": [

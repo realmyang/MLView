@@ -11,13 +11,10 @@
  */
 
 import { clear } from '../dom.js';
-import { highestSeverity } from '../markers.js';
 import { buildBundle } from './bundles.js';
 import { buildEdge } from './edges.js';
 import { buildGroupBox, buildLane, buildNodeCard } from './nodes.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './plan.js';
-import type { GraphIndex, IssuePredicate } from '../layout/model.js';
-import type { LayoutFrame } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 
 export interface SceneLayers {
@@ -91,23 +88,4 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
   }
 
   return { nodeEls, edgeEls, bundleEls, plan };
-}
-
-/** Minimap dots: one per drawn box, coloured by stage and ringed by severity. */
-export function minimapDots(index: GraphIndex, frame: LayoutFrame, keep: IssuePredicate) {
-  const dots = [];
-  for (const box of frame.boxes.values()) {
-    const node = index.nodeById.get(box.id);
-    if (!node) continue;
-    dots.push({
-      x: box.x,
-      y: box.y,
-      w: box.w,
-      h: box.h,
-      stage: node.stage,
-      phase: index.phaseIndexOf(node.stage),
-      severity: highestSeverity(index.subtreeCounts(box.id, keep)),
-    });
-  }
-  return dots;
 }

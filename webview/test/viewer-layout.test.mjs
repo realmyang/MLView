@@ -1,5 +1,5 @@
-// Campaign 3 viewer fixes: the authored header, the canvas floor, the rail and minimap rules,
-// refit and reveal, single-truncation titles, authored kind glyphs and the edge-kind vocabulary.
+// Campaign 3 viewer fixes: the authored header, the canvas floor, the rail and minimap rules (the
+// phase index's since viewer M3), refit and reveal, single-truncation titles, authored kind glyphs and the edge-kind vocabulary.
 //
 // jsdom performs no layout, so the header regression is asserted as DOM state (collapsed by
 // default, the disclosure's behaviour) plus the shipped CSS constraints that make the canvas
@@ -224,10 +224,16 @@ test('the shipped CSS keeps the header to one row, stacks the bottom sheet under
   assert.doesNotMatch(css, /@media[^{]*max-width:\s*900px[^{]*\{[^}]*\.mlv-rail\{[^}]*position:\s*absolute/);
   const banner = declarationsFor(css, '#mlview-authored-error');
   assert.match(banner['max-height'] || '', /vh$/);
-  assert.equal(declarationsFor(css, '.mlv-minimap.is-short').display, 'none');
+  // Viewer M3 step 13 (deliberate): the phase index replaced the minimap. It sits inside the canvas
+  // (so above an open bottom sheet), in the lower right corner, and is never hidden by a width rule.
+  assert.equal(css.includes('.mlv-minimap'), false, 'the minimap is gone');
+  const index = declarationsFor(css, '.mlv-phaseindex');
+  assert.equal(index.position, 'absolute');
+  assert.equal(index.right, '12px');
+  assert.equal(index.bottom, '12px');
 });
 
-/* ── issue 6: rail, minimap, refit, reveal, default collapse ─────────── */
+/* ── issue 6: rail, phase index (the minimap until viewer M3), refit, reveal, default collapse ── */
 
 test('below 1260 px the rail is a bottom sheet: its tab strip until a selection or the reader opens it', async () => {
   let width = 541;
@@ -302,16 +308,18 @@ test('an unmeasurable root leaves the rail open (jsdom, detached mounts)', async
   ctx.app.destroy();
 });
 
-test('the minimap is not drawn over a canvas under 350 px tall', async () => {
+test('the phase index is its pill, not the panel of rows, over a canvas under 350 px tall', async () => {
+  // Viewer M3 step 13 (deliberate): the minimap this test held was not drawn there (issue 6); the
+  // phase index that replaced it folds to its 28 px pill instead.
   const ctx = await mount(rendererRegressionWorkflow(48));
-  const minimap = ctx.document.querySelector('.mlv-minimap');
-  assert.equal(minimap.classList.contains('is-short'), false);
+  const index = ctx.document.querySelector('.mlv-phaseindex');
+  assert.equal(index.getAttribute('data-form'), 'list');
   sizeCanvas(ctx, { w: 900, h: 300 });
   resize(ctx);
-  assert.equal(minimap.classList.contains('is-short'), true);
+  assert.equal(index.getAttribute('data-form'), 'pill');
   sizeCanvas(ctx, { w: 900, h: 500 });
   resize(ctx);
-  assert.equal(minimap.classList.contains('is-short'), false);
+  assert.equal(index.getAttribute('data-form'), 'list');
   ctx.app.destroy();
 });
 
