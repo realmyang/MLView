@@ -9,8 +9,9 @@ truth lives in [docs/STATUS.md](docs/STATUS.md) and
 ## Unreleased — viewer M4: open from the Explorer, changes since the previous revision
 
 The viewer's fourth milestone. This section holds, so far, the two smaller
-items deferred from M2: the size of the first view's text (A11Y-7) and muted
-text in Light Modern and Light+. Both were checked by local jsdom tests and in
+items deferred from M2: the size of the first view's text (A11Y-7) and the
+secondary and muted text colours (first Light Modern and Light+, then every
+shipped theme). Both were checked by local jsdom tests and in
 headless Chrome with a simulated host (the screenshot harness), not in live VS
 Code, with a screen reader or as a usability check. It also holds roadmap step
 16, changes since the previous revision, and roadmap step 18, opening a
@@ -60,34 +61,75 @@ The first view's text size (A11Y-7):
   `viewer-layout.test.mjs` (both sizes now open at 90%, so the refit shows as
   a move instead of a zoom).
 
-Muted text in light themes:
-- In Light Modern, muted text (counts, section headings, quote line numbers,
-  a lane's step count) was the same colour as the text, because the viewer
-  used VS Code's `descriptionForeground` and Light Modern sets it to its text
-  colour (#3B3B3B). In Light+, `descriptionForeground` (#717171) is muted but
-  4.40:1 on the side panel, header and cards and 3.94-3.98:1 on a lane header,
-  a hovered row or a quote, under the 4.5:1 that WCAG asks for small text.
-- In light themes muted text is now the panel's own surface colour darkened
-  to 38%: #5E5E5E in Light Modern (5.60-6.46:1 on every background it sits
-  on), #5C5C5C in Light+ (5.37-6.65:1) and #5F5F60 in Light 2026, next to its
-  own `descriptionForeground` (#606060). It has 58% of the text colour's
-  contrast in Light Modern, about as muted as Dark Modern's description colour
-  (59%). Dark themes keep `descriptionForeground` (Dark Modern 5.12-6.08:1,
-  Dark+ 4.97-5.74:1) and High Contrast keeps its text colour. Secondary text
-  (`--mlv-text-2`) is unchanged; a few small notes in the side panel moved to
-  muted text after the review (see the last part). The exported SVG uses the
-  same colour.
-- Not changed: Dark 2026, VS Code 1.139's default dark theme, was not in the
-  list of themes for this fix. Its muted text is its `descriptionForeground`
-  (#8C8C8C): 4.80:1 on the side panel and cards, but about 3.8:1 on a hovered
-  Outline row or a quote and 4.34:1 on a lane header. Its secondary text is
-  the same colour.
-- The screenshot harness's theme table gained Dark+, Light+, Light High
-  Contrast, Dark 2026 and Light 2026 (VS Code 1.139's values, with the colour
-  registry's default where a theme leaves a key out), and `capture.mjs`
-  takes them with `--theme`. `webview/test/muted-text.test.mjs` computes the
-  contrast from that table and the stylesheet; headless Chrome on the built
-  viewer gave the same colours and ratios.
+Secondary and muted text:
+- Both colours were VS Code's `descriptionForeground`, which is not readable
+  or not quieter everywhere. In Light Modern it is the text colour (#3B3B3B),
+  so secondary text (card subtitles, side-panel notes, the status bar, phase
+  numbers) and muted text (counts, section headings, quote line numbers, a
+  lane's step count) were not quieter than the text. In Light+ (#717171) it
+  was 4.40:1 on the side panel, header and cards and 3.68-4.07:1 on an
+  unresolved card's hatching, a hovered row, a quote, a lane header, a phase
+  index row in view and the phase overview's blocks. In Dark 2026, VS Code
+  1.139's default dark theme (#8C8C8C), it was 4.80:1 on cards but 3.80:1 on
+  a hovered row or a quote, 4.07-4.36:1 on the hatching, a hovered group
+  header, a lane header, a phase index row in view and the overview's blocks,
+  3.87:1 on the menu's key hints and 3.30:1 for a group's step count on a
+  hovered group header; Light 2026's (#606060) was 4.24:1 there. WCAG asks
+  4.5:1 for small text. The first M4 fix darkened the card surface for
+  light-theme muted text only (Light Modern #5E5E5E, Light+ #5C5C5C), which
+  left Light+'s secondary text lighter than its muted text.
+- Now both are the theme's own text colour mixed into its card surface: 90%
+  for secondary text, 80% for muted text, in light and dark themes alike; High
+  Contrast keeps its text colour for both. A mix is never stronger than the
+  text and always the same share of the way to the surface, so the text,
+  secondary and muted text keep their order in any theme, and there is no
+  per-theme rule. CSS cannot compare two colours at run time, so there is no
+  contrast clamp: the shares are chosen so that Dark 2026, the shipped theme
+  with the least contrast, clears 4.5:1 on every background.
+- Lowest ratio on any background each is drawn on, secondary then muted,
+  computed from the harness's theme table:
+  Dark Modern #BBBBBB 6.92:1 and #AAAAAA 5.84:1, Dark+ #C3C3C3 6.98:1 and
+  #B1B1B1 5.89:1, Dark 2026 #ACAEAF 5.00:1 and #9C9FA0 4.77:1, Light Modern
+  #4E4E4E 6.56:1 and #616161 5.11:1, Light+ #181818 13.36:1 and #313131
+  9.87:1, Light 2026 #363636 8.16:1 and #4C4C4C 6.96:1. On the card surface
+  muted text has 53-70% of the text colour's contrast (Dark Modern's own
+  description colour has 59%) and secondary text 74-84%.
+- The cost: secondary text is brighter in dark themes (Dark Modern #9D9D9D to
+  #BBBBBB) and closer to the text. Light+'s editor text is pure black, so its
+  secondary and muted text are near-black too (#181818, #313131) and its
+  hierarchy rests more on size and weight. Light Modern's secondary text is no
+  longer its text colour. The dashed borders of inferred and unresolved cards,
+  a hovered connection and the ring on a traced card's neighbours use the
+  secondary colour, so they are stronger. With a third-party theme whose text
+  is weaker the order still holds, but a mix can fall under 4.5:1: in a
+  synthetic sweep, muted text on a row hovered with 8% white or black needs
+  the text at about 8:1 on a dark widget background and 9.5:1 on a light one.
+- On a hovered or focused item of the **⋯** menu, the icon, key hint and note
+  now take the item's colour (VS Code's `menu.selectionForeground`). The
+  menu's selection is a solid blue in Dark Modern, Dark+, Light Modern and
+  Light+ (#0078D4, #005FB8, #0060C0), where secondary text was 1.25-2.05:1.
+- The exported SVG uses the same mixes (`TEXT2_MIX`, `TEXT3_MIX` in
+  `webview/src/export/palette.ts`).
+- `webview/test/muted-text.test.mjs` is a matrix: the harness's six themes
+  outside High Contrast x both colours x every background they sit on (the
+  canvas, a lane, cards and other surfaces, the hatching, `--mlv-surface-2` on
+  a surface, on the canvas and once or twice on a lane, a lane header, a phase
+  index row in view, the menu, the bundle badge, VS Code's key cap under a
+  `<kbd>` and the nine overview block tones), and the order of the text,
+  secondary and muted text on each. A census fails on a background the
+  stylesheets paint that the matrix does not know, on a muted-text selector
+  not mapped to its backgrounds and on a `<kbd>` without a modelled
+  background. The harness theme table gained the four menu colours (VS Code
+  1.139's values, with the registry's defaults). The screenshot harness has
+  Dark+, Light+, Light High Contrast, Dark 2026 and Light 2026 (`--theme`).
+- Headless Chrome 154 on the vit-cc shakedown artifact at 1440x900, in the six
+  themes, 11 states each: `capture.mjs` now records a computed-colour probe
+  per screenshot (`facts.inks` in index.json: each element whose own text is
+  painted in either colour, against the background colours composited under
+  it). Before the change the lowest were 3.78:1 in Dark 2026 and 3.86:1 in
+  Light+; after, 5.71:1 (secondary) and 4.75:1 (muted) in Dark 2026, and no
+  element under 4.5:1 in any of the six themes. The probe reads computed
+  colours, not pixels, and skips background images and SVG text.
 
 Changes since the previous revision (roadmap step 16, built fresh; the legacy
 diff was deleted in M1):
@@ -316,12 +358,10 @@ each fix has a test that fails with the fix taken out):
   section's field lists and removed ids, the Selection tab's "changed since"
   line and the muted freshness words ("unchanged", "not checked") are now
   muted text: in Light+ they were 4.40:1, and in Light Modern they were the
-  text colour. Now Light+ #5C5C5C (5.37:1 or more), Light Modern #5E5E5E; no
-  change in dark or High Contrast themes, where both colours are the same. Not
-  changed: `--mlv-text-2` itself, so the rest of the secondary text in Light+
-  stays 4.40:1 and is lighter than muted text there; the dashed borders of
-  inferred cards and some strokes use that colour too, so changing it is left
-  for the owner.
+  text colour. At the time this left `--mlv-text-2` itself as it was (4.40:1
+  in Light+, lighter than muted text there); it was changed afterwards with
+  muted text (Secondary and muted text, above), so these notes are now Light+
+  #313131 and Light Modern #616161, 5.11:1 or more.
 - A diagram that shows changes keeps its tab (UX-M4-3). A single click in the
   Explorer opens the diagram as a preview tab, and the next file opened as a
   preview in its group replaced it, dropping the comparison, which lives only

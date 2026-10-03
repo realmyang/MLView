@@ -490,6 +490,20 @@
   display: none;
 }
 
+/* Viewer M4: on a hovered or focused item the icon, key hint and note take the item's colour
+ * (menu.selectionForeground). VS Code's menu.selectionBackground is a solid blue in Dark Modern,
+ * Dark+, Light Modern and Light+, where no grey reaches 4.5:1 (test/muted-text.test.mjs). */
+.mlv-moremenu__item:hover .mlv-uicon,
+.mlv-moremenu__item:hover .mlv-moremenu__keys,
+.mlv-moremenu__item:hover .mlv-moremenu__note,
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled]:hover .mlv-moremenu__label,
+.mlv-moremenu__item:focus-visible .mlv-uicon,
+.mlv-moremenu__item:focus-visible .mlv-moremenu__keys,
+.mlv-moremenu__item:focus-visible .mlv-moremenu__note,
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled]:focus-visible .mlv-moremenu__label {
+  color: inherit;
+}
+
 /* A cited quote under its Open link (rail.ts). The class name predates the rail. */
 .mlv-banner__detail {
   margin-top: var(--mlv-s2);

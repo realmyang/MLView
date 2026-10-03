@@ -380,6 +380,67 @@ function pageHelpers() {
         charsShown: total ? Math.round((chars / total) * 100) / 100 : null,
       };
     },
+    /**
+     * Viewer M4: a computed-colour probe for secondary and muted text. Every shown element whose own
+     * text is painted in --mlv-text-2 or --mlv-text-3 (its computed colour equals the token's),
+     * against the colour the browser composites under it from its own and its ancestors' background
+     * colours, down to the page. Not counted: background images (a card's hatching), anything that
+     * is not an ancestor, and SVG text; elements under an ancestor with opacity below 1 (a dimmed
+     * lane, a disabled item) are counted apart. Computed colours, not pixels.
+     */
+    inks() {
+      const parse = (css) => {
+        let m = /^rgba?\(([^)]+)\)$/.exec(css);
+        if (m) { const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; }
+        m = /^color\(srgb ([^)]+)\)$/.exec(css);
+        if (m) { const p = m[1].split(/[\s/]+/).filter(Boolean).map(Number); return [p[0] * 255, p[1] * 255, p[2] * 255, p.length > 3 ? p[3] : 1]; }
+        return null;
+      };
+      const over = (top, under) => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3])).concat([1]);
+      const lum = (c) => c.slice(0, 3).map((v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+      const root = document.querySelector('.mlv-root') || document.body;
+      const probe = root.appendChild(document.createElement('span'));
+      const token = (name) => { probe.style.color = `var(${name})`; return getComputedStyle(probe).color; };
+      const tokens = { text: token('--mlv-text'), text2: token('--mlv-text-2'), text3: token('--mlv-text-3') };
+      probe.remove();
+      const page = parse(getComputedStyle(document.documentElement).backgroundColor) || [255, 255, 255, 0];
+      const base = page[3] > 0 ? over(page, [255, 255, 255, 1]) : [255, 255, 255, 1];
+      const ground = (el) => {
+        const layers = [];
+        for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+          const c = parse(getComputedStyle(e).backgroundColor);
+          if (c && c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
+        }
+        return layers.reduceRight((under, layer) => over(layer, under), base);
+      };
+      const faded = (el) => { for (let e = el; e && e.nodeType === 1; e = e.parentElement) if (Number(getComputedStyle(e).opacity) < 1) return true; return false; };
+      const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+      const out = {};
+      for (const key of ['text2', 'text3']) {
+        const ink = parse(tokens[key]);
+        const grounds = new Map();
+        let elements = 0;
+        let fadedCount = 0;
+        for (const el of document.querySelectorAll('body *')) {
+          if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !ownText(el) || !shown(el)) continue;
+          if (getComputedStyle(el).color !== tokens[key]) continue;
+          if (faded(el)) { fadedCount++; continue; }
+          elements++;
+          const under = ground(el);
+          const id = hex(under);
+          const r = ratio(over(ink, under), under);
+          const entry = grounds.get(id) || { ground: id, ratio: Math.round(r * 100) / 100, count: 0, example: el.tagName.toLowerCase() + [...el.classList].slice(0, 2).map((c) => '.' + c).join('') };
+          entry.count++;
+          grounds.set(id, entry);
+        }
+        const list = [...grounds.values()].sort((a, b) => a.ratio - b.ratio);
+        out[key] = { colour: ink ? hex(ink) : tokens[key], computed: tokens[key], elements, faded: fadedCount, lowest: list[0] || null, below45: list.filter((g) => g.ratio < 4.5).reduce((n, g) => n + g.count, 0), grounds: list.slice(0, 12) };
+      }
+      out.text = { computed: tokens.text, colour: parse(tokens.text) ? hex(parse(tokens.text)) : tokens.text };
+      return out;
+    },
     severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter(shown)
       .map((c, i) => ({ i, severity: c.getAttribute('data-severity'), count: Number(txt(c.querySelector('.mlv-chip__count'))) || 0 })),
     facts() {
@@ -447,6 +508,7 @@ function pageHelpers() {
         exceptions: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-exceptions') === 'on',
         tooltip: tip ? txt(tip).slice(0, 300) : null,
         titles: this.titles(),
+        inks: this.inks(),
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
         searchCount: txt(document.querySelector('.mlv-result__count')) || null,

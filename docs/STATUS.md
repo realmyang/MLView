@@ -154,12 +154,16 @@ titles, smaller in some wider panels than in narrower ones) and the M4 plan
 opens at 90% (11.7 px) everywhere, measured with the screenshot harness; a
 wide panel now shows fewer whole titles at first. Where the rail docks (a
 1260 px panel) the canvas loses 360 px, so a document that fits whole can open
-smaller there, never under 75%. Muted text is muted in Light Modern
-(#5E5E5E, was its text colour #3B3B3B) and clears 4.5:1 in Light+ (#5C5C5C;
-VS Code's #717171 was 3.94-4.40:1 on cards, hovered rows and lane headers);
-dark themes keep VS Code's description colour and High Contrast its text
-colour. Dark 2026, VS Code's default dark theme, was not in the list for this
-fix: its muted text is about 3.8:1 on a hovered row and 4.34:1 on a lane header.
+smaller there, never under 75%. Secondary and muted text are the theme's
+text colour mixed into its card surface (90% and 80%) instead of VS Code's
+description colour, which is Light Modern's text colour, 3.68-4.41:1 on cards,
+hovered rows and lane headers in Light+, and 3.30-4.36:1 on hovered rows, lane
+headers and other raised backgrounds in Dark 2026, VS Code's default dark
+theme. Computed from the harness's VS Code 1.139 colours, both now clear
+4.5:1 on every background they are drawn on in the six themes outside High
+Contrast (lowest 4.77:1, muted text on a hovered row in Dark 2026), keep their
+order under the text colour and stay quieter (muted text at 53-70% of the
+text's contrast). High Contrast keeps its text colour.
 No contract change, no new setting and no geometry change. Checked by local
 jsdom tests and headless-Chrome screenshots of a simulated host only, not in
 live VS Code or as a usability check ([changelog](../CHANGELOG.md)).

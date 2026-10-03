@@ -209,24 +209,24 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
     a small and a medium document, and the viewer's own layout of the
     `VIT_SHAPE`, `YOLO_SHAPE` and regression fixtures, and the panel widths
     320-1920 px through the measured panel-to-canvas sizes.
-- Viewer M4 muted text (`--mlv-text-3`): in a light theme it is
-  `color-mix(in srgb, var(--mlv-surface) 38%, #000000)`, the card surface
-  darkened, instead of `descriptionForeground`. Light Modern sets
-  `descriptionForeground` to its text colour (#3B3B3B), so muted text was not
-  muted; Light+'s (#717171) is 4.40:1 on its widget background and 3.94:1 on
-  a lane header. Now Light Modern #5E5E5E, Light+ #5C5C5C, Light 2026 #5F5F60.
-  Dark themes keep `descriptionForeground`, high contrast its text colour;
-  `--mlv-text-2` is unchanged (after the review, About's notes and provenance
-  line, the Changes field lists and removed ids, the Selection pane's "changed
-  since" line and the muted freshness words use `--mlv-text-3` instead of it).
-  `export/palette.ts` derives the same colour
-  (`TEXT3_LIGHT_MIX`). `test/muted-text.test.mjs` checks 4.5:1 or more on the
-  canvas, cards, rail and header, hovered rows and quotes, and lane headers in
-  Dark Modern, Dark+, Light Modern, Light+ and both High Contrast themes, and
-  that muted text has at most 70% of the text colour's contrast outside high
-  contrast. Dark 2026 keeps its `descriptionForeground` (#8C8C8C): 4.80:1 on
-  cards, but 3.80:1 on a hovered row and 4.34:1 on a lane header (not
-  changed: not in the owner's list for this fix).
+- Viewer M4 secondary and muted text (`--mlv-text-2`, `--mlv-text-3`): the
+  theme's text colour mixed into its card surface,
+  `color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface))` and the same
+  at 80%, in light and dark themes; high contrast keeps its text colour for
+  both. They no longer read `descriptionForeground`, which is Light Modern's
+  text colour (#3B3B3B), 4.40:1 on Light+'s widget background (#717171) and
+  about 3.8:1 on a hovered row in Dark 2026 (#8C8C8C). No per-theme rule and
+  no contrast clamp (CSS cannot compare two run-time colours): the shares hold
+  the order text > secondary > muted in any theme and clear 4.5:1 in Dark
+  2026, the shipped theme with the least contrast. Lowest, secondary then
+  muted: Dark Modern 6.92:1 and 5.84:1, Dark+ 6.98:1 and 5.89:1, Dark 2026
+  5.00:1 and 4.77:1, Light Modern 6.56:1 and 5.11:1, Light+ 13.36:1 and
+  9.87:1, Light 2026 8.16:1 and 6.96:1. A hovered **⋯** menu item's icon, key
+  hint and note take the item's colour. `export/palette.ts` mixes the same
+  (`TEXT2_MIX`, `TEXT3_MIX`). `test/muted-text.test.mjs` is the theme x token
+  x background matrix with a census of the stylesheets' backgrounds, the
+  muted-text selectors and the `<kbd>` elements; `tools/screenshots/capture.mjs`
+  records a computed-colour probe per screenshot (`facts.inks`).
 - The Selection pane (viewer M2 below) shows the claim first; its quotes sit
   under a caption saying that a matching quote does not show support, and one
   line links to the document-wide limitations in About.

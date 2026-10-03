@@ -92,11 +92,12 @@ export const EDGE_MIX: Record<ThemeKind, number> = { light: 0.64, dark: 0.54, hc
 export const NODE_EDGE_MIX: Record<ThemeKind, number> = { light: 0.58, dark: 0.46, hc: 1 };
 
 /**
- * Viewer M4: in a light theme, muted text (`--mlv-text-3`) is the card surface mixed with black at
- * this share of surface, color-mix(in srgb, surface 38%, #000000). Dark themes keep
- * descriptionForeground and high contrast the text colour, so only the light palette derives it.
+ * Viewer M4: secondary (`--mlv-text-2`) and muted (`--mlv-text-3`) text are the text colour mixed
+ * into the card surface at these shares, color-mix(in srgb, text 90% / 80%, surface), in light and
+ * dark themes; high contrast uses the text colour for both.
  */
-export const TEXT3_LIGHT_MIX = 0.38;
+export const TEXT2_MIX = 0.9;
+export const TEXT3_MIX = 0.8;
 
 /** The two numeric tokens, kept apart because they are opacities, not paints. */
 export const TINT_TOKENS: Record<string, string> = {
@@ -111,8 +112,8 @@ const LIGHT: Palette = {
   border: '#E3E5EB',
   borderStrong: '#C9CDD6',
   text: '#16181D',
-  text2: '#5A6070',
-  text3: '#616161', // derive(): color-mix(in srgb, surface 38%, #000000), as tokens.css (viewer M4)
+  text2: '#2D2F34', // derive(): color-mix(in srgb, text 90%, surface), as tokens.css (viewer M4)
+  text3: '#45464A', // derive(): color-mix(in srgb, text 80%, surface)
   link: '#2B57C4',
   accent: '#3B6CF6',
   edge: '#8C93A3',
@@ -137,8 +138,8 @@ const DARK_OVERRIDES: Partial<Palette> = {
   border: '#2C3038',
   borderStrong: '#3B414C',
   text: '#E6E8EE',
-  text2: '#9AA1B1',
-  text3: '#969DAD',
+  text2: '#D2D4DA', // derive(), as above
+  text3: '#BDBFC5',
   link: '#8FB0FF',
   accent: '#6E96FF',
   edge: '#79808F',
@@ -197,7 +198,7 @@ export function phaseColor(palette: Palette, phaseIndex: number | undefined): st
   return palette.phases[((phaseIndex % n) + n) % n] || palette.stageUnknown;
 }
 
-/** The colours the stylesheet derives with color-mix(), recomputed from the resolved text and background (and, for muted text in a light theme, the card surface). */
+/** The colours the stylesheet derives with color-mix(), recomputed from the resolved text, background and card surface. */
 function derive(palette: Palette, theme: ThemeKind): Palette {
   if (theme === 'hc') {
     palette.edge = palette.border;
@@ -206,7 +207,8 @@ function derive(palette: Palette, theme: ThemeKind): Palette {
   }
   palette.edge = mixHex(palette.text, palette.bg, EDGE_MIX[theme]) || palette.edge;
   palette.nodeEdge = mixHex(palette.text, palette.bg, NODE_EDGE_MIX[theme]) || palette.border;
-  if (theme === 'light') palette.text3 = mixHex(palette.surface, '#000000', TEXT3_LIGHT_MIX) || palette.text3;
+  palette.text2 = mixHex(palette.text, palette.surface, TEXT2_MIX) || palette.text2;
+  palette.text3 = mixHex(palette.text, palette.surface, TEXT3_MIX) || palette.text3;
   return palette;
 }
 
@@ -297,6 +299,7 @@ export function resolvePalette(root: Element | null, theme: ThemeKind): Palette 
   const derived = derive({ ...out }, theme);
   if (!resolved.has('edge')) out.edge = derived.edge;
   if (!resolved.has('nodeEdge')) out.nodeEdge = derived.nodeEdge;
+  if (!resolved.has('text2')) out.text2 = derived.text2;
   if (!resolved.has('text3')) out.text3 = derived.text3;
   for (const field of Object.keys(TINT_TOKENS)) {
     const value = clean(style.getPropertyValue(TINT_TOKENS[field]));

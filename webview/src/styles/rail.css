@@ -567,9 +567,10 @@
  * Viewer M4 review (A11Y-M4-2): About's notes and provenance line, the Changes section's field
  * lists and removed ids, and the Selection pane's "changed since" line are muted text
  * (--mlv-text-3), which clears 4.5:1 and is muted in every shipped theme
- * (test/muted-text.test.mjs). In Light+ --mlv-text-2 (VS Code's descriptionForeground, #717171) is
- * 4.40:1 on the rail, and in Light Modern it is the text colour, so this small text was under 4.5:1
- * or not muted at all.
+ * (test/muted-text.test.mjs). --mlv-text-2 was VS Code's descriptionForeground then: 4.40:1 on
+ * the rail in Light+ (#717171) and the text colour in Light Modern, so this small text was under
+ * 4.5:1 or not muted at all. Both tokens are mixes of the text colour now (tokens.css); this copy
+ * stays muted.
  */
 .mlv-about__meta,
 .mlv-about__note {

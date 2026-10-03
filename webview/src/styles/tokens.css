@@ -52,11 +52,17 @@
  * @contrast (4.5:1): card text on a faded (observed) card in exceptions mode
  *
  * Viewer M4, checked by test/muted-text.test.mjs against the harness table (Dark Modern, Dark+,
- * Light Modern, Light+, both High Contrast themes, 2026 Dark and 2026 Light):
+ * Dark 2026, Light Modern, Light+, Light 2026 and both High Contrast themes), theme x token x
+ * every background the stylesheets paint under text (a census there classifies each one):
  *
- * @contrast (4.5:1): --mlv-text-3 on --mlv-bg, --mlv-surface, --mlv-surface-2 and a lane header
- * (2026 Dark: on --mlv-bg and --mlv-surface only; its descriptionForeground is 3.80:1 on
- * --mlv-surface-2 and 4.34:1 on a lane header)
+ * @contrast (4.5:1): --mlv-text-2 on every background: the canvas, a lane, --mlv-surface, a
+ *   hatched card, --mlv-surface-2 on a surface, on the canvas and once or twice on a lane, a lane
+ *   header, a phase index row in view, the menu, the bundle badge, VS Code's key cap under a
+ *   <kbd> and every overview block
+ * @contrast (4.5:1): --mlv-text-3 on the backgrounds its selectors sit on: the canvas,
+ *   --mlv-surface, a hatched card, --mlv-surface-2 on a surface and a lane header
+ * @order: --mlv-text at least as strong as --mlv-text-2, and --mlv-text-2 as --mlv-text-3, on
+ *   every background; --mlv-text-3 at 50-70% of --mlv-text's contrast on --mlv-surface
  *
  * The connection and card-border colours are the theme's own text colour
  * mixed into its background, so they follow any theme, not only the defaults.
@@ -167,15 +173,19 @@
   --mlv-border: var(--vscode-widget-border, #E3E5EB);
   --mlv-border-strong: var(--vscode-widget-border, #C9CDD6);
   --mlv-text: var(--vscode-editor-foreground, #16181D);
-  --mlv-text-2: var(--vscode-descriptionForeground, #5A6070);
-  /* Viewer M4: muted text in a light theme is the card surface darkened to 38% (about 6:1 against
-   * that surface, 5.1:1 or more on a hovered row or a lane header in VS Code's light themes), not
-   * descriptionForeground. Light Modern sets descriptionForeground to its text
-   * colour (#3B3B3B), so muted text was not muted; Light+'s (#717171) is 4.40:1 on its widget
-   * background. 38% gives Light Modern #5E5E5E, Light+ #5C5C5C, and 2026 Light #5F5F60, next to its
-   * own descriptionForeground (#606060). Dark themes keep descriptionForeground, high contrast the
-   * text colour (test/muted-text.test.mjs). */
-  --mlv-text-3: color-mix(in srgb, var(--mlv-surface) 38%, #000000);
+  /* Viewer M4: secondary (--mlv-text-2) and muted (--mlv-text-3) text are the theme's own text
+   * colour mixed into its card surface, 90% and 80%, in light and dark themes alike (the dark
+   * blocks below restate them, because a var() resolves where it is declared). They no longer read
+   * descriptionForeground: Light Modern sets it to its text colour (#3B3B3B), Light+'s (#717171)
+   * is 4.40:1 on its widget background and Dark 2026's (#8C8C8C) about 3.8:1 on a hovered row.
+   * A mix is never stronger than the text and always the same share of the way to the surface, so
+   * the order text > secondary > muted holds in any theme. CSS cannot compare two run-time
+   * colours, so there is no contrast clamp: the shares are the clamp, chosen so that Dark 2026, the
+   * shipped theme with the least contrast, clears 4.5:1 on every background (muted 4.77:1 on a
+   * hovered row, secondary 5.00:1 on a group count over a hovered group header) while muted text
+   * keeps 53-70% of the text colour's contrast. No per-theme rule (test/muted-text.test.mjs). */
+  --mlv-text-2: color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface));
+  --mlv-text-3: color-mix(in srgb, var(--mlv-text) 80%, var(--mlv-surface));
   --mlv-link: var(--vscode-textLink-foreground, #2B57C4);
   --mlv-accent: var(--vscode-focusBorder, #3B6CF6);
   --mlv-accent-solid: var(--vscode-button-background, #2B57C4);
@@ -224,8 +234,8 @@
     --mlv-border: var(--vscode-widget-border, #2C3038);
     --mlv-border-strong: var(--vscode-widget-border, #3B414C);
     --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
-    --mlv-text-2: var(--vscode-descriptionForeground, #9AA1B1);
-    --mlv-text-3: var(--vscode-descriptionForeground, #969DAD);
+    --mlv-text-2: color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface));
+    --mlv-text-3: color-mix(in srgb, var(--mlv-text) 80%, var(--mlv-surface));
     --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
     --mlv-accent: var(--vscode-focusBorder, #6E96FF);
     --mlv-accent-solid: var(--vscode-button-background, #3355C4);
@@ -268,8 +278,8 @@ body.vscode-dark,
   --mlv-border: var(--vscode-widget-border, #2C3038);
   --mlv-border-strong: var(--vscode-widget-border, #3B414C);
   --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
-  --mlv-text-2: var(--vscode-descriptionForeground, #9AA1B1);
-  --mlv-text-3: var(--vscode-descriptionForeground, #969DAD);
+  --mlv-text-2: color-mix(in srgb, var(--mlv-text) 90%, var(--mlv-surface));
+  --mlv-text-3: color-mix(in srgb, var(--mlv-text) 80%, var(--mlv-surface));
   --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
   --mlv-accent: var(--vscode-focusBorder, #6E96FF);
   --mlv-accent-solid: var(--vscode-button-background, #3355C4);
