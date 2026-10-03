@@ -279,6 +279,25 @@ test('j / k and ↓ / ↑ step while walking; outside the walk the arrows move s
   }
 });
 
+test('with the focus on the page body (VS Code gave the panel back the keyboard, Cmd+1), the walk keys still step and Escape still ends it', async () => {
+  const ctx = await mount(shapedWorkflow(VIT_SHAPE), { width: 1440 });
+  try {
+    press(ctx, 'r');
+    ctx.app.walk.setFilter('all');
+    ctx.document.activeElement.blur();
+    assert.equal(ctx.document.activeElement, ctx.document.body, 'nothing inside the page has the focus');
+    const start = ctx.app.walk.position;
+    assert.equal(press(ctx, 'j', {}, ctx.document.body).defaultPrevented, true);
+    assert.equal(ctx.app.walk.position, start + 1, 'j from the body stepped the walk');
+    press(ctx, 'ArrowUp', {}, ctx.document.body);
+    assert.equal(ctx.app.walk.position, start, '↑ from the body stepped back');
+    press(ctx, 'Escape', {}, ctx.document.body);
+    assert.equal(ctx.app.walk.active, false, 'Escape from the body ended the walk');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
 test('[ and ] step through the claim\'s quotes; Enter opens the current quote again at once', async () => {
   const ctx = await mount(orderDoc(), { width: 1440 });
   try {

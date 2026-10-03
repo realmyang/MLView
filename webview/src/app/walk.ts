@@ -22,6 +22,7 @@
 
 import { locationFrame } from './actions.js';
 import { applyWalkMark } from '../ui/selection.js';
+import type { WalkReveal } from '../ui/selection.js';
 import {
   changedOffered,
   claimBasis,
@@ -267,7 +268,7 @@ export class ReviewWalk {
     this.scheduleOpen();
     this.remember();
     // The pane brings the marked quote into view (live: a second quote sat below the fold).
-    this.render(true);
+    this.render('quote');
     this.app.saveSoon();
     return true;
   }
@@ -364,8 +365,9 @@ export class ReviewWalk {
     this.app.bridge.post({ v: 1, type: 'walk', state: 'clear' });
     this.status = this.unansweredStatus('idle');
     this.remember();
-    // The pane, which the selection started at its top, brings the walk's quote into view.
-    this.render(true);
+    // The pane, which the selection started at its top, brings the walk's quote into view when it
+    // fits with the claim's title.
+    this.render('claim');
   }
 
   /* ── host answers and document changes ─────────────────────────────── */
@@ -593,9 +595,9 @@ export class ReviewWalk {
       this.status = this.unansweredStatus('idle');
     }
     this.remember();
-    // A move to a claim brings its quote into view in the pane, which a new claim starts at its
-    // top (M3 live check, W1). `keep` (a filter on the same claim) leaves the reader's place.
-    this.render(mode !== 'keep');
+    // A move to a claim starts the pane at its top (M3 live check, W1) and brings its quote into
+    // view when it fits with the title. `keep` (a filter on the same claim) leaves the reader's place.
+    this.render(mode === 'keep' ? false : 'claim');
     this.app.announce(this.announcement());
     this.app.saveSoon();
   }
@@ -608,10 +610,11 @@ export class ReviewWalk {
 
   /**
    * Repaint the bar, the header's Review state and the pane's quote mark. `reveal`: scroll the pane
-   * the least distance that shows the quote, keeping the claim's title in view when both fit, at
-   * once (`walkRevealTop`).
+   * the least distance that shows the quote, at once (`walkRevealTop`); after a step to another
+   * claim (`'claim'`) the title stays in view and wins when both do not fit, after `[` or `]`
+   * (`'quote'`) the quote wins.
    */
-  render(reveal = false): void {
+  render(reveal: WalkReveal | false = false): void {
     this.app.renderWalkBar();
     applyWalkMark(this.app.rail.root, this.paneMark(), reveal);
   }

@@ -121,7 +121,7 @@ test('W1: a new selection starts the Selection pane at its top; the same claim b
   }
 });
 
-test('W1: each step of the walk starts the pane at its top and brings the walked quote into view, the title with it when both fit, at once', async () => {
+test('W1: each step of the walk starts the pane at its top and brings the walked quote into view when it fits with the title; [ and ] bring the quote, at once', async () => {
   const ctx = await mount(smallDoc());
   try {
     // A 315 px pane (as live at 540x798); the title 30 px into it, the first quote's walk line at 274-292.
@@ -138,15 +138,22 @@ test('W1: each step of the walk starts the pane at its top and brings the walked
     assert.notEqual(ctx.app.walk.current().id, 'c-aug-step');
     assert.equal(pane(ctx).scrollTop, 0, 'live, the pane kept 194 px from the claim before');
     assert.ok(inPane(title()) && inPane(walkLine()));
-    // A claim whose quote is far below (a long finding): the quote is brought up the least distance
-    // that shows its file line and the walk's line; the title does not fit with it, so it goes.
-    stubPaneLayout(ctx.window, { quoteY: 600 });
+    // A quote just below the fold that fits with the title: the least scroll that shows both.
+    stubPaneLayout(ctx.window, { quoteY: 280 });
     press(ctx, 'k');
     eq(ctx.app.walk.current(), { kind: 'edge', id: 'c-aug-step' });
-    assert.equal(pane(ctx).scrollTop, 600 + 24 + 18 + 8 - 315, 'scrolled at once, the walk line 8 px above the foot');
-    assert.ok(inPane(walkLine()) && inPane($(ctx, '.mlv-quote.is-walk .mlv-quote__head')));
-    assert.equal(inPane(title()), false);
-    // [ and ] keep bringing the quote into view.
+    assert.equal(pane(ctx).scrollTop, 280 + 24 + 18 + 8 - 315, 'scrolled at once, the walk line 8 px above the foot');
+    assert.ok(inPane(title()) && inPane(walkLine()));
+    // A claim whose quote is far below (a long finding): the title does not fit with it, so the
+    // step keeps the claim's title in view; the editor beside shows the quoted lines highlighted.
+    stubPaneLayout(ctx.window, { quoteY: 600 });
+    press(ctx, 'j');
+    press(ctx, 'k');
+    eq(ctx.app.walk.current(), { kind: 'edge', id: 'c-aug-step' });
+    assert.equal(pane(ctx).scrollTop, 0, 'the step keeps the title');
+    assert.ok(inPane(title()));
+    assert.equal(inPane(walkLine()), false);
+    // ] and [ ask for the quote: it wins when both do not fit.
     press(ctx, ']');
     assert.equal(pane(ctx).scrollTop, 840 + 24 + 18 + 8 - 315);
     assert.ok(inPane(walkLine()));
@@ -179,13 +186,13 @@ test('W1 under reduced motion: when the step opens the bottom panel, the quote i
       disconnect() { this.live = false; }
     };
     let height = 16;
-    stubPaneLayout(ctx.window, { paneH: () => height, quoteY: 250 });
+    stubPaneLayout(ctx.window, { paneH: () => height, quoteY: 280 });
     press(ctx, 'r');
     eq(ctx.app.walk.current(), { kind: 'edge', id: 'c-aug-step' });
-    assert.ok(pane(ctx).scrollTop > 0, 'precondition: measured at 16 px, the first reveal scrolls');
+    assert.equal(pane(ctx).scrollTop, 0, 'precondition: measured at 16 px, nothing fits with the title, so the title stays');
     height = 315;
     for (const observer of observers.filter((o) => o.live)) observer.callback([]);
-    assert.equal(pane(ctx).scrollTop, 0, 'measured again at 315 px, from where the pane was');
+    assert.equal(pane(ctx).scrollTop, 280 + 24 + 18 + 8 - 315, 'measured again at 315 px: the quote fits with the title and is brought into view');
     assert.ok(inPane($(ctx, '.mlv-sel .mlv-insp__title')) && inPane($(ctx, '.mlv-quote.is-walk .mlv-quote__walk')));
     assert.equal(observers.filter((o) => o.live).length, 0, 'the observer is let go');
   } finally {
@@ -264,6 +271,28 @@ test('W2: a file that goes from changed to missing says so; a block for unsaved 
     ctx.bridge.send({ v: 1, type: 'stale', files: [] });
     eq(ctx.app.walk.current(), { kind: 'node', id: 'step' });
     assert.equal(text(), 'Quote 1 of 2: train.py has unsaved edits that no longer contain the cited lines; not opened.');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('W2: a block the host gave for unsaved edits stays when the same file then leaves the stale list (M3 round-2 review, R2-3)', async () => {
+  const ctx = await mount(smallDoc());
+  try {
+    ctx.bridge.send({ v: 1, type: 'stale', files: [{ path: 'data.py', reason: 'changed' }] });
+    press(ctx, 'r');
+    ctx.app.walk.setFilter('all');
+    walkTo(ctx, 'load', 'k');
+    ctx.app.walk.flushOpen();
+    // The host checked the editor's unsaved text, not the file on disk: its reason is not a stale one.
+    answer(ctx, opens(ctx).at(-1), 'blocked', { reason: 'unsaved', message: 'data.py has unsaved edits that no longer contain the cited lines; not opened.' });
+    const text = () => $(ctx, '.mlv-walkbar__editortext').textContent;
+    const before = opens(ctx).length;
+    ctx.bridge.send({ v: 1, type: 'stale', files: [] });
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'load' });
+    assert.equal(text(), 'data.py has unsaved edits that no longer contain the cited lines; not opened.');
+    assert.equal($(ctx, '.mlv-quote.is-walk').getAttribute('data-walk-status'), 'blocked');
+    assert.equal(opens(ctx).length, before, 'nothing opened by itself');
   } finally {
     ctx.app.destroy();
   }
@@ -383,23 +412,35 @@ for (const [name, width, bodyH] of [['541x798 (sheet collapsed)', 541, 740], ['5
   });
 }
 
-test('W4: a header taller than half the overlay scrolls with the blocks, and Home still shows it whole when the first block fits', async () => {
-  const ctx = await mount(shapedWorkflow(VIT_SHAPE), { width: 541, bodyH: 230 });
-  try {
-    stubOverviewLayout(ctx);
-    press(ctx, ')', { shiftKey: true, code: 'Digit0' });
-    const layout = ctx.app.view.overviewLayout();
-    const header = $(ctx, '.mlv-overview__header');
-    assert.ok((layout.header.y + layout.header.h) * 2 > ctx.box().h, 'precondition: a short overlay');
-    assert.equal(header.getAttribute('data-sticky'), 'false');
-    assert.equal(cascadeWinner(CSS, header, 'position').value, 'relative');
-    press(ctx, 'End');
-    const block = layout.blocks[layout.blocks.length - 1];
-    assert.ok(block.y - $(ctx, '.mlv-overview').scrollTop >= 0, 'the last block\'s top shows');
-  } finally {
-    ctx.app.destroy();
-  }
-});
+for (const [name, doc, width, bodyH, fits] of [
+  ['vit-cc shape at 541 px, first block too tall to fit below the header', () => shapedWorkflow(VIT_SHAPE), 541, 230, false],
+  ['a short first block at 320 px that fits below the header', () => smallDoc(), 320, 300, true],
+]) {
+  test(`W4, ${name}: a header taller than half the overlay scrolls with the blocks; Home shows it whole when the first block fits below it, else the first block's top`, async () => {
+    const ctx = await mount(doc(), { width, bodyH });
+    try {
+      stubOverviewLayout(ctx);
+      press(ctx, ')', { shiftKey: true, code: 'Digit0' });
+      const layout = ctx.app.view.overviewLayout();
+      const header = $(ctx, '.mlv-overview__header');
+      const overview = $(ctx, '.mlv-overview');
+      const view = ctx.box().h;
+      assert.ok((layout.header.y + layout.header.h) * 2 > view, 'precondition: a short overlay');
+      assert.equal(header.getAttribute('data-sticky'), 'false');
+      assert.equal(cascadeWinner(CSS, header, 'position').value, 'relative');
+      const first = layout.blocks[0];
+      assert.equal(first.y + first.h + 12 <= view, fits, 'precondition: whether the first block fits below the header');
+      press(ctx, 'End');
+      const block = layout.blocks[layout.blocks.length - 1];
+      assert.ok(overview.scrollTop > 0 && block.y - overview.scrollTop >= 0, 'the last block\'s top shows');
+      press(ctx, 'Home');
+      // M3 round-2 review, R2-2: the header (with Back) shows whole only when the first block fits.
+      assert.equal(overview.scrollTop, fits ? 0 : first.y - 12);
+    } finally {
+      ctx.app.destroy();
+    }
+  });
+}
 
 /* ── W5: arrow keys from a connection or a finding ───────────────────── */
 

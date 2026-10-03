@@ -298,12 +298,13 @@ Windows or Linux, or as a usability check ([changelog](../CHANGELOG.md)).
 Unreleased viewer M3, the live check's notebook focus loss and the walk's
 selection: in the live check, the first key after Enter or a walk step opened
 a notebook that was not open took the keyboard from the diagram to the
-workbench (the symptom the M2 report describes). It happens only while VS Code
-is not the active application and keys are sent over the DevTools protocol, as
-in that check, which ran with the display asleep: in a window started while
-the screen was locked it happened for 4 of 5 Escapes and stopped a walk over
-all 79 claims at claim 50; in a window of the active application it did not
-happen in 19 Escapes or in a walk over all 79 claims. A Chromium trace shows
+workbench (the symptom the M2 report describes). It was seen only in a window
+that had never been active since it started (launched while the screen was
+locked, as in that check, which ran with the display asleep) with keys sent
+over the DevTools protocol: there it happened for 4 of 5 Escapes and stopped a
+walk over all 79 claims at claim 50; in a window started while VS Code was the
+active application it did not happen in 19 Escapes, 2 more with another
+application in front, or a walk over all 79 claims. A Chromium trace shows
 the notebook's output webview process moving the focus to the workbench frame
 right after DevTools gives the page focus for a key; no MLView call takes
 part, so MLView is unchanged for it and adds no focus recovery. Not checked by

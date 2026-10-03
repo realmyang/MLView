@@ -8,7 +8,7 @@ truth lives in [docs/STATUS.md](docs/STATUS.md) and
 
 ## Unreleased — viewer M3: review walk and the way back
 
-The viewer's third milestone, in progress. So far: the review walk, which goes
+The viewer's third milestone: the review walk, which goes
 through the diagram claim by claim and opens each one's cited lines beside it
 (roadmap step 11), the host side of that walk (step 12), a fix for Escape, a
 look at the cost of jumping through a large notebook, the phase overview
@@ -16,12 +16,13 @@ with the labelled phase index that replaced the minimap (step 13), and
 **Reveal in Diagram**, the way back from a cited line in the editor to the
 claim in the diagram (step 14), the fixes from an independent review of
 those steps, the viewer's fixes from a live check of the milestone, and what
-was behind that check's notebook focus loss, with one host fix for the walk
-(all at the end of this section). Steps 11, 12 and 14 were checked by local
-jsdom and mock `vscode` tests (mutation-checked against the fixes) and in an
-isolated VS Code 1.139 Extension Development Host on macOS driven over the
-DevTools protocol. Step 13 was checked by local jsdom tests and headless-Chrome
-screenshots of a simulated host only, not yet in VS Code. Not tried on Windows
+was behind that check's notebook focus loss, with one host fix for the walk,
+and the corrections from a review of those fixes (all at the end of this
+section). Steps 11 to 14 were checked by local jsdom and mock `vscode` tests
+(mutation-checked against the fixes) and in an isolated VS Code 1.139
+Extension Development Host on macOS driven over the DevTools protocol (step 13
+there only in the milestone's two live checks; its own checks were jsdom tests
+and headless-Chrome screenshots of a simulated host). Not tried on Windows
 or Linux, with a screen reader or as a usability check. No contract change, no
 new setting, no geometry change, and the version is unchanged. Step 14 adds
 the extension's second command, with no default keybinding.
@@ -462,15 +463,17 @@ each fix has a test that fails on the code before it):
   again (a host answer, a freshness change, a resize) keeps your place.
 - **The walk brings its quote into view.** Each step then scrolls the tab the
   least distance that shows the quote's file line and the line under it
-  saying what the editor beside shows, keeping the claim's title in view when
-  both fit; when they do not fit, the quote wins. The quoted lines may run
-  past the fold, since the editor beside shows them highlighted. `[` and `]`
-  follow the same rule (they scrolled the whole quote into view before). The
-  scroll is set at once, so nothing moves under Reduce Motion. When the step
-  also opens the bottom panel, the quote is brought into view again once the
-  panel has its height: with reduced motion the panel still measured 16 px
-  during the step in headless Chrome, and the quote went to the top with the
-  title gone.
+  saying what the editor beside shows, when that fits with the claim's title;
+  when it does not, the title stays and the quote is left below the fold,
+  since you meet the claim before its quotes and the editor beside already
+  shows the quoted lines highlighted. `[` and `]` ask for the quote, so it
+  wins there, keeping the title when both fit (they scrolled the whole quote
+  into view before). The scroll is set at once, so nothing moves under Reduce
+  Motion. When the step also opens the bottom panel, the quote is brought
+  into view again once the panel has its height: with reduced motion the
+  panel still measured 16 px during the step in headless Chrome. (In the
+  round-2 live check a step showed the quote and scrolled the title away when
+  both did not fit; the step now keeps the title.)
 - **A restored file.** After a changed file was restored, the walk bar and the
   quote kept "… changed after revision … was published; not opened." and the
   warning mark until Enter. When the host's list of stale files changes for
@@ -493,7 +496,9 @@ each fix has a test that fails on the code before it):
   Home stopped 12 px above the first block with the header still hidden. The
   header now sticks to the top of the overview while it scrolls, a block
   brought into view is placed below it, and Home scrolls to the top. A header
-  taller than half the overview scrolls with the blocks, as before. In
+  taller than half the overview scrolls with the blocks, as before; there
+  Home shows the header whole when the first block fits below it, and
+  otherwise the first block's top. In
   headless Chrome at 541x798, 541x500 and 901x470 **Back** stayed in view and
   clickable at every block.
 - **Arrow keys from a connection.** Live, → on a focused connection selected
@@ -537,16 +542,18 @@ The live check's notebook focus loss, and the walk's selection (the host):
   an arrow key, `q`, and in the walk the `j` after a step had opened the
   notebook again (the walk's preview tab reopens it after each step to
   `efficient.py`). The workbench got the focus and the walk stopped
-  answering. The report carried from M2 describes the same symptom. It
-  happens only while VS Code is not the active application and the keys come
-  over the DevTools protocol: that check ran while the display was asleep,
-  and a window started then is not the active one. In a fresh isolated VS Code 1.139 window started while the
-  screen was locked, on the current build, it happened for 4 of 5 Escapes,
+  answering. The report carried from M2 describes the same symptom. It was
+  seen only in a window that had never been the active window since it
+  started (one launched while the screen was locked; that check ran while the
+  display was asleep) with the keys coming over the DevTools protocol. In a
+  fresh isolated VS Code 1.139 window started while the screen was locked, on
+  the current build, it happened for 4 of 5 Escapes,
   2 of 2 arrow keys and 2 of 2 `q`, and a walk over All claims (79) stopped
   at claim 50, the key after claim 49 had reopened the notebook. In a window
-  of the active application on the same machine it did not happen in 19
+  started while VS Code was the active application it did not happen in 19
   Escapes after Enter (waits of 150 ms to 5 s, 6 with the display asleep, 5
-  on the live check's webview build) or in a walk over all 79 claims. A
+  on the live check's webview build), in 2 more with another application in
+  front, or in a walk over all 79 claims. A
   Chromium trace of a failing key shows, within a quarter of a millisecond:
   the browser giving the page focus (the trace shows this before each key
   event DevTools sends), the process of the notebook's output webview reporting that the
@@ -557,7 +564,7 @@ The live check's notebook focus loss, and the walk's selection (the host):
   focused page in that notebook webview's process before the key kept the
   focus 3 times of 3 (it was lost 3 times of 3 without). Nothing in MLView
   changed for this, and no focus recovery was added: the loss needs a window
-  that is not active receiving keys from DevTools, which a person typing
+  that was never active receiving keys from DevTools, which a person typing
   into VS Code does not do. Not checked by a person at the machine, nor
   whether switching to another application and back after a notebook opened
   moves the focus the same way.
@@ -589,12 +596,40 @@ not active, with every webview frame emulating a focused page as an active
 window's would: Escape kept the focus 5 times of 5, an arrow key and `q` 2 of 2
 each, a walk over all 79 claims kept it through each change between the
 notebook and `efficient.py`, Alt+Enter moved it into the notebook, Cmd+1 (on
-macOS, VS Code's key for the first editor group) brought it back to the
-diagram, and Cmd+2 from the diagram moved it to the notebook. These runs show
+macOS, VS Code's key for the first editor group) gave the keyboard back to
+the diagram's panel with no card focused (the page body), and Cmd+2 from the
+diagram moved it to the notebook. From the page body the diagram's keys
+still answer, as since R1 (a page-level key listener); a new jsdom test in
+`webview/test/walk.test.mjs` pins it for the walk's `j`, ↑ and Escape. Not
+pressed live after Cmd+1. These runs show
 that the product keeps its focus rules under that emulation; they are not a
 check of a person using it. Not on Windows or Linux or with a screen reader.
 No contract change, no new setting or keybinding, and the geometry golden is
 unchanged.
+
+Round-2 review corrections (an independent review of the live-check fixes
+found no product defect and four gaps, now closed; the walk's scroll rule was
+also changed after a second live check):
+- **A walk step keeps the claim's title.** At 541 px with the bottom panel, a
+  step to a long claim showed its quote and scrolled the title away. A step
+  now shows the quote only when it fits with the title (`[` and `]` still
+  bring the quote). The W1 tests in `webview/test/m3-live.test.mjs` follow
+  the new rule and fail with it switched off.
+- **Home in a short phase overview** shows the header whole only when the
+  first block fits below it; this section first said it always did. The test now
+  presses Home in both cases and fails without the first-block rule.
+- **A host block for unsaved edits** stays when its file then leaves the
+  stale list; that clause had no test, and now has one that fails without it.
+- **Wording:** the notebook focus loss was seen only in a window that had
+  never been active since it started, not in any inactive window; Cmd+1 gives
+  the keyboard back to the panel's page body, where the diagram's keys still
+  answer (a new jsdom test pins it for the walk; not pressed live).
+
+Checked for the corrections: `npm run check` and `npm test` in webview/ and
+vscode-extension/, `python tools/verify.py --all` and
+`python scripts/check_docs.py`; each new or changed test was run against the
+code with its rule switched off and failed. Local checks only: not a check by
+a person, on Windows or Linux, or with a screen reader.
 
 ## Unreleased — viewer M2: readable at your width
 
