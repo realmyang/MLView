@@ -183,8 +183,9 @@ synthetic 3.8 MB notebook hashed it once instead of 60 times
 it hid a notification); with nothing left to close and the focus off the
 diagram, Escape goes to VS Code. The M2 report of focus lost on Escape after
 Enter opened a notebook was not reproduced in 14 live attempts, so this fixes
-the mechanism found, not a confirmed reproduction. No contract change, no new
-setting and no geometry change. Checked by local jsdom and mock `vscode`
+the mechanism found, not a confirmed reproduction (the same symptom in the M3
+live check came from how that check drove VS Code; see below). No contract
+change, no new setting and no geometry change. Checked by local jsdom and mock `vscode`
 tests and in an isolated VS Code 1.139 Extension Development Host on macOS
 driven over the DevTools protocol; not on Windows or Linux, with a screen
 reader or as a usability check ([changelog](../CHANGELOG.md)).
@@ -293,6 +294,29 @@ new setting or keybinding and no geometry change. Checked by local jsdom tests
 (each fails on the code before the fixes) and headless-Chrome runs of a
 simulated host; not yet in VS Code after the fixes, with a screen reader, on
 Windows or Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M3, the live check's notebook focus loss and the walk's
+selection: in the live check, the first key after Enter or a walk step opened
+a notebook that was not open took the keyboard from the diagram to the
+workbench (the symptom the M2 report describes). It happens only while VS Code
+is not the active application and keys are sent over the DevTools protocol, as
+in that check, which ran with the display asleep: in a window started while
+the screen was locked it happened for 4 of 5 Escapes and stopped a walk over
+all 79 claims at claim 50; in a window of the active application it did not
+happen in 19 Escapes or in a walk over all 79 claims. A Chromium trace shows
+the notebook's output webview process moving the focus to the workbench frame
+right after DevTools gives the page focus for a key; no MLView call takes
+part, so MLView is unchanged for it and adds no focus recovery. Not checked by
+a person at the machine, nor after switching to another application and back.
+The walk still opens sources in a preview tab. One host fix: when the walk
+ends, moves to a claim it opens nothing for, or does not open a quote, the
+cited lines it selected are no longer left selected, if the editor still shows
+them and you did not change the selection. No contract change, no new setting
+or keybinding and no geometry change. Checked by mock `vscode` tests
+(mutation-checked) and in an isolated VS Code 1.139 Extension Development Host
+on macOS driven over the DevTools protocol, with every webview frame emulating
+a focused page for the focus checks; not with a screen reader, on Windows or
+Linux, or as a usability check ([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M2, live-check fixes: a live check of the branch found
 seven problems, now fixed. When the panel resizes or the rail changes shape

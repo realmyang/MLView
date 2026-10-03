@@ -78,7 +78,10 @@ the diagram (also when the walk was started from **Review** or the **⋯**
 menu); a quote whose file changed or is missing, or whose unsaved edits no
 longer contain the cited lines, is not opened, and the walk bar (under the
 diagram) and the Selection tab say why, with no notification; once VS Code
-reports the file unchanged again, they say Enter shows it. Each claim
+reports the file unchanged again, they say Enter shows it. When the walk
+ends, moves to a claim it opens nothing for, or does not open a quote, the
+highlight goes and the lines it selected are no longer selected (unless you
+changed the selection). Each claim
 starts at the top of the Selection tab, and the walk brings its quote's file
 line and what the editor shows into view, with the title when both fit. A
 walk step or a keyboard move hides the hover card until the pointer moves. The walk

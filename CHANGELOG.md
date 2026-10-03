@@ -15,8 +15,9 @@ look at the cost of jumping through a large notebook, the phase overview
 with the labelled phase index that replaced the minimap (step 13), and
 **Reveal in Diagram**, the way back from a cited line in the editor to the
 claim in the diagram (step 14), the fixes from an independent review of
-those steps, and the viewer's fixes from a live check of the milestone (both
-at the end of this section). Steps 11, 12 and 14 were checked by local
+those steps, the viewer's fixes from a live check of the milestone, and what
+was behind that check's notebook focus loss, with one host fix for the walk
+(all at the end of this section). Steps 11, 12 and 14 were checked by local
 jsdom and mock `vscode` tests (mutation-checked against the fixes) and in an
 isolated VS Code 1.139 Extension Development Host on macOS driven over the
 DevTools protocol. Step 13 was checked by local jsdom tests and headless-Chrome
@@ -527,6 +528,72 @@ overview at 541x798, 541x500 and 901x470, the arrows at 1440x900 and the walk
 bar at 320, 400 and 541 px wide. Not checked in VS Code after the fixes, not
 with a screen reader, on Windows or Linux, or as a usability check. No
 contract change, no new setting or keybinding, and the geometry golden is
+unchanged.
+
+The live check's notebook focus loss, and the walk's selection (the host):
+- **The focus loss came from how the live check drove VS Code, not from
+  MLView.** In the M3 live check the diagram lost the keyboard on the first
+  key after Enter or a walk step opened a notebook that was not open: Escape,
+  an arrow key, `q`, and in the walk the `j` after a step had opened the
+  notebook again (the walk's preview tab reopens it after each step to
+  `efficient.py`). The workbench got the focus and the walk stopped
+  answering. The report carried from M2 describes the same symptom. It
+  happens only while VS Code is not the active application and the keys come
+  over the DevTools protocol: that check ran while the display was asleep,
+  and a window started then is not the active one. In a fresh isolated VS Code 1.139 window started while the
+  screen was locked, on the current build, it happened for 4 of 5 Escapes,
+  2 of 2 arrow keys and 2 of 2 `q`, and a walk over All claims (79) stopped
+  at claim 50, the key after claim 49 had reopened the notebook. In a window
+  of the active application on the same machine it did not happen in 19
+  Escapes after Enter (waits of 150 ms to 5 s, 6 with the display asleep, 5
+  on the live check's webview build) or in a walk over all 79 claims. A
+  Chromium trace of a failing key shows, within a quarter of a millisecond:
+  the browser giving the page focus (the trace shows this before each key
+  event DevTools sends), the process of the notebook's output webview reporting that the
+  workbench frame took focus, and the browser moving the focus there; the
+  diagram's frame then lost its focused element and the key's release went
+  to the workbench. The workbench's scripts called no `focus()` or `blur()`,
+  and nothing changed on the diagram's frame or its parents. Emulating a
+  focused page in that notebook webview's process before the key kept the
+  focus 3 times of 3 (it was lost 3 times of 3 without). Nothing in MLView
+  changed for this, and no focus recovery was added: the loss needs a window
+  that is not active receiving keys from DevTools, which a person typing
+  into VS Code does not do. Not checked by a person at the machine, nor
+  whether switching to another application and back after a notebook opened
+  moves the focus the same way.
+- **The walk keeps opening sources in a preview tab.** Keeping a notebook the
+  walk opened as an ordinary tab would avoid reopening it after each step to
+  another file (about 480 to 520 ms for such a step against about 190 ms
+  within one file, in the live check), but a walk would then leave one tab
+  for every cited file it passed, and the reopening is not what moved the
+  focus.
+- **The walk lets go of the lines it selected.** When the walk ended, moved
+  to a claim it opens nothing for, or did not open a quote, the highlight
+  went but the editor kept the earlier claim's lines selected (in the
+  inactive-selection colour). If that editor is still shown and its
+  selection is still exactly the one the walk set, the selection now
+  collapses to the start of the cited lines. A selection you changed is left
+  alone, and an Enter or Open link that is not opened keeps both the
+  highlight and the selection, as before. Live on vit-cc after `r`, `k`,
+  Escape (cell 35, lines 34 to 36): the lines stayed selected on the build
+  before and are no longer selected now; with `efficient.py` edited in a
+  scratch copy, the walk step to its claim was blocked and the notebook's
+  lines from the claim before were no longer selected either.
+
+Checked for this: `vscode-extension/test/walk-host.test.js` gained four mock
+`vscode` tests (the walk end and a walk clear, a selection the reader changed
+and an editor no longer shown, a blocked walk open, a notebook cell editor);
+the three that collapse fail with the collapse switched off, and the one for
+the reader's selection fails without the check. In the isolated window that is
+not active, with every webview frame emulating a focused page as an active
+window's would: Escape kept the focus 5 times of 5, an arrow key and `q` 2 of 2
+each, a walk over all 79 claims kept it through each change between the
+notebook and `efficient.py`, Alt+Enter moved it into the notebook, Cmd+1 (on
+macOS, VS Code's key for the first editor group) brought it back to the
+diagram, and Cmd+2 from the diagram moved it to the notebook. These runs show
+that the product keeps its focus rules under that emulation; they are not a
+check of a person using it. Not on Windows or Linux or with a screen reader.
+No contract change, no new setting or keybinding, and the geometry golden is
 unchanged.
 
 ## Unreleased — viewer M2: readable at your width

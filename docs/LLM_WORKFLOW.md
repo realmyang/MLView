@@ -190,7 +190,9 @@ diagram (starting the walk from **Review** or the **⋯** menu puts the keyboard
 on the diagram too). A claim with no quotes opens nothing and clears the
 previous highlight. A quote whose file changed or went missing, or whose
 unsaved edits no longer contain the cited lines, is not opened: the walk bar
-and the quote in the Selection tab say why, and no notification appears. A
+and the quote in the Selection tab say why, and no notification appears.
+When the walk ends, or a step opens nothing, the lines the walk selected in
+the editor are no longer selected, unless you changed the selection. A
 screen reader hears, for example, "Claim 3 of 16, not observed: Step Load
 batches, inferred." The walk bar sits under the diagram, above the bottom
 panel's tabs (with the side panel, along the bottom of the diagram), and shows
