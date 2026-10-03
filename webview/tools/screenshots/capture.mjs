@@ -27,7 +27,9 @@ import { deadline, findChrome, launchChrome } from './cdp.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const SAMPLE = join(REPO, 'samples', 'configured_training.mlview.json');
-const THEMES = { 'dark-modern': 'dark', 'light-modern': 'light', 'hc-dark': 'hc' };
+// The harness table's themes (themes.js) and the theme kind the panel's init frame carries.
+const THEMES = { 'dark-modern': 'dark', 'light-modern': 'light', 'hc-dark': 'hc', 'dark-plus': 'dark', 'light-plus': 'light', 'hc-light': 'hc', 'dark-2026': 'dark', 'light-2026': 'light' };
+const LIGHT_PAGES = new Set(['light-modern', 'light-plus', 'hc-light', 'light-2026']);
 const NARROW = [900, 800];
 
 const STATES = {
@@ -576,7 +578,7 @@ try {
     loads.set(id, frames);
     await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: opts.scale, mobile: false });
     await page.send('Emulation.setEmulatedMedia', { features: [
-      { name: 'prefers-color-scheme', value: THEMES[theme] === 'light' ? 'light' : 'dark' },
+      { name: 'prefers-color-scheme', value: LIGHT_PAGES.has(theme) ? 'light' : 'dark' },
       { name: 'prefers-reduced-motion', value: 'no-preference' },
     ] });
     logs.length = 0;

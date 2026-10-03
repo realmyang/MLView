@@ -51,6 +51,13 @@
  * @contrast (3:1): the basis border (--mlv-text-2) on --mlv-surface
  * @contrast (4.5:1): card text on a faded (observed) card in exceptions mode
  *
+ * Viewer M4, checked by test/muted-text.test.mjs against the harness table (Dark Modern, Dark+,
+ * Light Modern, Light+, both High Contrast themes, 2026 Dark and 2026 Light):
+ *
+ * @contrast (4.5:1): --mlv-text-3 on --mlv-bg, --mlv-surface, --mlv-surface-2 and a lane header
+ * (2026 Dark: on --mlv-bg and --mlv-surface only; its descriptionForeground is 3.80:1 on
+ * --mlv-surface-2 and 4.34:1 on a lane header)
+ *
  * The connection and card-border colours are the theme's own text colour
  * mixed into its background, so they follow any theme, not only the defaults.
  * The phase tones are literals per theme kind: VS Code's chart and terminal
@@ -161,7 +168,14 @@
   --mlv-border-strong: var(--vscode-widget-border, #C9CDD6);
   --mlv-text: var(--vscode-editor-foreground, #16181D);
   --mlv-text-2: var(--vscode-descriptionForeground, #5A6070);
-  --mlv-text-3: var(--vscode-descriptionForeground, #676E81);
+  /* Viewer M4: muted text in a light theme is the card surface darkened to 38% (about 6:1 against
+   * that surface, 5.1:1 or more on a hovered row or a lane header in VS Code's light themes), not
+   * descriptionForeground. Light Modern sets descriptionForeground to its text
+   * colour (#3B3B3B), so muted text was not muted; Light+'s (#717171) is 4.40:1 on its widget
+   * background. 38% gives Light Modern #5E5E5E, Light+ #5C5C5C, and 2026 Light #5F5F60, next to its
+   * own descriptionForeground (#606060). Dark themes keep descriptionForeground, high contrast the
+   * text colour (test/muted-text.test.mjs). */
+  --mlv-text-3: color-mix(in srgb, var(--mlv-surface) 38%, #000000);
   --mlv-link: var(--vscode-textLink-foreground, #2B57C4);
   --mlv-accent: var(--vscode-focusBorder, #3B6CF6);
   --mlv-accent-solid: var(--vscode-button-background, #2B57C4);

@@ -6,6 +6,83 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer M4: open from the Explorer, changes since the previous revision
+
+The viewer's fourth milestone. This section holds, so far, the two smaller
+items deferred from M2: the size of the first view's text (A11Y-7) and muted
+text in Light Modern and Light+. Both were checked by local jsdom tests and in
+headless Chrome with a simulated host (the screenshot harness), not in live VS
+Code, with a screen reader or as a usability check. No contract change, no new
+setting or keybinding, no geometry change (the golden is byte-identical), and
+the version is unchanged.
+
+The first view's text size (A11Y-7):
+- The diagram opens whole only when it fits at 75% zoom or more, so a card
+  title (13 px) is at least 9.75 px on screen, the size M2 judged still
+  readable ("about 10 px at 75%"). Otherwise it opens on phase 1 at 90%
+  (11.7 px titles), anchored at the phase's top-left, and phase 1 is no longer
+  fitted at 75-89% when it almost fits. Key `0` returns to this view, as
+  before; **Fit the whole diagram** in the **⋯** menu still shows everything,
+  at any zoom.
+- Why: M2 opened the whole document down to 62% and fitted phase 1 between 75%
+  and 90%, so a wider panel could open the same diagram with smaller titles
+  than a narrower one. Measured with the screenshot harness at panel widths
+  320, 541, 700, 786, 900, 1100, 1382, 1440 and 1920 px, 900 px tall:
+  dino-copilot opened at 90% (11.7 px titles) up to 900 px and whole at 69-72%
+  (9.0-9.4 px) from 1100 px; vit-cc at 81% (10.5 px) at 786 px, between 90% at
+  700 and 900 px; yolov5-cc2 at 80-86% (10.3-11.2 px) from 1100 px. Panels
+  600 px tall gave the same pattern (dino-copilot 81-88% at 1100-1440 px). With
+  this change all three open at 90% (11.7 px) at every one of those sizes.
+- The rule now: the first view never paints titles under 9.75 px, and a wider
+  or taller diagram area never paints the same document with smaller titles,
+  except where it shows the whole document instead of phase 1, still at 9.75
+  px or more. The cost: a wide panel shows less of a medium-sized document at
+  first (dino-copilot at 1440x900: 14 whole titles instead of 17, the last
+  column of its second phase cut off), at a size you can read.
+- One exception: where the side panel docks beside the diagram (a panel 1260
+  px wide), the diagram area loses 360 px to it, so a small document that
+  fits whole on both sides can open smaller with the panel docked (a
+  synthetic 1000x500 px document: 120% to 85%), never under 75%.
+- Zoomed out below 62% cards still show only their titles, as before; the
+  level of detail is not part of this change. Moving to a phase from the phase
+  overview or the phase index still fits a phase that fits at 75% or more.
+- Tests (`webview/test/readable-view.test.mjs`) sweep diagram areas 200-2600
+  px wide and 200-1600 px tall over synthetic frames with the sizes of those
+  three documents, a small and a medium document and the synthetic test
+  shapes, and the listed panel widths. Existing first-paint tests changed on
+  purpose: the whole-document bound (the M2 edge case at 62% now opens phase
+  1), phase 1 fitted at 80% (now 90%), a frame with no phase lane (whole at
+  22% before, now its top-left at 90%), and the refit-on-resize test in
+  `viewer-layout.test.mjs` (both sizes now open at 90%, so the refit shows as
+  a move instead of a zoom).
+
+Muted text in light themes:
+- In Light Modern, muted text (counts, section headings, quote line numbers,
+  a lane's step count) was the same colour as the text, because the viewer
+  used VS Code's `descriptionForeground` and Light Modern sets it to its text
+  colour (#3B3B3B). In Light+, `descriptionForeground` (#717171) is muted but
+  4.40:1 on the side panel, header and cards and 3.94-3.98:1 on a lane header,
+  a hovered row or a quote, under the 4.5:1 that WCAG asks for small text.
+- In light themes muted text is now the panel's own surface colour darkened
+  to 38%: #5E5E5E in Light Modern (5.60-6.46:1 on every background it sits
+  on), #5C5C5C in Light+ (5.37-6.65:1) and #5F5F60 in Light 2026, next to its
+  own `descriptionForeground` (#606060). It has 58% of the text colour's
+  contrast in Light Modern, about as muted as Dark Modern's description colour
+  (59%). Dark themes keep `descriptionForeground` (Dark Modern 5.12-6.08:1,
+  Dark+ 4.97-5.74:1) and High Contrast keeps its text colour. Secondary text
+  (`--mlv-text-2`) is unchanged. The exported SVG uses the same colour.
+- Not changed: Dark 2026, VS Code 1.139's default dark theme, was not in the
+  list of themes for this fix. Its muted text is its `descriptionForeground`
+  (#8C8C8C): 4.80:1 on the side panel and cards, but about 3.8:1 on a hovered
+  Outline row or a quote and 4.34:1 on a lane header. Its secondary text is
+  the same colour.
+- The screenshot harness's theme table gained Dark+, Light+, Light High
+  Contrast, Dark 2026 and Light 2026 (VS Code 1.139's values, with the colour
+  registry's default where a theme leaves a key out), and `capture.mjs`
+  takes them with `--theme`. `webview/test/muted-text.test.mjs` computes the
+  contrast from that table and the stylesheet; headless Chrome on the built
+  viewer gave the same colours and ratios.
+
 ## Unreleased — viewer M3: review walk and the way back
 
 The viewer's third milestone: the review walk, which goes

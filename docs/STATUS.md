@@ -143,6 +143,26 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M4, the smaller deferred items: the first view never opens
+card titles under about 10 px (9.75 px: the whole document opens only when it
+fits at 75% or more, otherwise phase 1 at 90%), and a wider panel never opens
+the same document with smaller titles unless it shows the whole document
+instead of phase 1. On three public shakedown artifacts at panel widths from
+320 to 1920 px, 600 and 900 px tall, the M2 plan opened at 69-90% (9.0-11.7 px
+titles, smaller in some wider panels than in narrower ones) and the M4 plan
+opens at 90% (11.7 px) everywhere, measured with the screenshot harness; a
+wide panel now shows fewer whole titles at first. Where the rail docks (a
+1260 px panel) the canvas loses 360 px, so a document that fits whole can open
+smaller there, never under 75%. Muted text is muted in Light Modern
+(#5E5E5E, was its text colour #3B3B3B) and clears 4.5:1 in Light+ (#5C5C5C;
+VS Code's #717171 was 3.94-4.40:1 on cards, hovered rows and lane headers);
+dark themes keep VS Code's description colour and High Contrast its text
+colour. Dark 2026, VS Code's default dark theme, was not in the list for this
+fix: its muted text is about 3.8:1 on a hovered row and 4.34:1 on a lane header.
+No contract change, no new setting and no geometry change. Checked by local
+jsdom tests and headless-Chrome screenshots of a simulated host only, not in
+live VS Code or as a usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
 button or **Review the claims** in the **⋯** menu goes through the displayed
 revision claim by claim, in the diagram's order (each step, its outgoing
@@ -357,7 +377,8 @@ says "· 5 findings touch this phase" after its numbers; cards with a detail
 show two lines of it instead of the file:line row; a hover dims nothing; lane
 headings are numbered, at the title size, on a plate. Announcements say steps
 and connections and lead with the F label. A first view between 62% and about
-85% zoom still opens whole at small text (deferred). Dead scope, phase-chip
+85% zoom still opens whole at small text (deferred; viewer M4 changed the
+first view, see its paragraph). Dead scope, phase-chip
 and export-region code is removed and the benchmark tools run again. No
 contract change, no new setting and no geometry change. Checked by local jsdom
 tests and headless-Chrome probes of a simulated host only, not in live VS
@@ -433,7 +454,8 @@ live VS Code, with a screen reader or as a usability check
 Unreleased viewer M2, step 6 (a readable first view): the diagram opens whole
 when it fits at 62% or more, otherwise on its first phase at 90% (or the whole
 first phase when that fits at 75% or more); a view saved for the same revision
-still wins. On the public shakedown artifacts the first paint went from
+still wins. (Viewer M4 changed both bounds: whole from 75%, phase 1 at 90%
+only.) On the public shakedown artifacts the first paint went from
 17-59% (2.1-7.1 px titles) to 84-90% (11.0-11.7 px titles) at 541, 900 and
 1440 px, measured with the screenshot harness. Key `0` returns to that view;
 the Fit button is now **Fit the whole diagram** (in the header's ⋯ menu since

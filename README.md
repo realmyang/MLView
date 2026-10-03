@@ -122,7 +122,9 @@ inferred (dashed, with an `inferred` tag) and unresolved (dotted, with a
 in the document; colour is otherwise used only for problems. Finding badges
 read F1, F2… in document order; the Selection tab and Refine prompts keep the
 real finding id. The diagram opens at a zoom where cards can be read: the
-whole document when it fits at 62% or more, otherwise the first phase at 90%.
+whole document when it fits at 75% or more, otherwise the first phase at 90%,
+so card titles open at about 10 px or larger, and a wider panel never opens
+them smaller unless it shows the whole document.
 Press `0` to return to that view, or use **Fit the whole diagram** in the
 **⋯** menu to see everything; zoomed out, cards show just their titles at about 11 px. Saved source
 edits mark the steps, connections, findings and quotes that cite the changed

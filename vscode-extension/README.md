@@ -154,7 +154,7 @@ is coloured by its place in the document. Finding badges read F1, F2… in
 document order, with the real id in the Selection tab and in Refine prompts. Flow
 animations stop after two passes (Shift+A replays them) and follow VS Code's
 Reduce Motion setting. The diagram opens at a readable zoom (the whole
-document if it fits at 62% or more, otherwise the first phase at 90%); `0`
+document if it fits at 75% or more, otherwise the first phase at 90%); `0`
 returns there, and **Fit the whole diagram** shows everything. Zoomed out,
 cards show only their titles, at about 11 px.
 The header is one row of about 36 px: the title, the assistant and revision,

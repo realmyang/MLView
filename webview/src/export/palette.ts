@@ -91,6 +91,13 @@ export const PHASE_TOKENS = ['--mlv-phase-0', '--mlv-phase-1', '--mlv-phase-2', 
 export const EDGE_MIX: Record<ThemeKind, number> = { light: 0.64, dark: 0.54, hc: 1 };
 export const NODE_EDGE_MIX: Record<ThemeKind, number> = { light: 0.58, dark: 0.46, hc: 1 };
 
+/**
+ * Viewer M4: in a light theme, muted text (`--mlv-text-3`) is the card surface mixed with black at
+ * this share of surface, color-mix(in srgb, surface 38%, #000000). Dark themes keep
+ * descriptionForeground and high contrast the text colour, so only the light palette derives it.
+ */
+export const TEXT3_LIGHT_MIX = 0.38;
+
 /** The two numeric tokens, kept apart because they are opacities, not paints. */
 export const TINT_TOKENS: Record<string, string> = {
   laneTint: '--mlv-lane-tint',
@@ -105,7 +112,7 @@ const LIGHT: Palette = {
   borderStrong: '#C9CDD6',
   text: '#16181D',
   text2: '#5A6070',
-  text3: '#676E81',
+  text3: '#616161', // derive(): color-mix(in srgb, surface 38%, #000000), as tokens.css (viewer M4)
   link: '#2B57C4',
   accent: '#3B6CF6',
   edge: '#8C93A3',
@@ -190,7 +197,7 @@ export function phaseColor(palette: Palette, phaseIndex: number | undefined): st
   return palette.phases[((phaseIndex % n) + n) % n] || palette.stageUnknown;
 }
 
-/** The colours the stylesheet derives with color-mix(), recomputed from the resolved text and background. */
+/** The colours the stylesheet derives with color-mix(), recomputed from the resolved text and background (and, for muted text in a light theme, the card surface). */
 function derive(palette: Palette, theme: ThemeKind): Palette {
   if (theme === 'hc') {
     palette.edge = palette.border;
@@ -199,6 +206,7 @@ function derive(palette: Palette, theme: ThemeKind): Palette {
   }
   palette.edge = mixHex(palette.text, palette.bg, EDGE_MIX[theme]) || palette.edge;
   palette.nodeEdge = mixHex(palette.text, palette.bg, NODE_EDGE_MIX[theme]) || palette.border;
+  if (theme === 'light') palette.text3 = mixHex(palette.surface, '#000000', TEXT3_LIGHT_MIX) || palette.text3;
   return palette;
 }
 
@@ -289,6 +297,7 @@ export function resolvePalette(root: Element | null, theme: ThemeKind): Palette 
   const derived = derive({ ...out }, theme);
   if (!resolved.has('edge')) out.edge = derived.edge;
   if (!resolved.has('nodeEdge')) out.nodeEdge = derived.nodeEdge;
+  if (!resolved.has('text3')) out.text3 = derived.text3;
   for (const field of Object.keys(TINT_TOKENS)) {
     const value = clean(style.getPropertyValue(TINT_TOKENS[field]));
     const n = value ? Number(value) : NaN;

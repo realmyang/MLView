@@ -288,9 +288,9 @@ neighbours and lights its connections without fading anything; focus mode
 (select, then F) fades the rest. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
 again, and VS Code's Reduce Motion setting turns the animation off.
 
-The diagram opens readable: the whole document if it fits at 62% zoom or
-more, otherwise the first phase at 90% (or all of the first phase, when it
-fits at 75% or more). Reopening the same revision keeps where you were. Press
+The diagram opens readable: the whole document if it fits at 75% zoom or
+more, otherwise the first phase at 90%, so card titles open at about 10 px on
+screen or larger whatever the panel's width. Reopening the same revision keeps where you were. Press
 `0` to return to that first view from any zoom; **Fit the whole diagram** in
 the header's **⋯** menu shows everything. Shift+0 opens the phase overview;
 it no longer folds every group (each group keeps its own chevron). Zoomed out below 62%, cards show only their titles, at about

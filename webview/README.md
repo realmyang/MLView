@@ -107,10 +107,12 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
   byte-identical, and the viewport is not part of it):
   - `readablePlan(frame, w, h)` in `render/canvas.ts` is pure: the whole
     document, centred, when `fitPlan` (now only the whole-document fit, capped
-    at 1.2) gives `LOD_FULL_ZOOM` (0.62) or more; otherwise phase 1 (the first
-    lane, widened left by `frame.channelW`) fitted when that zoom is
-    `PHASE_FIT_MIN_ZOOM` (0.75) or more, capped at `READABLE_ZOOM` (0.9), else
-    anchored top-left at 0.9. A document narrower or shorter than the canvas
+    at 1.2) gives `READABLE_MIN_ZOOM` (0.75) or more; otherwise phase 1 (the
+    first lane, widened left by `frame.channelW`) at `READABLE_ZOOM` (0.9),
+    anchored top-left. Until viewer M4 the whole document opened down to
+    `LOD_FULL_ZOOM` (0.62) and phase 1 was fitted between 0.75 and 0.9
+    (`PHASE_FIT_MIN_ZOOM`, now only `phasePlan`'s); see "Viewer M4 first
+    view" below. A document narrower or shorter than the canvas
     at that zoom is centred on that axis. `ViewportController.fit()` runs it
     (first paint, key 0, a refit on resize); `fitWhole()` is the ⋯ menu's
     **Fit the whole diagram** (Shift+0 was Overview, fold every group and fit
@@ -133,6 +135,46 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
     over every compact zoom from the shipped stylesheet's numbers and the card
     heights `cardHeight` reserves (10 px or more down to 0.35 for a one-line
     title with a file:line row; never more lines than the box holds).
+- Viewer M4 first view (A11Y-7; no geometry change, the golden is
+  byte-identical):
+  - The first view never paints a card title under 9.75 px (13 px x
+    `READABLE_MIN_ZOOM`, 0.75, the size M2 judged still readable), and a wider
+    or taller canvas never paints the same document with smaller titles, except
+    where it shows the whole document instead of phase 1, still at 0.75 or
+    more. Phase 1 always opens at 0.9; the whole fit only grows with the
+    canvas. `LOD_FULL_ZOOM` (0.62) is unchanged and only picks the card face.
+  - Under the M2 plan, the screenshot harness measured dino-copilot at 90%
+    (11.7 px titles) up to 900 px wide and whole at 69-72% (9.0-9.4 px) from
+    1100 px; vit-cc at 81% (10.5 px) at 786 px between 90% at 700 and 900 px;
+    yolov5-cc2 at 80-86% (10.3-11.2 px) from 1100 px. With M4 all three open
+    at 90% (11.7 px) at every width from 320 to 1920 px, 600 and 900 px tall.
+    The cost: a wide panel shows fewer whole titles at first (dino-copilot at
+    1440x900: 14 instead of 17); **Fit the whole diagram** and the phase index
+    are unchanged.
+  - Across the width where the rail docks (a panel of 1260 px), the canvas
+    loses 360 px to the rail, so a document that opens whole on both sides can
+    open smaller with the rail docked (a 1000x500 document: 1.2 to 0.85),
+    never under 0.75.
+  - `test/readable-view.test.mjs` sweeps canvas widths 200-2600 px and heights
+    200-1600 px over synthetic frames with the sizes of those three documents,
+    a small and a medium document, and the viewer's own layout of the
+    `VIT_SHAPE`, `YOLO_SHAPE` and regression fixtures, and the panel widths
+    320-1920 px through the measured panel-to-canvas sizes.
+- Viewer M4 muted text (`--mlv-text-3`): in a light theme it is
+  `color-mix(in srgb, var(--mlv-surface) 38%, #000000)`, the card surface
+  darkened, instead of `descriptionForeground`. Light Modern sets
+  `descriptionForeground` to its text colour (#3B3B3B), so muted text was not
+  muted; Light+'s (#717171) is 4.40:1 on its widget background and 3.94:1 on
+  a lane header. Now Light Modern #5E5E5E, Light+ #5C5C5C, Light 2026 #5F5F60.
+  Dark themes keep `descriptionForeground`, high contrast its text colour;
+  `--mlv-text-2` is unchanged. `export/palette.ts` derives the same colour
+  (`TEXT3_LIGHT_MIX`). `test/muted-text.test.mjs` checks 4.5:1 or more on the
+  canvas, cards, rail and header, hovered rows and quotes, and lane headers in
+  Dark Modern, Dark+, Light Modern, Light+ and both High Contrast themes, and
+  that muted text has at most 70% of the text colour's contrast outside high
+  contrast. Dark 2026 keeps its `descriptionForeground` (#8C8C8C): 4.80:1 on
+  cards, but 3.80:1 on a hovered row and 4.34:1 on a lane header (not
+  changed: not in the owner's list for this fix).
 - The Selection pane (viewer M2 below) shows the claim first; its quotes sit
   under a caption saying that a matching quote does not show support, and one
   line links to the document-wide limitations in About.
@@ -492,8 +534,10 @@ change, no new setting; the golden is byte-identical):
   it (`clearOf`). `animateTo(target, VIEW_ANIMATION_MS)` (240 ms, instant
   under `motionMode() === 'reduced'`) moves the canvas-centre point in a
   straight line with the zoom on a log scale; any other move cancels it.
-  `phasePlan(frame, k, w, h)` is the view of phase k at reading size, the
-  readable plan's rule for phase 1.
+  `phasePlan(frame, k, w, h)` is the view of phase k at reading size: the
+  phase fitted between `PHASE_FIT_MIN_ZOOM` (0.75) and 0.9, else 0.9 anchored
+  (M2's first-view rule for phase 1; since viewer M4 the first view opens
+  phase 1 at 0.9 only).
 - `test/phase-overview.test.mjs` covers the geometry at the three sizes on the
   vit-cc and yolov5-cc2 shapes (counts, partition, blocks inside the canvas,
   columns, scrolling), link classification and slot sharing, reading order
@@ -621,7 +665,9 @@ node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/sh
   When no file is really stale, the stale states mark one file cited by the
   clicked step as changed, and `index.json` says it was simulated.
 - The page plays the VS Code side: VS Code theme colours (Dark Modern, Light
-  Modern, Dark High Contrast), a stub `acquireVsCodeApi`, and the panel's own
+  Modern, Dark High Contrast; since viewer M4 also Dark+, Light+, Light High
+  Contrast, Dark 2026 and Light 2026: `--theme dark-plus`, `light-plus`,
+  `hc-light`, `dark-2026`, `light-2026`), a stub `acquireVsCodeApi`, and the panel's own
   inline bootstrap read from `vscode-extension/src/authoredPanel.ts`. It
   posts what the extension posts: `init`, `workflow`, and for the stale states
   `stale` and the stale banner. Nothing answers the viewer's requests;

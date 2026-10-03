@@ -324,21 +324,24 @@ test('the phase index is its pill, not the panel of rows, over a canvas under 35
 });
 
 test('a large resize refits a viewport nobody moved, and never one the reader moved', async () => {
-  // Viewer M2: the refit re-runs the readable view. At 541x420 phase 1 of this fixture (646x390)
-  // fits at 0.763, so it is fitted; at 1382x600 it would fit at 1.4, so it opens at 0.9.
+  // Viewer M2: the refit re-runs the readable view. Viewer M4 (A11Y-7, deliberate): phase 1 opens at
+  // 0.9 at both sizes, so the refit shows as a move, not a zoom. At 541x420 the fixture (710 px
+  // wide, 639 at 0.9) is anchored at its left channel; at 1382x600 it is centred. Under M2 phase 1
+  // (646x390) was fitted at 0.763 at 541x420, smaller than the 0.9 at 1382x600.
   const ctx = await mount(rendererRegressionWorkflow(48));
   sizeCanvas(ctx, { w: 541, h: 420 });
   ctx.app.view.fit();
-  const narrow = ctx.app.getState().viewport.zoom;
-  assert.ok(narrow >= 0.75 && narrow < 0.9, `phase 1 fitted (${narrow})`);
+  const narrow = ctx.app.getState().viewport;
+  assert.equal(narrow.zoom, 0.9, 'READABLE_ZOOM');
+  assert.equal(narrow.x, 24 - 32 * 0.9, 'anchored at the left channel');
   sizeCanvas(ctx, { w: 541, h: 410 });
   resize(ctx);
-  assert.equal(ctx.app.getState().viewport.zoom, narrow, 'a 10 px settle keeps the picture');
+  assert.deepEqual(ctx.app.getState().viewport, narrow, 'a 10 px settle keeps the picture');
   sizeCanvas(ctx, { w: 1382, h: 600 });
   resize(ctx);
-  const wide = ctx.app.getState().viewport.zoom;
-  assert.ok(wide > narrow, `widening refits (${narrow} -> ${wide})`);
-  assert.equal(wide, 0.9, 'READABLE_ZOOM');
+  const wide = ctx.app.getState().viewport;
+  assert.equal(wide.zoom, 0.9, 'READABLE_ZOOM');
+  assert.equal(wide.x, (1382 - ctx.app.view.frameData.width * 0.9) / 2, `widening refits: centred (${narrow.x} -> ${wide.x})`);
   ctx.document.querySelector('button[aria-label="Zoom in"]').click();
   const zoomed = ctx.app.getState().viewport.zoom;
   sizeCanvas(ctx, { w: 541, h: 450 });
@@ -363,7 +366,7 @@ test('key 0 re-runs the readable view for the canvas it has now; "Fit the whole 
   assert.equal(ctx.document.querySelector('[data-more-item="fit"] .mlv-moremenu__label').textContent, 'Fit the whole diagram');
   sizeCanvas(ctx, { w: 400, h: 300 });
   ctx.app.view.fit();
-  assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'phase 1 does not fit at 0.75 here, so it opens at READABLE_ZOOM');
+  assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'phase 1 opens at READABLE_ZOOM');
   for (let i = 0; i < 8; i++) ctx.document.querySelector('button[aria-label="Zoom out"]').click();
   assert.ok(ctx.app.getState().viewport.zoom < 0.5);
   press('0');

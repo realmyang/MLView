@@ -83,11 +83,25 @@ export function zoomBucket(zoom: number): number {
 export const READABLE_ZOOM = 0.9;
 
 /**
- * Viewer M2: phase 1 is fitted whole, rather than opened at READABLE_ZOOM, when it fits at this
- * zoom or more: titles are still about 10 px on screen (13 px x 0.75) and the reader sees where
- * the first phase ends.
+ * Viewer M3: a move to a phase (`phasePlan`, the phase overview and the phase index) fits the
+ * whole phase, rather than opening it at READABLE_ZOOM, when it fits at this zoom or more: titles
+ * are still about 10 px on screen (13 px x 0.75) and the reader sees where the phase ends.
+ *
+ * Viewer M2 applied this to phase 1 at first paint too. Viewer M4 (A11Y-7) dropped that: phase 1
+ * fitted at 75-89% next to a narrower panel's 90% made a wider panel paint smaller titles (vit-cc
+ * at 786 px opened at 81%). The first view opens phase 1 at READABLE_ZOOM, see `readablePlan`.
  */
 export const PHASE_FIT_MIN_ZOOM = 0.75;
+
+/**
+ * Viewer M4 (A11Y-7): the smallest zoom the first view paints at. A card title is 13 px, so 9.75 px
+ * on screen at 0.75, the size viewer M2 judged still readable ("about 10 px at 0.75"). The whole
+ * document opens only when it fits at this zoom or more; below it, phase 1 opens at READABLE_ZOOM.
+ * Under M2 the whole document opened down to LOD_FULL_ZOOM (0.62, 8.1 px titles): dino-copilot
+ * opened whole at 69-72% (9.0-9.4 px) in panels 1100 px wide or more, at 90% in narrower ones.
+ * LOD_FULL_ZOOM itself is unchanged; it only decides when cards switch to their compact face.
+ */
+export const READABLE_MIN_ZOOM = 0.75;
 
 /** The part of a laid-out frame the readable plan reads: its size and its phase lanes. */
 export interface ReadableFrame {
@@ -99,7 +113,12 @@ export interface ReadableFrame {
   channelW?: number;
 }
 
-/** How the readable plan opened the document. */
+/**
+ * How the readable plan opened the document. For the first view (viewer M4), 'phase-fit' is phase 1
+ * wholly in view at READABLE_ZOOM and 'phase-anchor' is phase 1 larger than the canvas at that zoom,
+ * read by panning; both are at READABLE_ZOOM. `phasePlan` also fits a phase between
+ * PHASE_FIT_MIN_ZOOM and READABLE_ZOOM ('phase-fit').
+ */
 export type ReadableMode = 'whole' | 'phase-fit' | 'phase-anchor';
 
 export interface ReadablePlan {
@@ -114,32 +133,39 @@ export interface ReadablePlan {
  * Viewer M2: the first view, as a pure function of the frame and the canvas size, so a test can
  * state it without a DOM. Readable, or the whole document; never the in-between thumbnail.
  *
- * - The whole document, centred, when it fits at LOD_FULL_ZOOM (0.62) or more.
- * - Otherwise phase 1, anchored at its top-left with the left routing channel (the trunks that
- *   leave phase 1 for later phases start there): fitted whole when that zoom is
- *   PHASE_FIT_MIN_ZOOM (0.75) or more, never above READABLE_ZOOM; else at READABLE_ZOOM (0.9),
- *   where a 13 px title is 11.7 px on screen.
+ * - The whole document, centred, when it fits at READABLE_MIN_ZOOM (0.75) or more: titles 9.75 px
+ *   on screen or more (up to MAX_FIT_ZOOM, 1.2).
+ * - Otherwise phase 1 at READABLE_ZOOM (0.9), where a 13 px title is 11.7 px on screen, anchored
+ *   at its top-left with the left routing channel (the trunks that leave phase 1 for later phases
+ *   start there).
  *
  * A document narrower (or shorter) than the canvas at that zoom is centred on that axis instead,
- * as a fit always placed it. With no lane to anchor on, the whole document is fitted.
+ * as a fit always placed it. With no lane to anchor on (an empty frame: every drawn step has a
+ * lane), the document's own top-left is the anchor.
+ *
+ * Viewer M4 (A11Y-7): the first view never paints titles under 9.75 px, and a wider or taller
+ * canvas never paints the same document with smaller titles, except where it shows the whole
+ * document instead of phase 1, still at 9.75 px or more. The phase view is always 0.9, and the
+ * whole fit only grows with the canvas. Under M2 the whole document opened down to 0.62 and phase 1
+ * was fitted at 0.75-0.9, so dino-copilot opened at 90% up to 900 px and at 69-72% from 1100 px,
+ * and vit-cc at 81% at 786 px between 90% at 700 and 900 px.
  */
 export function readablePlan(frame: ReadableFrame, w: number, h: number, padding = 24): ReadablePlan {
   const contentW = Math.max(1, frame.width);
   const contentH = Math.max(1, frame.height);
   const whole = fitPlan(contentW, contentH, w, h, padding).zoom;
-  const lane = frame.lanes.length ? frame.lanes[0] : null;
-  if (whole >= LOD_FULL_ZOOM || !lane) {
+  if (whole >= READABLE_MIN_ZOOM) {
     return { zoom: whole, x: (w - contentW * whole) / 2, y: Math.max(padding, (h - contentH * whole) / 2), mode: 'whole' };
   }
-  const left = lane.x - Math.max(0, frame.channelW || 0);
+  const lane = frame.lanes.length ? frame.lanes[0] : { x: 0, y: 0, w: contentW, h: contentH };
+  const left = lane.x - (frame.lanes.length ? Math.max(0, frame.channelW || 0) : 0);
   const rectW = Math.max(1, lane.x + lane.w - left);
   const rectH = Math.max(1, lane.h);
   const fits = Math.min((w - padding * 2) / rectW, (h - padding * 2) / rectH);
-  const phaseFit = fits >= PHASE_FIT_MIN_ZOOM;
-  const zoom = clamp(phaseFit ? Math.min(fits, READABLE_ZOOM) : READABLE_ZOOM, MIN_ZOOM, MAX_ZOOM);
+  const zoom = READABLE_ZOOM;
   const x = contentW * zoom <= w ? (w - contentW * zoom) / 2 : padding - left * zoom;
   const y = contentH * zoom <= h ? (h - contentH * zoom) / 2 : padding - lane.y * zoom;
-  return { zoom, x, y, mode: phaseFit ? 'phase-fit' : 'phase-anchor' };
+  return { zoom, x, y, mode: fits >= zoom ? 'phase-fit' : 'phase-anchor' };
 }
 
 /**
@@ -151,10 +177,11 @@ export const VIEW_ANIMATION_MS = 240;
 
 /**
  * Viewer M3: the view of phase `k` (its position among the lanes) at reading size, as a pure
- * function of the frame and the canvas size, for the phase overview and the phase index. The rule
- * is the readable plan's for phase 1: the lane (with the left routing channel, where the trunks
- * that leave or enter it run) fitted whole when that zoom is PHASE_FIT_MIN_ZOOM (0.75) or more,
- * capped at READABLE_ZOOM (0.9); otherwise READABLE_ZOOM anchored at its top-left. A document
+ * function of the frame and the canvas size, for the phase overview and the phase index: the lane
+ * (with the left routing channel, where the trunks that leave or enter it run) fitted whole when
+ * that zoom is PHASE_FIT_MIN_ZOOM (0.75) or more, capped at READABLE_ZOOM (0.9); otherwise
+ * READABLE_ZOOM anchored at its top-left. (M2's first view used this rule for phase 1; since
+ * viewer M4 the first view opens phase 1 at READABLE_ZOOM only, see `readablePlan`.) A document
  * narrower (or shorter) than the canvas at that zoom is centred on that axis. A lane that fits is
  * never left with empty canvas under the end of the document: the view stops where the world ends.
  */
@@ -321,8 +348,9 @@ export class ViewportController {
 
   /**
    * Viewer M2: the readable first view (`readablePlan`), for the first paint and
-   * key 0. The whole document when it fits at full detail; otherwise phase 1 at
-   * a zoom where card titles can be read (11.7 px at READABLE_ZOOM), anchored
+   * key 0. The whole document when it fits at READABLE_MIN_ZOOM (0.75, since
+   * viewer M4; 0.62 before); otherwise phase 1 at a zoom where card titles can
+   * be read (11.7 px at READABLE_ZOOM), anchored
    * top-left. It replaces the top-anchored "tall" fit, which opened the vit and
    * yolov5 shakedown documents at 39-48 % (4.7-5.8 px titles) at 900 and 1440 px
    * and at 17-23 % (2.1-2.7 px) beside the code at 541 px. The whole document is
