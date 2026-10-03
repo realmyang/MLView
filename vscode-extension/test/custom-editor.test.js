@@ -24,6 +24,12 @@ async function open(options) {
 const VIEW_TYPE = 'mlview.diagram';
 const token = () => new vscode.CancellationTokenSource().token;
 const citedKey = () => vscode.__recorded.contexts.get('mlview.citedFiles');
+/**
+ * The key's entries for a fixture's source.py: each spelling VS Code may give `resourcePath`
+ * (`citedPathForms`). One on POSIX; on Windows also the forward-slash and drive-letter-case forms.
+ */
+const sourceForms = (fixture) => [...new Set(api.citedPathForms(path.join(fixture.root, 'source.py')))].sort();
+const keyForms = () => [...new Set(citedKey() || [])].sort();
 /** The listeners a diagram needs from the workspace: the file watcher and the save and edit events. */
 const sourceListeners = () => ({
   watchers: vscode.__recorded.watchers.length,
@@ -65,7 +71,7 @@ test('resolveCustomEditor hosts the diagram: options, page, validation, registry
   assert.equal(h.shownRevision(panel), 'r1');
   await h.sleep(15);
   assert.deepEqual(fixture.ctx.globalState.get(api.OPEN_PANELS_KEY)['mock-session'].panels, [{ artifact: fixture.artifact, title: 'run.mlview.json', column: 1, kind: 'editor' }]);
-  assert.deepEqual(citedKey(), [path.join(fixture.root, 'source.py')]);
+  assert.deepEqual(keyForms(), sourceForms(fixture));
   // A disk change reaches it through the watchers, as before.
   h.writeJson(fixture.artifact, h.workflow('source.py', { id: 'r2', parent: 'r1' }));
   await h.diskEvent(panel, 'change', fixture.artifact);
@@ -199,13 +205,13 @@ test('the page for a file outside every folder draws the diagram in the same tab
 test('the last diagram closing disposes the watchers and the citation index; the next one creates them again', async () => {
   const fixture = await open({});
   assert.deepEqual(sourceListeners(), { watchers: 1, saves: 2, edits: 2 });
-  assert.deepEqual(citedKey(), [path.join(fixture.root, 'source.py')]);
+  assert.deepEqual(keyForms(), sourceForms(fixture));
   // A second diagram of the same file (VS Code's Split Editor) shares them.
   const second = await resolveIn(fixture.controller, fixture.artifact);
   assert.deepEqual(sourceListeners(), { watchers: 1, saves: 2, edits: 2 });
   fixture.panel.dispose();
   assert.deepEqual(sourceListeners(), { watchers: 1, saves: 2, edits: 2 }, 'one diagram is still open');
-  await h.waitFor(() => citedKey()?.length === 1, 'the key lost the file while a diagram cites it');
+  await h.waitFor(() => keyForms().join('|') === sourceForms(fixture).join('|'), 'the key lost the file while a diagram cites it');
   second.dispose();
   assert.deepEqual(sourceListeners(), { watchers: 0, saves: 0, edits: 0 });
   assert.deepEqual(citedKey(), [], 'Reveal in Diagram is offered nowhere');
@@ -216,7 +222,7 @@ test('the last diagram closing disposes the watchers and the citation index; the
   // A new diagram watches again.
   await fixture.controller.open(vscode.Uri.file(fixture.artifact));
   assert.deepEqual(sourceListeners(), { watchers: 1, saves: 2, edits: 2 });
-  await h.waitFor(() => citedKey()?.length === 1, 'the key did not come back');
+  await h.waitFor(() => keyForms().join('|') === sourceForms(fixture).join('|'), 'the key did not come back');
 });
 
 test('two diagrams of one file follow it each with its own revisions, comparison and opens', async () => {
