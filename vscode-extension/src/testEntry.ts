@@ -29,6 +29,7 @@ export {
   readArtifactFile,
   folderSpelling,
   AUTHORED_VIEW_TYPE,
+  DIAGRAM_EDITOR_VIEW_TYPE,
   OPEN_PANELS_KEY,
   OPEN_PANELS_TTL_MS,
   MAX_OTHER_SESSIONS,

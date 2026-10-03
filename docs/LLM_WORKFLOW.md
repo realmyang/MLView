@@ -19,8 +19,11 @@ the resulting VSIX through **Extensions: Install from VSIX**. For development,
 open the `vscode-extension/` directory in another VS Code window and start its
 **Run MLView Extension** launch configuration (or **Run MLView Extension (no
 build)** after a build). Both open the repository root in the Extension
-Development Host: run **MLView: Open Generated Diagram** there and select
-`samples/configured_training.mlview.json`. The artifact viewer needs no Python
+Development Host: click `samples/configured_training.mlview.json` in its
+Explorer, which opens as the diagram, or run **MLView: Open Generated
+Diagram** and select it. To read the JSON, use **View: Reopen Editor With…** →
+**Text Editor**; diffs of the file show text. The diagram is drawn from the
+file on disk, never from unsaved text. The artifact viewer needs no Python
 installation. Publishing through the skill's helper requires Python 3.10+.
 
 Install the portable skill into the project you want to understand:
@@ -454,9 +457,10 @@ an untitled multi-root workspace and restart its extensions. MLView handles
 every extension restart inside a window the same way, whatever caused it
 (**Developer: Restart Extension Host**, an extension install or update that
 restarts extensions, **Save Workspace As...**, the notice's **Add folder to
-workspace** or VS Code's **Add Folder to Workspace...**): each open diagram
-comes back in its tab's place and is checked against the workspace as it is
-then, here against the added folder. A diagram in front of its editor group
+workspace** or VS Code's **Add Folder to Workspace...**): VS Code does not draw
+the open diagram tabs again, so MLView replaces each with the diagram of the
+same file in its tab's place, checked against the workspace as it is then,
+here against the added folder. A diagram in front of its editor group
 comes back at once; one behind other tabs comes back when it is brought to the
 front, after a blank half second, because until then it cannot be told from a
 tab VS Code restored at startup and has not shown yet. A diagram put back this

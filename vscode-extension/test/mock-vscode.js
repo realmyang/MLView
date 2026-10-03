@@ -323,7 +323,13 @@ const recorded = {
    * context keys as they are now, and every setContext call, in order.
    */
   contexts: new Map(),
-  contextCalls: []
+  contextCalls: [],
+  /** Viewer M4 (step 18): `registerCustomEditorProvider` registrations by view type: {provider, options}. */
+  customEditors: new Map(),
+  /** Viewer M4: every `vscode.openWith` command, kept out of `executedCommands`: {uri, viewType, options}. */
+  openWith: [],
+  /** Viewer M4: diagram-editor reveals into no group or another group's (VS Code would show it in two): {panel, viewColumn}. */
+  splitReveals: []
 };
 
 const configValues = new Map();
@@ -373,6 +379,10 @@ let visibleNotebookEditors = [];
 let notebookCellEditors = true;
 /** Opt-in: showTextDocument's editor becomes the visible one in its column, as a preview tab replaces the last. */
 let shownEditorsVisible = false;
+/** Viewer M4, opt-in: showTextDocument into an existing group adds a text tab there, in front. */
+let shownEditorsTabbed = false;
+/** Viewer M4, opt-in: like VS Code's default `workbench.editor.closeEmptyGroups`, closing a group's last tab removes the group. */
+let closeEmptyGroups = false;
 
 /**
  * Viewer M2 live fix: the column an editor shown with `viewColumn` lands in. With tab groups set
@@ -491,7 +501,7 @@ function makeDocument(uri) {
  * `existingTab` links the panel to a tab that is already open instead (a restored tab revived by
  * the serializer, see `__reviveTab`).
  */
-function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
+function makeWebviewPanel(viewType, title, showOptions, options, existingTab, customUri) {
   const messages = new EventEmitter();
   const disposal = new EventEmitter();
   const viewState = new EventEmitter();
@@ -526,6 +536,14 @@ function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
     reveal(viewColumn, preserveFocus) {
       panel.revealed += 1;
       panel.revealCalls.push({ viewColumn, preserveFocus });
+      // Viewer M4 live finding: a diagram editor (several allowed per file, so not a singleton)
+      // revealed with no column or another group's is shown by VS Code in two groups at once.
+      // Its own group: the column VS Code reported, else the group holding a tab of its file.
+      if (panel.customUri) {
+        const own = panel.viewColumn > 0 ? panel.viewColumn
+          : (tabGroups.find((group) => group.tabs.some((tab) => tab.input instanceof TabInputCustom && tab.input.uri.fsPath === panel.customUri.fsPath)) || {}).viewColumn;
+        if (viewColumn === undefined || viewColumn !== own) recorded.splitReveals.push({ panel, viewColumn });
+      }
     },
     onDidDispose: disposal.event,
     onDidChangeViewState: viewState.event,
@@ -552,7 +570,8 @@ function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
   } else {
     const group = tabGroups.find((candidate) => candidate.viewColumn === panel.viewColumn);
     if (group) {
-      const tab = makeTab(group, { label: title, viewType: `mainThreadWebview-${viewType}`, isActive: true });
+      // Viewer M4: a custom editor's tab reports the file and the editor's view type.
+      const tab = makeTab(group, customUri ? { label: title, custom: customUri.fsPath, customViewType: viewType, isActive: true } : { label: title, viewType: `mainThreadWebview-${viewType}`, isActive: true });
       linkTab(tab, panel);
       const changed = group.tabs.filter((other) => other.isActive);
       for (const other of changed) setTabActive(other, false);
@@ -560,6 +579,7 @@ function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
       tabEvents.fire({ opened: [tab], closed: [], changed });
     }
   }
+  if (customUri) panel.customUri = customUri;
   recorded.panels.push(panel);
   return panel;
 }
@@ -578,6 +598,14 @@ class TabInputText {
   }
 }
 
+/** Viewer M4: a custom editor tab's input (the file and the editor's view type). */
+class TabInputCustom {
+  constructor(uri, viewType) {
+    this.uri = uri;
+    this.viewType = viewType;
+  }
+}
+
 /**
  * The editor tab groups (`window.tabGroups`), set by `__setTabGroups`. Each group is
  * `{ viewColumn, tabs, activeTab }` and each tab `{ label, input, isActive, group }`, like VS
@@ -591,7 +619,9 @@ const tabGroupEvents = new EventEmitter();
 function makeTab(group, spec) {
   return {
     label: spec.label,
-    input: spec.viewType !== undefined ? new TabInputWebview(spec.viewType) : new TabInputText(Uri.file(spec.uri || '/untitled')),
+    input: spec.custom !== undefined
+      ? new TabInputCustom(Uri.file(spec.custom), spec.customViewType || 'mlview.diagram')
+      : spec.viewType !== undefined ? new TabInputWebview(spec.viewType) : new TabInputText(Uri.file(spec.uri || '/untitled')),
     isActive: !!spec.isActive,
     group
   };
@@ -605,6 +635,58 @@ function linkTab(tab, panel) {
 function setTabActive(tab, active) {
   tab.isActive = active;
   if (tab.panel && !tab.panel.disposed && tab.panel.visible !== active) tab.panel.__setViewState({ visible: active });
+}
+function makeGroup(viewColumn, isActive = false) {
+  const group = { viewColumn, isActive, tabs: [], get activeTab() { return group.tabs.find((tab) => tab.isActive); } };
+  return group;
+}
+/** Put `tab` in front of its group, as VS Code does for an editor it opens there. */
+function addTab(group, tab) {
+  const changed = group.tabs.filter((other) => other.isActive);
+  for (const other of changed) setTabActive(other, false);
+  group.tabs.push(tab);
+  tabEvents.fire({ opened: [tab], closed: [], changed });
+}
+/**
+ * Viewer M4: VS Code's `vscode.openWith` for a registered custom editor. In the target group (the
+ * active one when none is given; a new group after the last for ViewColumn.Beside), an editor of
+ * the same file and view type is brought to the front, as VS Code matches the input; otherwise a
+ * panel is created there and the provider's `openCustomDocument` and `resolveCustomEditor` run
+ * before the command returns.
+ */
+async function openWithCustomEditor(uri, viewType, options) {
+  recorded.openWith.push({ uri, viewType, options });
+  const entry = recorded.customEditors.get(viewType);
+  if (!entry) return undefined;
+  const requested = typeof options === 'number' ? options : options && options.viewColumn;
+  // With no groups modelled, VS Code would still report a real column: Beside is the second.
+  let column = requested === undefined || requested === -1 ? ((tabGroups.find((group) => group.isActive) || tabGroups[0] || {}).viewColumn || 1) : (requested === -2 && !tabGroups.length ? 2 : requested);
+  if (tabGroups.length) {
+    if (column === -2) {
+      column = Math.max(...tabGroups.map((group) => group.viewColumn)) + 1;
+      const group = makeGroup(column);
+      tabGroups = [...tabGroups, group];
+      tabGroupEvents.fire({ opened: [group], closed: [], changed: [] });
+    } else {
+      let group = tabGroups.find((candidate) => candidate.viewColumn === column);
+      if (!group) {
+        group = makeGroup(Math.max(...tabGroups.map((candidate) => candidate.viewColumn)) + 1);
+        column = group.viewColumn;
+        tabGroups = [...tabGroups, group];
+        tabGroupEvents.fire({ opened: [group], closed: [], changed: [] });
+      }
+      const existing = group.tabs.find((tab) => tab.input instanceof TabInputCustom && tab.input.viewType === viewType && tab.input.uri.fsPath === uri.fsPath);
+      if (existing) {
+        vscode.__activateTab(existing);
+        return undefined;
+      }
+    }
+  }
+  const panel = makeWebviewPanel(viewType, path.basename(uri.fsPath), { viewColumn: column }, {}, undefined, uri);
+  const token = new CancellationTokenSource().token;
+  const document = await entry.provider.openCustomDocument(uri, { backupId: undefined, untitledDocumentData: undefined }, token);
+  await entry.provider.resolveCustomEditor(document, panel, token);
+  return undefined;
 }
 
 const vscode = {
@@ -627,10 +709,11 @@ const vscode = {
   EventEmitter,
   LanguageModelTextPart,
   LanguageModelToolResult,
-  ViewColumn: { One: 1, Two: 2, Beside: -2 },
+  ViewColumn: { Active: -1, One: 1, Two: 2, Beside: -2 },
   NotebookRange,
   TabInputWebview,
   TabInputText,
+  TabInputCustom,
   Disposable,
   NotebookEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
   OverviewRulerLane: { Left: 1, Center: 2, Right: 4, Full: 7 },
@@ -695,6 +778,9 @@ const vscode = {
       get all() {
         return tabGroups;
       },
+      get activeTabGroup() {
+        return tabGroups.find((group) => group.isActive) || tabGroups[0];
+      },
       async close(tabs, preserveFocus) {
         const list = Array.isArray(tabs) ? tabs : [tabs];
         // `panels`: how many panels had been created when the tabs were closed.
@@ -702,6 +788,17 @@ const vscode = {
         for (const group of tabGroups) group.tabs = group.tabs.filter((tab) => !list.includes(tab));
         for (const tab of list) if (tab.panel) tab.panel.dispose();
         tabEvents.fire({ opened: [], closed: list, changed: [] });
+        if (closeEmptyGroups && tabGroups.length > 1 && tabGroups.some((group) => !group.tabs.length)) {
+          // VS Code closes the emptied groups and numbers the rest from 1 again.
+          const closed = tabGroups.filter((group) => !group.tabs.length);
+          tabGroups = tabGroups.filter((group) => group.tabs.length);
+          if (!tabGroups.length) tabGroups = [closed.shift()];
+          tabGroups.forEach((group, index) => {
+            group.viewColumn = index + 1;
+            for (const tab of group.tabs) if (tab.panel && !tab.panel.disposed && tab.panel.viewColumn !== index + 1) tab.panel.__setViewState({ viewColumn: index + 1 });
+          });
+          tabGroupEvents.fire({ opened: [], closed, changed: tabGroups });
+        }
         return true;
       },
       onDidChangeTabs: tabEvents.event,
@@ -710,6 +807,14 @@ const vscode = {
     registerWebviewPanelSerializer: (viewType, serializer) => {
       recorded.serializers.set(viewType, serializer);
       return { dispose() {} };
+    },
+    registerCustomEditorProvider: (viewType, provider, options) => {
+      recorded.customEditors.set(viewType, { provider, options });
+      return {
+        dispose() {
+          if (recorded.customEditors.get(viewType)?.provider === provider) recorded.customEditors.delete(viewType);
+        }
+      };
     },
     onDidChangeActiveColorTheme: recordingEvent(recorded.themeListeners),
     showInformationMessage: async (m, ...rest) => {
@@ -736,10 +841,16 @@ const vscode = {
       recorded.saveDialogs.push(options);
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
-    showTextDocument: async (document, options) => {
+    showTextDocument: async (documentOrUri, options) => {
+      // Like VS Code, a Uri is opened as a document first.
+      const document = documentOrUri instanceof Uri ? makeDocument(documentOrUri) : documentOrUri;
       const editor = makeTextEditor(document, resolveColumn(options && options.viewColumn, document && document.uri && path.basename(document.uri.fsPath)));
       recorded.shownDocuments.push({ document, options, editor });
       if (shownEditorsVisible) visibleTextEditors = [...visibleTextEditors.filter((other) => other.viewColumn !== editor.viewColumn), editor];
+      const group = shownEditorsTabbed && tabGroups.find((candidate) => candidate.viewColumn === editor.viewColumn);
+      if (group && !group.tabs.some((tab) => tab.input instanceof TabInputText && tab.input.uri.fsPath === document.uri.fsPath && tab.isActive)) {
+        addTab(group, makeTab(group, { label: path.basename(document.uri.fsPath), uri: document.uri.fsPath, isActive: true }));
+      }
       return editor;
     },
     /**
@@ -939,6 +1050,7 @@ const vscode = {
       return { dispose: () => recorded.commands.delete(id) };
     },
     executeCommand: async (id, ...args) => {
+      if (id === 'vscode.openWith') return openWithCustomEditor(args[0], args[1], args[2]);
       if (id === 'setContext') {
         recorded.contexts.set(args[0], args[1]);
         recorded.contextCalls.push({ key: args[0], value: args[1] });
@@ -1038,6 +1150,14 @@ const vscode = {
   __setShownEditorsVisible(enabled) {
     shownEditorsVisible = !!enabled;
   },
+  /** Viewer M4: whether showTextDocument into an existing group adds a text tab in front there (default false). */
+  __setShownEditorsTabbed(enabled) {
+    shownEditorsTabbed = !!enabled;
+  },
+  /** Viewer M4: whether closing a group's last tab removes the group, as VS Code does by default (default false). */
+  __setCloseEmptyGroups(enabled) {
+    closeEmptyGroups = !!enabled;
+  },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
     documents.set(docKey(fsPath), text);
@@ -1087,8 +1207,9 @@ const vscode = {
     workspaceFile = value === undefined ? undefined : String(value).startsWith('untitled:') ? Uri.parse(String(value)) : Uri.file(value);
   },
   /**
-   * Set the editor tab groups. Each spec is `{ viewColumn, tabs: [{ label, viewType?, uri?, isActive? }] }`:
-   * a tab with `viewType` is a webview tab, one with `uri` a text tab. Returns the groups.
+   * Set the editor tab groups. Each spec is `{ viewColumn, tabs: [{ label, viewType?, uri?, custom?, isActive? }] }`:
+   * a tab with `custom` (a path) is a diagram editor tab (viewer M4), one with `viewType` a webview
+   * tab, one with `uri` a text tab. Returns the groups.
    */
   __setTabGroups(specs) {
     tabGroups = (specs || []).map((spec) => {
@@ -1118,6 +1239,20 @@ const vscode = {
    */
   __reviveTab(tab, viewType = 'mlview.authoredDiagram') {
     return makeWebviewPanel(viewType, tab.label, { viewColumn: tab.group.viewColumn }, {}, tab);
+  },
+  /**
+   * Viewer M4: VS Code resolves a diagram editor tab that is already open (one restored with the
+   * window, shown for the first time): a panel for that tab, then the provider's
+   * `openCustomDocument` and `resolveCustomEditor`. Returns the panel.
+   */
+  async __resolveCustomTab(tab) {
+    const entry = recorded.customEditors.get(tab.input.viewType);
+    if (!entry) throw new Error(`no custom editor provider for ${tab.input.viewType}`);
+    const panel = makeWebviewPanel(tab.input.viewType, tab.label, { viewColumn: tab.group.viewColumn }, {}, tab, tab.input.uri);
+    const token = new CancellationTokenSource().token;
+    const document = await entry.provider.openCustomDocument(tab.input.uri, { backupId: undefined, untitledDocumentData: undefined }, token);
+    await entry.provider.resolveCustomEditor(document, panel, token);
+    return panel;
   },
   /** How many listeners `window.tabGroups` events have (a finished recovery leaves none). */
   __tabListeners() {
@@ -1201,6 +1336,11 @@ const vscode = {
     recorded.activeNotebookListeners.length = 0;
     recorded.contexts.clear();
     recorded.contextCalls.length = 0;
+    recorded.customEditors.clear();
+    recorded.openWith.length = 0;
+    recorded.splitReveals.length = 0;
+    shownEditorsTabbed = false;
+    closeEmptyGroups = false;
     vscode.window.activeNotebookEditor = undefined;
     tabGroups = [];
     tabEvents.dispose();

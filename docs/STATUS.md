@@ -137,7 +137,8 @@ from a restored tab not yet shown. A diagram put back this way starts with a
 fresh view (selection and zoom reset); Reload Window keeps them. The root hint no longer also shows a VS Code
 notification, which outlived a restart with dead buttons; the panel's notice
 carries both actions. Multi-root windows recheck in place; Reload Window
-revives panels through the serializer. Checked by mock `vscode` tests (with a
+revives panels through the serializer. (Viewer M4, step 18, below: diagrams
+are now editors that Reload Window restores by itself.) Checked by mock `vscode` tests (with a
 mutation check) and in an isolated VS Code 1.139 Extension Development Host for
 the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
@@ -181,6 +182,33 @@ and in an isolated VS Code 1.139 Extension Development Host on a scratch copy
 of the public vit-cc workspace, where the skill's helper published a child
 revision while the diagram was open; not with a screen reader, on Windows or
 Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M4, step 18 (open from the Explorer): a `*.mlview.json`
+opens as the diagram when clicked in the Explorer, from Quick Open or from a
+link: the **MLView Diagram** editor, read-only, its tab named after the file.
+The JSON opens with **View: Reopen Editor With…** → **Text Editor** or the
+Explorer's **Open With…**, and Source Control diffs and Timeline comparisons
+show text in VS Code 1.139 (older versions were not run). **MLView: Open
+Generated Diagram** is also in the Explorer's context menu and the title bar
+of the file opened as text, and opens the diagram editor beside, keeping the
+focus. The diagram is drawn from the file on disk, never from unsaved text.
+Several diagrams can be open, the same file in two groups included; Reveal in
+Diagram uses the active one, and a diagram is only ever brought forward in its
+own group. The editor is read-only because a custom text editor made VS Code
+ask to confirm every extension restart. The old webview panel is no longer
+created; one restored from an earlier MLView reopens as the diagram editor.
+After an extension restart MLView replaces the tabs VS Code leaves undrawn, as
+M1 did for panels, with a fresh view. The file watcher now runs only while a
+diagram is open. No contract change, no new setting or keybinding, no
+geometry change. Checked by mock `vscode` tests (with mutation checks) and in
+an isolated VS Code 1.139 Extension Development Host on a scratch copy of the
+public vit-cc workspace: Explorer click, Reopen With and Open With → Text
+Editor, the title button, Enter, the walk, Reveal in Diagram from
+`efficient.py`, Reload Window, adding a second folder, the same file twice and
+Git and Timeline diffs. That run found a diagram shown into another group
+became one editor in two groups; fixed and checked again. Not checked on
+Windows or Linux, in remote workspaces, with a screen reader, on VS Code before
+1.139, or as a usability check ([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
 button or **Review the claims** in the **⋯** menu goes through the displayed

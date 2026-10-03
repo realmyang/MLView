@@ -13,9 +13,10 @@ items deferred from M2: the size of the first view's text (A11Y-7) and muted
 text in Light Modern and Light+. Both were checked by local jsdom tests and in
 headless Chrome with a simulated host (the screenshot harness), not in live VS
 Code, with a screen reader or as a usability check. It also holds roadmap step
-16, changes since the previous revision (its own part below, with how it was
-checked). No contract change, no new setting or keybinding, no geometry change
-(the golden is byte-identical), and the version is unchanged.
+16, changes since the previous revision, and roadmap step 18, opening a
+`*.mlview.json` from the Explorer as the diagram (each its own part below, with
+how it was checked). No contract change, no new setting or keybinding, no
+geometry change (the golden is byte-identical), and the version is unchanged.
 
 The first view's text size (A11Y-7):
 - The diagram opens whole only when it fits at 75% zoom or more, so a card
@@ -168,6 +169,96 @@ diff was deleted in M1):
   revision in the file; the tests write one directly), a screen reader,
   Windows or Linux, or usability. The step's owner input (one
   Refine round and whether the section helps) is still the owner's.
+
+Open from the Explorer (roadmap step 18):
+- A `*.mlview.json` now opens as the diagram: a click in the Explorer, Quick
+  Open and links open the **MLView Diagram** editor (a read-only custom editor,
+  priority `default`). Its tab keeps the file's name; the panel's old
+  "MLView: <title>" tab title is gone. A single click opens a preview tab, as
+  for any file; double-click or **Keep Open** keeps it.
+- The JSON stays one step away: **View: Reopen Editor With…** → **Text Editor**,
+  or **Open With…** → **Text Editor** in the Explorer's context menu. Source
+  Control diffs and Timeline comparisons of the file open as text in VS Code
+  1.139 (checked live). Older versions in the supported range (1.100 and
+  later) were not run; before 1.129 a custom editor was not kept out of diffs
+  by default, so a diff there may show the diagram editor, and its git side,
+  which is not a file on disk, the page described below.
+- **MLView: Open Generated Diagram** stays: Command Palette, a new entry in the
+  Explorer's context menu, and the JSON text editor's title bar and context
+  menu. The title button shows only on the text editor, not on the diagram. The
+  command opens the diagram editor beside (`vscode.openWith`), keeping the
+  focus where it is. When the file already has a diagram open, that diagram
+  comes to the front of its own group and shows the file as it is, as before.
+- Read-only, drawn from disk: the editor is a `CustomReadonlyEditorProvider`,
+  not a custom text editor. A custom text editor's document holds up every
+  extension-host restart, so adding a second folder to the window asked
+  "Please confirm restart of extensions" (seen live in 1.139). The diagram
+  draws the file on disk, never an editor's unsaved text; unsaved changes are
+  reported in the banner, as before, and saving the JSON redraws.
+- Several diagrams at once: diagrams of different files, and the same file in
+  two groups, each with its own selection, walk and revision lineage. Reveal in
+  Diagram uses one diagram per file: the active one, else the one in front of
+  its group, else the first opened. A diagram editor is only ever brought
+  forward in its own group: shown into another group, VS Code put the one
+  editor in two groups, only one of them drew it, and closing either closed
+  both (a live finding in this step, fixed and checked live again).
+- One hosting path: VS Code resolves the editor and MLView hosts it in the same
+  `AuthoredPanel` as before. The old webview panel (`mlview.authoredDiagram`,
+  a different view type from `mlview.diagram`) is no longer created. One
+  restored from before M4 is replaced by the diagram editor in its group and
+  closed.
+- Restarts: **Developer: Reload Window** brings diagram editors back by itself,
+  with the selection and view (live). After an extension-host restart (adding a
+  second folder to a one-folder window is one), VS Code leaves diagram tabs it
+  does not draw again. MLView's per-window list of open diagrams (the M1
+  registry) now marks entries as editors, and each such tab is replaced by a
+  diagram editor of its file in the same group, with a fresh view (first view,
+  no selection). When that tab is alone in its group, the file opens briefly as
+  text to keep the group open, then closes. Live: adding a folder asked
+  nothing, and the diagram came back in its group, in its first view.
+- A file MLView cannot draw (not a local file, not named `*.mlview.json` when
+  chosen through **Open With…**, or outside every workspace folder) opens a
+  static page that says why and how to see the JSON.
+- The workspace file watcher and the save and change listeners now start with
+  the first diagram and stop with the last; before, they started when the
+  extension activated. The citation index and the Reveal in Diagram context key
+  are cleared with the last diagram, as before.
+- Manifest, on purpose (comments in `packaging.test.js`, `activation.test.js`
+  and `scripts/vsix_check.py`): `customEditors` (`mlview.diagram`,
+  `*.mlview.json`, `default`), the `explorer/context` entry, and the
+  `editor/title` entry limited to the text editor. Activation events are
+  unchanged: VS Code activates on a contributed custom editor by itself.
+  `scripts/vsix_check.py` accepts only this custom editor and pattern.
+- Tests: `vscode-extension/test/custom-editor.test.js` (registration; resolve
+  hosts the diagram; drawn from disk, not unsaved text; the command uses
+  `openWith`, reuses an open diagram and brings it forward only in its own
+  group, also when VS Code has not reported the group; the command from a
+  diagram tab; the notice pages; the last diagram stops the watchers and
+  clears the context key; two diagrams of one file; old-panel migration; jumps
+  go to another group; Reveal in Diagram picks the active diagram).
+  `host-restart.test.js` was rewritten for editor entries, the text
+  placeholder, old panels and Reload Window. The mock models VS Code showing
+  one editor in two groups, and the tests assert it never happens. Mutation
+  checks: dropping the placeholder, the migration guard, stopping the watchers,
+  the one-diagram-per-file choice, the group fallback for jumps, the migration
+  order, closing before reopening, the reveal on reopen, or the own-group
+  reveal each fails tests.
+- Live (VS Code 1.139, macOS, an isolated Extension Development Host driven
+  over the DevTools protocol with focus emulation in every webview frame, on a
+  scratch copy of the public vit-cc workspace): an Explorer click opened the
+  diagram; Reopen Editor With → Text Editor and Open With → Text Editor showed
+  the JSON; the title button on the text editor opened the diagram beside with
+  the focus kept; Enter on a card opened its notebook cell beside with the
+  focus kept; the walk (`r`, `j`) highlighted each claim's lines beside;
+  Reveal in Diagram from `vit_pytorch/efficient.py` selected the step in the
+  diagram editor, in the diagram's group, with the focus; Reload Window and
+  adding a folder as above; the same file open in two groups drew twice and
+  the walk ran in one; Git's Open Changes and a Timeline entry opened text
+  diffs. Not checked: VS Code before 1.139, Windows or Linux, remote
+  workspaces, a screen reader, or usability. A diagram in a preview tab is
+  replaced when another file opens in its group as a preview, as any preview
+  editor is: a jump or walk step from one diagram replaced another diagram's
+  preview tab in the group it opened the source in (seen live).
 
 ## Unreleased — viewer M3: review walk and the way back
 

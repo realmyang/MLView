@@ -4,11 +4,23 @@ MLView opens interactive, source-linked workflow diagrams created by the MLView
 skill in Copilot, Codex, or Claude Code.
 
 Invoke the skill in your assistant to analyze the repository and publish a
-`*.mlview.json` WorkflowDocument. Then run **MLView: Open Generated Diagram** or
-open the command from the artifact editor title.
+`*.mlview.json` WorkflowDocument. Then open the file: a click in the Explorer,
+Quick Open or a link opens it as the diagram (the **MLView Diagram** editor,
+read-only, its tab named after the file). **MLView: Open Generated Diagram**
+(Command Palette, the Explorer's context menu, or the title bar of the file
+opened as text) opens it beside the editor you are in and keeps the focus
+there. To see the JSON, use **View: Reopen Editor With…** → **Text Editor**, or
+**Open With…** → **Text Editor** in the Explorer. Source Control diffs and
+Timeline comparisons of the file show text (checked in VS Code 1.139). Several
+diagrams can be open at once, the same file in two groups included; each has
+its own selection and walk. A file the viewer cannot draw (not a local file,
+not a `*.mlview.json`, or outside every workspace folder) opens a page that
+says why and how to see the JSON.
 
 The viewer validates the document and its source evidence against the saved
-files on disk before displaying it. An open panel follows the artifact file: it
+files on disk before displaying it, and draws the artifact as saved on disk:
+unsaved edits in the JSON's text editor are reported, not drawn, until you
+save. An open panel follows the artifact file: it
 shows each newer valid revision the assistant publishes, keeps the last valid
 revision on screen when the file is invalid, unreadable, or missing, and
 explains why in a status line. A revision the panel has already seen replaced
@@ -46,9 +58,9 @@ blocked jump say "in another folder" instead of calling the files changed or
 missing. The panel checks again whenever workspace folders change. The two
 actions are only in the panel's notice; there is no separate notification.
 
-When VS Code restarts its extensions inside the same window, MLView puts each
-open diagram back in its tab's place, checked against the workspace as it is
-then. That covers **Developer: Restart Extension Host**, an extension install
+When VS Code restarts its extensions inside the same window, it does not draw
+the open diagram tabs again, so MLView puts each open diagram back in its
+tab's place, checked against the workspace as it is then. That covers **Developer: Restart Extension Host**, an extension install
 or update that restarts extensions, **Save Workspace As...**, and adding a
 folder to a single-folder window (the notice's **Add folder to workspace** or
 VS Code's **Add Folder to Workspace...**), which turns the window into an
@@ -57,8 +69,10 @@ back at once. A diagram tab behind other tabs comes back when you bring it to
 the front, after a blank half second: until then MLView cannot tell it from a
 tab VS Code restored at startup and has not shown yet, which must be left
 alone. A diagram put back this way starts with a fresh view: the selection
-and zoom start over. **Developer: Reload Window** restores diagrams as before,
-with their selection and zoom.
+and zoom start over. **Developer: Reload Window** restores diagrams by itself,
+with their selection and zoom. A diagram panel that VS Code restores from an
+earlier MLView, which had no diagram editor, reopens as the diagram editor in
+its group.
 
 The rail beside the diagram has four tabs: **About**, **Findings (n)**,
 **Selection** and **Outline**. A new revision opens on About (the question,
@@ -136,8 +150,8 @@ unfolds its group, brings it into view (a connection with its ends, a finding
 with its steps), shows it in the Selection tab, opening a hidden side panel or
 a collapsed bottom panel, and moves the keyboard to the diagram. That is the
 one time the viewer moves the focus by itself. A diagram hidden behind the
-code comes to the front and shows the claim once VS Code has reloaded its
-page. With several diagrams open, the one citing the file is used, or a list
+code comes to the front of its own group and shows the claim once VS Code has
+reloaded its page. With several diagrams open, the one citing the file is used, or a list
 asks which. In a notebook it works in the cell editors, by the cell numbers
 the artifact records; a notebook cited by cell and opened as text gets a
 message saying to use the notebook editor. Run where it does not apply (from

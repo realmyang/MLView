@@ -622,7 +622,9 @@ export async function authoredRevealHandshake() {
     await runReveal();
     assert.equal(vscode.__recorded.quickPicks.length, 0);
     assert.deepEqual(plain(revealFrames()), [{ v: 1, type: 'reveal', kind: 'node', id: 'loss' }]);
-    assert.deepEqual(wire.panel.revealCalls.at(-1), { viewColumn: undefined, preserveFocus: false }, 'the focus moves to the panel');
+    // Viewer M4: in the diagram editor's own group, never into another (VS Code would show it in two).
+    assert.deepEqual(wire.panel.revealCalls.at(-1), { viewColumn: wire.panel.viewColumn, preserveFocus: false }, 'the focus moves to the panel');
+    assert.ok(wire.panel.viewColumn > 0);
     await waitFor(() => page.app.selection && page.app.selection.id === 'loss', 'the page did not select the step');
     assert.equal(page.window.document.activeElement, $(page, '[data-node-id="loss"]'), 'the keyboard is on the card');
     assert.equal(page.app.railTab, 'inspector');

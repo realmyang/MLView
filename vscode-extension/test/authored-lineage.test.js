@@ -31,7 +31,9 @@ test('a watcher-driven external replace adopts the child revision', async () => 
   await h.diskEvent(panel, 'change', artifact);
   assert.equal(h.shownRevision(panel), 'r2');
   assert.deepEqual(h.lastBanner(panel).codes, []);
-  assert.equal(panel.title, 'MLView: Authored');
+  // Viewer M4: the diagram editor's tab keeps the file's name, as VS Code names a custom editor's
+  // tab (it was "MLView: <title>" on the webview panel before M4).
+  assert.equal(panel.title, 'run.mlview.json');
 });
 
 test('S1b: a viewer-only rejection does not wedge the lineage; its child is adopted', async () => {

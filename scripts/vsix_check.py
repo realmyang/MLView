@@ -21,6 +21,9 @@ REQUIRED = {
 }
 # Viewer M3 (step 14): the owner approved one widening, MLView: Reveal in Diagram.
 ALLOWED_COMMANDS = {"mlview.openGeneratedDiagram", "mlview.revealInDiagram"}
+# Viewer M4 (step 18): the owner chose native opening, one read-only custom editor that opens a
+# *.mlview.json as its diagram. Any other custom editor, or another file pattern, is unexpected.
+ALLOWED_CUSTOM_EDITORS = {"mlview.diagram": ("*.mlview.json",)}
 # (packaged entry, working-tree source relative to the checkout, label used in messages)
 FRESHNESS = (
     ("extension/LICENSE.txt", "LICENSE", "notice", "LICENSE"),
@@ -63,6 +66,14 @@ def check(root: Path, vsix: Path, payload_only: bool = False) -> Result:
                 problems.append("unexpected or missing extension commands")
             if any(package.get("contributes", {}).get(key) for key in ("languageModelTools", "chatParticipants")):
                 problems.append("static analysis language tools remain")
+            editors = package.get("contributes", {}).get("customEditors", [])
+            if not isinstance(editors, list) or any(
+                    not isinstance(editor, dict)
+                    or editor.get("viewType") not in ALLOWED_CUSTOM_EDITORS
+                    or tuple(item.get("filenamePattern") for item in editor.get("selector", []) if isinstance(item, dict))
+                    != ALLOWED_CUSTOM_EDITORS[editor.get("viewType")]
+                    for editor in editors):
+                problems.append("unexpected custom editors")
         for name, relative, kind, label in FRESHNESS:
             if name not in names:
                 continue  # already reported as missing required payload

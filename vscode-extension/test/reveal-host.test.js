@@ -273,7 +273,9 @@ test('one claim at the cursor is revealed at once: the reveal frame, and the foc
   await runReveal();
   assert.equal(picks().length, 0, 'no QuickPick for one claim');
   assert.deepEqual(plain(reveals(fixture.panel)), [{ v: 1, type: 'reveal', kind: 'node', id: 'n' }]);
-  assert.deepEqual(fixture.panel.revealCalls.at(-1), { viewColumn: undefined, preserveFocus: false }, 'the one explicit focus move, in the panel\'s own group');
+  assert.deepEqual(fixture.panel.revealCalls.at(-1), { viewColumn: fixture.panel.viewColumn, preserveFocus: false }, 'the one explicit focus move, in the panel\'s own group');
+  assert.ok(fixture.panel.viewColumn > 0);
+  assert.deepEqual(vscode.__recorded.splitReveals, [], 'never into another group (viewer M4)');
   assert.equal(vscode.__recorded.shownDocuments.length, 0, 'nothing is opened');
 });
 
@@ -387,7 +389,8 @@ test('with several panels, the one whose artifact cites the file; when more than
   assert.match(picks()[0].options.placeHolder, /^2 open diagrams cite other\.py/);
   assert.equal(reveals(panel3).length, 1, 'revealed in the chosen diagram');
   assert.equal(reveals(fixture.panel).length, 1, 'not in the other');
-  assert.deepEqual(panel3.revealCalls.at(-1), { viewColumn: undefined, preserveFocus: false });
+  assert.deepEqual(panel3.revealCalls.at(-1), { viewColumn: panel3.viewColumn, preserveFocus: false });
+  assert.deepEqual(vscode.__recorded.splitReveals, []);
 });
 
 test('a hidden or reloading page gets the reveal after its next ready, once, and only while it is recent', async () => {

@@ -42,8 +42,10 @@ in the runbook. Only install one copy of the skill in each discovery path.
    skill picker (`$mlview` in Codex). Ask, for example:
    “Explain training with this config. Show data, model, losses, parameter
    updates, validation, and anything unresolved.”
-2. The assistant publishes a `*.mlview.json` file. Run **MLView: Open Generated
-   Diagram** and select it. Click a step, connection or finding to see its
+2. The assistant publishes a `*.mlview.json` file. Click it in the Explorer: it
+   opens as the diagram (to see the JSON, use **View: Reopen Editor With…** →
+   **Text Editor**). **MLView: Open Generated Diagram** opens it beside the
+   editor you are in. Click a step, connection or finding to see its
    claim and quotes. Press Enter, double-click, or use an **Open** link to open
    the cited lines beside the diagram; focus stays in the diagram. Alt+Enter
    opens them and moves focus to the editor.

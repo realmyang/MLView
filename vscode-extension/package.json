@@ -56,6 +56,18 @@
         "category": "MLView"
       }
     ],
+    "customEditors": [
+      {
+        "viewType": "mlview.diagram",
+        "displayName": "MLView Diagram",
+        "selector": [
+          {
+            "filenamePattern": "*.mlview.json"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "menus": {
       "commandPalette": [
         {
@@ -78,7 +90,14 @@
       "editor/title": [
         {
           "command": "mlview.openGeneratedDiagram",
-          "when": "resourceFilename =~ /\\.mlview\\.json$/",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/ && activeEditor == workbench.editors.files.textFileEditor",
+          "group": "navigation@99"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "mlview.openGeneratedDiagram",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/ && !explorerResourceIsFolder",
           "group": "navigation@99"
         }
       ]
