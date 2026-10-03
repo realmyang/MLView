@@ -222,11 +222,19 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
   muted: Dark Modern 6.92:1 and 5.84:1, Dark+ 6.98:1 and 5.89:1, Dark 2026
   5.00:1 and 4.77:1, Light Modern 6.56:1 and 5.11:1, Light+ 13.36:1 and
   9.87:1, Light 2026 8.16:1 and 6.96:1. A hovered **⋯** menu item's icon, key
-  hint and note take the item's colour. `export/palette.ts` mixes the same
-  (`TEXT2_MIX`, `TEXT3_MIX`). `test/muted-text.test.mjs` is the theme x token
-  x background matrix with a census of the stylesheets' backgrounds, the
-  muted-text selectors and the `<kbd>` elements; `tools/screenshots/capture.mjs`
-  records a computed-colour probe per screenshot (`facts.inks`).
+  hint and note take the item's colour, and the key hint's key cap (VS Code
+  paints every `<kbd>`) drops its fill there. A chip in a hovered or selected
+  Findings row drops its fill (the row's own `--mlv-surface-2`, translucent in
+  the 2026 themes). About's `k=v` tokens (`<code>`) take their paragraph's
+  text colour, not VS Code's `textPreformat.foreground`. `export/palette.ts`
+  mixes the same (`TEXT2_MIX`, `TEXT3_MIX`). `test/muted-text.test.mjs` is the
+  theme x token x background matrix, nested `--mlv-surface-2` boxes included,
+  with a census of the stylesheets' backgrounds, the muted-text selectors, the
+  `--mlv-surface-2` boxes with their own secondary or muted text, and the
+  `<kbd>` and `<code>` elements; `tools/screenshots/capture.mjs` records a
+  computed-colour probe per screenshot (`facts.inks`), reading each colour
+  through a fresh element and reporting a colour no element matched as an
+  `error`.
 - The Selection pane (viewer M2 below) shows the claim first; its quotes sit
   under a caption saying that a matching quote does not show support, and one
   line links to the document-wide limitations in About.

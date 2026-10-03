@@ -163,7 +163,14 @@ theme. Computed from the harness's VS Code 1.139 colours, both now clear
 4.5:1 on every background they are drawn on in the six themes outside High
 Contrast (lowest 4.77:1, muted text on a hovered row in Dark 2026), keep their
 order under the text colour and stay quieter (muted text at 53-70% of the
-text's contrast). High Contrast keeps its text colour.
+text's contrast). High Contrast keeps its text colour. After an independent
+verification, a hovered **⋯** menu item's key hint drops VS Code's key-cap
+fill (3.29-3.34:1 in Light+ and Light Modern before), a chip in a hovered or
+selected Findings row drops its fill (4.49:1 computed in Dark 2026 before), and
+About's `k=v` tokens use the text colour (3.82:1 in Dark 2026 and invisible in
+Light High Contrast before). The three text colours are close together
+(secondary text 9-12% of the lightness distance from the text to the card);
+that trade-off is left for the owner.
 No contract change, no new setting and no geometry change. Checked by local
 jsdom tests and headless-Chrome screenshots of a simulated host only, not in
 live VS Code or as a usability check ([changelog](../CHANGELOG.md)).

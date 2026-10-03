@@ -504,6 +504,17 @@
   color: inherit;
 }
 
+/* Viewer M4 verification (F1): the key hint is a <kbd>, which VS Code's default webview stylesheet
+ * paints with keybindingLabel.background, a translucent grey (#DDDDDD66 in Light Modern and
+ * Light+). Over the solid blue selection it lightens the blue under the white glyphs to 3.34:1
+ * (Light Modern) and 3.29:1 (Light+). On a hovered or focused item the key cap keeps its outline,
+ * in the item's colour, and drops its fill, so the hint sits on the selection colour itself. */
+.mlv-moremenu__item:hover .mlv-moremenu__keys,
+.mlv-moremenu__item:focus-visible .mlv-moremenu__keys {
+  border-color: currentColor;
+  background: transparent;
+}
+
 /* A cited quote under its Open link (rail.ts). The class name predates the rail. */
 .mlv-banner__detail {
   margin-top: var(--mlv-s2);

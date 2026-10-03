@@ -386,7 +386,8 @@ function pageHelpers() {
      * against the colour the browser composites under it from its own and its ancestors' background
      * colours, down to the page. Not counted: background images (a card's hatching), anything that
      * is not an ancestor, and SVG text; elements under an ancestor with opacity below 1 (a dimmed
-     * lane, a disabled item) are counted apart. Computed colours, not pixels.
+     * lane, a disabled item) are counted apart. Computed colours, not pixels. A token whose colour
+     * is not rgb() or color(srgb), or that no shown element is painted in, is an `error`, not a pass.
      */
     inks() {
       const parse = (css) => {
@@ -401,10 +402,19 @@ function pageHelpers() {
       const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
       const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
       const root = document.querySelector('.mlv-root') || document.body;
-      const probe = root.appendChild(document.createElement('span'));
-      const token = (name) => { probe.style.color = `var(${name})`; return getComputedStyle(probe).color; };
+      // A fresh element per token, with no transition (viewer M4 verification, F4). One reused
+      // element transitions from the colour it had: base.css sets every transition under .mlv-root
+      // to 0.01 ms, not 0 s, under reduced motion or a screen reader, so its second and third reads
+      // were the transition's start value (in Chrome 154 an oklab() no element matches).
+      const token = (name) => {
+        const probe = root.appendChild(document.createElement('span'));
+        probe.style.transition = 'none';
+        probe.style.color = `var(${name})`;
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      };
       const tokens = { text: token('--mlv-text'), text2: token('--mlv-text-2'), text3: token('--mlv-text-3') };
-      probe.remove();
       const page = parse(getComputedStyle(document.documentElement).backgroundColor) || [255, 255, 255, 0];
       const base = page[3] > 0 ? over(page, [255, 255, 255, 1]) : [255, 255, 255, 1];
       const ground = (el) => {
@@ -420,6 +430,10 @@ function pageHelpers() {
       const out = {};
       for (const key of ['text2', 'text3']) {
         const ink = parse(tokens[key]);
+        if (!ink) {
+          out[key] = { colour: tokens[key], computed: tokens[key], elements: 0, faded: 0, lowest: null, below45: null, grounds: [], error: `the token's computed colour ${tokens[key]} is not rgb() or color(srgb)` };
+          continue;
+        }
         const grounds = new Map();
         let elements = 0;
         let fadedCount = 0;
@@ -436,7 +450,12 @@ function pageHelpers() {
           grounds.set(id, entry);
         }
         const list = [...grounds.values()].sort((a, b) => a.ratio - b.ratio);
-        out[key] = { colour: ink ? hex(ink) : tokens[key], computed: tokens[key], elements, faded: fadedCount, lowest: list[0] || null, below45: list.filter((g) => g.ratio < 4.5).reduce((n, g) => n + g.count, 0), grounds: list.slice(0, 12) };
+        out[key] = {
+          colour: hex(ink), computed: tokens[key], elements, faded: fadedCount, lowest: list[0] || null,
+          below45: elements ? list.filter((g) => g.ratio < 4.5).reduce((n, g) => n + g.count, 0) : null,
+          grounds: list.slice(0, 12),
+          error: elements ? null : 'no shown element is painted in this colour, so nothing was measured',
+        };
       }
       out.text = { computed: tokens.text, colour: parse(tokens.text) ? hex(parse(tokens.text)) : tokens.text };
       return out;
@@ -672,6 +691,10 @@ try {
     });
     writeIndex();
     process.stdout.write(`  ${file}${did ? ' - ' + did : ''}\n`);
+    for (const key of ['text2', 'text3']) {
+      const probe = facts.inks && facts.inks[key];
+      if (probe && probe.error) process.stdout.write(`    colour probe ${key}: ${probe.error}\n`);
+    }
   }
 
   async function clickNode(input, order) {

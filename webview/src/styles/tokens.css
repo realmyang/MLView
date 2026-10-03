@@ -58,7 +58,11 @@
  * @contrast (4.5:1): --mlv-text-2 on every background: the canvas, a lane, --mlv-surface, a
  *   hatched card, --mlv-surface-2 on a surface, on the canvas and once or twice on a lane, a lane
  *   header, a phase index row in view, the menu, the bundle badge, VS Code's key cap under a
- *   <kbd> and every overview block
+ *   <kbd>, every overview block, and a --mlv-surface-2 box (a chip, a group count) inside a
+ *   hovered or selected row or group header with the fill the stylesheet gives it there
+ * @contrast (4.5:1): menu.selectionForeground on a hovered or focused ... menu item, its key
+ *   hint included (the key cap drops its fill there)
+ * @contrast (4.5:1): About's k=v tokens (<code>) in every theme, High Contrast included
  * @contrast (4.5:1): --mlv-text-3 on the backgrounds its selectors sit on: the canvas,
  *   --mlv-surface, a hatched card, --mlv-surface-2 on a surface and a lane header
  * @order: --mlv-text at least as strong as --mlv-text-2, and --mlv-text-2 as --mlv-text-3, on

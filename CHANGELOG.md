@@ -105,9 +105,16 @@ Secondary and muted text:
   synthetic sweep, muted text on a row hovered with 8% white or black needs
   the text at about 8:1 on a dark widget background and 9.5:1 on a light one.
 - On a hovered or focused item of the **⋯** menu, the icon, key hint and note
-  now take the item's colour (VS Code's `menu.selectionForeground`). The
-  menu's selection is a solid blue in Dark Modern, Dark+, Light Modern and
+  now take the item's colour (VS Code's `menu.selectionForeground`), and the
+  key hint's key cap keeps its outline, in that colour, but drops its fill.
+  The menu's selection is a solid blue in Dark Modern, Dark+, Light Modern and
   Light+ (#0078D4, #005FB8, #0060C0), where secondary text was 1.25-2.05:1.
+  The key hint is a `<kbd>`, which VS Code's default webview stylesheet paints
+  with `keybindingLabel.background`, a translucent grey; with only the colour
+  change the white hint sat on that cap over the blue, 3.34:1 in Light Modern
+  and 3.29:1 in Light+ (the verification below). White on the selection
+  colour itself is 6.31:1 in Light Modern, 6.11:1 in Light+ and 4.53:1 in
+  Dark Modern and Dark+, measured in pixels.
 - The exported SVG uses the same mixes (`TEXT2_MIX`, `TEXT3_MIX` in
   `webview/src/export/palette.ts`).
 - `webview/test/muted-text.test.mjs` is a matrix: the harness's six themes
@@ -115,11 +122,16 @@ Secondary and muted text:
   canvas, a lane, cards and other surfaces, the hatching, `--mlv-surface-2` on
   a surface, on the canvas and once or twice on a lane, a lane header, a phase
   index row in view, the menu, the bundle badge, VS Code's key cap under a
-  `<kbd>` and the nine overview block tones), and the order of the text,
-  secondary and muted text on each. A census fails on a background the
-  stylesheets paint that the matrix does not know, on a muted-text selector
-  not mapped to its backgrounds and on a `<kbd>` without a modelled
-  background. The harness theme table gained the four menu colours (VS Code
+  `<kbd>`, the nine overview block tones, and a chip or group count inside a
+  hovered or selected row or group header with the fill the stylesheet gives
+  it there), and the order of the text, secondary and muted text on each. A
+  census fails on a background the stylesheets paint that the matrix does not
+  know, on a muted-text selector not mapped to its backgrounds, on a
+  `--mlv-surface-2` box with its own secondary or muted text that does not
+  name the containers it sits in, on a `<kbd>` without a modelled background
+  and on a `<code>` that paints its own background but keeps VS Code's code
+  colour. The hovered menu item's key hint is checked on the key cap as the
+  stylesheet leaves it. The harness theme table gained the four menu colours (VS Code
   1.139's values, with the registry's defaults). The screenshot harness has
   Dark+, Light+, Light High Contrast, Dark 2026 and Light 2026 (`--theme`).
 - Headless Chrome 154 on the vit-cc shakedown artifact at 1440x900, in the six
@@ -129,7 +141,59 @@ Secondary and muted text:
   it). Before the change the lowest were 3.78:1 in Dark 2026 and 3.86:1 in
   Light+; after, 5.71:1 (secondary) and 4.75:1 (muted) in Dark 2026, and no
   element under 4.5:1 in any of the six themes. The probe reads computed
-  colours, not pixels, and skips background images and SVG text.
+  colours, not pixels, and skips background images and SVG text. Those 11
+  states do not hover the **⋯** menu or a Findings row with a stale chip, and
+  the probe counts only elements painted in one of the two colours, so it did
+  not see the cases the verification below found.
+
+Secondary and muted text, corrections after an independent verification
+(headless Chrome 154 with a pixel probe run outside the repository, which
+measures each text run's colour against the screenshot's pixels under it with
+the glyphs hidden; each fix has a test in `muted-text.test.mjs` that fails
+with the fix taken out):
+- The **⋯** menu's hovered key hint (above): it still sat on VS Code's key
+  cap, 3.34:1 (Light Modern) and 3.29:1 (Light+). The menu test checked only
+  the item's colour on the selection, not the cap under the hint.
+- A chip in a hovered or selected Findings row drops its fill and keeps its
+  border. The fill is the row's own colour (`--mlv-surface-2`, VS Code's
+  `list.hoverBackground`), which is translucent in Dark 2026 and Light 2026,
+  so the chip painted it a second time: its secondary text ("cites a changed
+  file") was 4.49:1 computed and 4.53:1 in pixels in Dark 2026, now 5.78:1 in
+  pixels. Themes with an opaque hover colour look as before. The matrix had no
+  case for a box raised twice on a surface; it now composites each such box
+  in the containers it sits in (a group count on a hovered group header stays
+  the lowest for secondary text, 5.00:1 in Dark 2026).
+- About's run-configuration tokens (`k=v`, a `<code>`) take their paragraph's
+  text colour. They kept VS Code's `textPreformat.foreground` on the viewer's
+  `--mlv-surface-2`: #8C8C8C at 3.82:1 in Dark 2026, and white on white
+  (1.00:1, invisible) in Light High Contrast, where VS Code's dark blue code
+  background was replaced. Now 6.87:1 and 14.55:1 in pixels. They lose the
+  code hue of Light+ (#A31515) and Dark+ (#D7BA7D). This predates the colour
+  change above.
+- The screenshot probe (`facts.inks`) read the three colours through one
+  element. With reduced motion or a screen reader, base.css sets every
+  transition to 0.01 ms, so the second and third reads returned the
+  transition's start value (an `oklab()` colour no element matches) and the
+  probe reported nothing under 4.5:1 having measured nothing. It now reads
+  each colour through a fresh element with no transition, and a colour that
+  no shown element is painted in is an `error` in index.json (printed with
+  the screenshot), not a pass. The harness emulates
+  `prefers-reduced-motion: no-preference`, so the figures above were read
+  correctly.
+- Not changed, for the owner: the three text colours are close. As a share
+  of the lightness (CIE L*) distance from the text colour to the card
+  surface, secondary text is 9-12% of the way (ΔL* 5.8-6.3 in the dark
+  themes, 8.3-8.4 in Light Modern and Light+, 10.3 in Light 2026), against
+  25-50% with `descriptionForeground` where it differed from the text; muted
+  text is 18% in the dark themes (25-31% before) and 21-23% in the light
+  ones, with 69-70% of the text colour's contrast in Dark Modern, Dark+ and
+  Dark 2026, the top of the test's 50-70% window. Light+ draws the three as
+  #000000, #181818 and #313131. Muted text stays visibly quieter (ΔL*
+  11.6-20.1), but in effect there are two colour levels, not three, because
+  one pair of shares must clear Dark 2026's hovered rows. Separate light and
+  dark shares, or size and weight, are the options; either must still clear
+  Dark 2026 and Light Modern on hovered rows, the hatching and the doubled
+  layers.
 
 Changes since the previous revision (roadmap step 16, built fresh; the legacy
 diff was deleted in M1):

@@ -274,6 +274,16 @@
   background: var(--mlv-surface-2);
 }
 
+/* Viewer M4 verification (F2): a chip in a hovered or selected row keeps its border and drops its
+ * fill, which is the row's own colour (--mlv-surface-2, list.hoverBackground). Where that colour is
+ * opaque (Dark Modern, Dark+, Light Modern, Light+) nothing changes; where it is translucent (Dark
+ * 2026, Light 2026) the chip painted it a second time, and its secondary text ("cites a changed
+ * file") was 4.49:1 in Dark 2026 (test/muted-text.test.mjs; 4.53:1 by a pixel probe). */
+.mlv-issue:hover .mlv-chip,
+.mlv-issue.is-selected .mlv-chip {
+  background: transparent;
+}
+
 .mlv-issue__text {
   flex: 1 1 auto;
   min-width: 0;
@@ -580,9 +590,14 @@
   overflow-wrap: anywhere;
 }
 
+/* A run configuration's k=v token, a <code>. VS Code's default webview stylesheet colours <code>
+ * with textPreformat.foreground over textPreformat.background; this rule replaces the background,
+ * so it replaces the colour too (viewer M4 verification, F5): Dark 2026's #8C8C8C was 3.82:1 on
+ * --mlv-surface-2, and Light High Contrast's white on its white --mlv-surface-2 was invisible. */
 .mlv-about__kv {
   padding: 0 3px;
   border-radius: 3px;
+  color: inherit;
   background: var(--mlv-surface-2);
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-11);
