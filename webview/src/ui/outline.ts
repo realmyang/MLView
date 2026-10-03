@@ -24,6 +24,8 @@ import { basisSpoken } from '../render/edges.js';
 import { basisTagText, phaseFindingsSpoken, phaseFindingsText } from '../render/nodes.js';
 import type { Severity } from '../types.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
+import { changeOf, changeSentence, changeSpoken, changeTagText } from '../revisiondiff.js';
+import type { ItemChange, RevisionDiff } from '../revisiondiff.js';
 
 export interface OutlineCallbacks {
   /**
@@ -51,6 +53,11 @@ export interface OutlineState {
   selectedNodeId: string | null;
   collapsed: Set<string>;
   relationMode: RelationMode;
+  /**
+   * Viewer M4 (step 16): what changed since the revision this panel showed before. A step or
+   * connection added or changed there carries a "new" or "changed" tag, said with its name.
+   */
+  changes?: RevisionDiff | null;
 }
 
 const TREEITEM = '[role="treeitem"]';
@@ -141,9 +148,15 @@ function renderRelationships(panel: HTMLElement, s: OutlineState, cb: OutlineCal
         : 'Directed';
       // Viewer M2: the basis is said once, and only for the exceptions; the label carries none.
       const basis = basisSpoken(edge.basis);
-      row.setAttribute('aria-label', `${direction}: ${source?.label || edge.source} to ${target?.label || edge.target}; ${edge.label || edge.kind}${basis ? ';' + basis.slice(1) : ''}`);
+      // Viewer M4: added or changed since the revision this panel showed before.
+      const change = changeOf(s.changes, 'edge', edge.id);
+      row.setAttribute('aria-label', `${direction}: ${source?.label || edge.source} to ${target?.label || edge.target}; ${edge.label || edge.kind}${basis ? ';' + basis.slice(1) : ''}${change ? '; ' + changeSpoken(change) : ''}`);
       add(row, el('span', 'mlv-relations__path', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
-      add(row, el('span', 'mlv-relations__detail', (edge.label || edge.kind || 'connection') + (basisTagText(edge.basis) ? ' · ' + basisTagText(edge.basis) : '')));
+      const detail = add(row, el('span', 'mlv-relations__detail', (edge.label || edge.kind || 'connection') + (basisTagText(edge.basis) ? ' · ' + basisTagText(edge.basis) : '')));
+      if (change) {
+        detail.appendChild(document.createTextNode(' '));
+        detail.appendChild(changeTag(change, s.changes!.since));
+      }
       on(row, 'click', () => cb.onSelectEdge(edge.id));
     }
     if (focusList) (list.querySelector('button') as HTMLButtonElement | null)?.focus();
@@ -198,6 +211,12 @@ function branch(ids: string[], s: OutlineState, cb: OutlineCallbacks): HTMLEleme
     // Viewer M2: an inferred or unresolved step says so; an observed one carries no mark.
     const tag = basisTagText(node.basis);
     if (tag) add(row, el('span', 'mlv-outline__stage', tag)).setAttribute('data-basis', node.basis || '');
+    // Viewer M4: added or changed since the revision this panel showed before, shown and said.
+    const change = changeOf(s.changes, 'node', id);
+    if (change) {
+      row.appendChild(changeTag(change, s.changes!.since));
+      add(row, el('span', 'mlv-sr', ', ' + changeSpoken(change)));
+    }
     const glyph = severityFor(s, id);
     if (glyph) row.appendChild(glyph);
     on(row, 'click', (ev: MouseEvent) => cb.onSelectNode(id, ev));
@@ -209,6 +228,15 @@ function branch(ids: string[], s: OutlineState, cb: OutlineCallbacks): HTMLEleme
     }
   }
   return ul;
+}
+
+/** Viewer M4: the visible "new" or "changed" tag of a row; the row's name says it in words. */
+function changeTag(change: ItemChange, since: string): HTMLElement {
+  const tag = el('span', 'mlv-rev-tag mlv-rev-tag--row', changeTagText(change));
+  tag.setAttribute('data-change', change.status);
+  tag.setAttribute('aria-hidden', 'true');
+  tag.title = changeSentence(change, since);
+  return tag;
 }
 
 function severityFor(s: OutlineState, id: string): SVGElement | null {

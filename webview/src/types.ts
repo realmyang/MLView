@@ -276,7 +276,8 @@ export interface ViewState {
 
 /** Viewer M3: the review walk's saved place (`ViewState.walk`). */
 export interface WalkViewState {
-  filter: 'notObserved' | 'findings' | 'changed' | 'all';
+  /** `revision` (viewer M4): Changed in this revision; `changed`: Changed files. */
+  filter: 'notObserved' | 'findings' | 'revision' | 'changed' | 'all';
   claim: Sel;
   /** The claim's quote (0-based) the walk last showed; absent at 0. */
   quote?: number;
@@ -374,8 +375,14 @@ export type HostToUi =
   | { v: 1; type: 'stale'; files: StaleFile[] }
   /** Applies a saved `ViewState`. The host does not send it; the tests drive collapse with it. */
   | { v: 1; type: 'restoreState'; state: ViewState }
-  /** A new or refreshed authored revision. */
-  | { v: 1; type: 'workflow'; document: WorkflowDocument }
+  /**
+   * A new or refreshed authored revision. Viewer M4 (step 16), both optional and never persisted:
+   * `previous` is the valid revision this panel showed just before, sent only when `document`
+   * names it as its `revision.parent` (the viewer lists the changes since it); `replaced` is the
+   * id of the revision this panel showed before when `document` does not follow it (About says no
+   * changes are listed). A new panel (a window reload, an extension restart) has neither.
+   */
+  | { v: 1; type: 'workflow'; document: WorkflowDocument; previous?: WorkflowDocument; replaced?: string }
   /**
    * The host's status banner. Before the mount the host bootstrap draws it; after it the App
    * draws it as a notice, and reads `codes` to clear a refinement refusal about the artifact
@@ -469,5 +476,9 @@ export interface MLViewApp {
 }
 
 export interface WorkflowViewApp extends MLViewApp {
-  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void;
+  /**
+   * `comparison` (viewer M4): the frame's `previous` or `replaced` (see the `workflow` frame); the
+   * viewer checks it again (`sanitizeComparison`).
+   */
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>, comparison?: { previous?: WorkflowDocument; replaced?: string }): void;
 }

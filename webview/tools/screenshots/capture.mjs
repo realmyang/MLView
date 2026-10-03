@@ -27,7 +27,9 @@ import { deadline, findChrome, launchChrome } from './cdp.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const SAMPLE = join(REPO, 'samples', 'configured_training.mlview.json');
-const THEMES = { 'dark-modern': 'dark', 'light-modern': 'light', 'hc-dark': 'hc' };
+// The harness table's themes (themes.js) and the theme kind the panel's init frame carries.
+const THEMES = { 'dark-modern': 'dark', 'light-modern': 'light', 'hc-dark': 'hc', 'dark-plus': 'dark', 'light-plus': 'light', 'hc-light': 'hc', 'dark-2026': 'dark', 'light-2026': 'light' };
+const LIGHT_PAGES = new Set(['light-modern', 'light-plus', 'hc-light', 'light-2026']);
 const NARROW = [900, 800];
 
 const STATES = {
@@ -378,6 +380,101 @@ function pageHelpers() {
         charsShown: total ? Math.round((chars / total) * 100) / 100 : null,
       };
     },
+    /**
+     * Viewer M4: a computed-colour probe for secondary and muted text. Every shown element whose own
+     * text is painted in --mlv-text-2 or --mlv-text-3 (its computed colour equals the token's),
+     * against the colour the browser composites under it from its own and its ancestors' background
+     * colours, down to the page. Not counted: background images (a card's hatching), anything that
+     * is not an ancestor, and SVG text; elements under an ancestor with opacity below 1 (a dimmed
+     * lane, a disabled item) are counted apart. Computed colours, not pixels. A token whose colour
+     * is not rgb(), color(srgb) or lab(), or that no shown element is painted in, is an `error`,
+     * not a pass.
+     */
+    inks() {
+      // CIE Lab (D50) to sRGB 0..255, as CSS Color 4 converts it: the viewer's secondary and muted
+      // text compute to lab() (color-mix(in lab, ...) and lab(from ...), viewer M4 hierarchy).
+      const fromLab = (L, a, b) => {
+        const e = 216 / 24389, k = 24389 / 27;
+        const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+        const w = [0.3457 / 0.3585, 1, (1 - 0.3457 - 0.3585) / 0.3585];
+        const xyz = [fx ** 3 > e ? fx ** 3 : (116 * fx - 16) / k, L > k * e ? fy ** 3 : L / k, fz ** 3 > e ? fz ** 3 : (116 * fz - 16) / k].map((v, i) => v * w[i]);
+        const mul = (m, v) => m.map((r) => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+        const d65 = mul([[0.955473421488075, -0.02309845494876471, 0.06325924320057072], [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323], [0.012314014864481998, -0.020507649298898964, 1.330365926242124]], xyz);
+        const rgb = mul([[3.2409699419045226, -1.537383177570094, -0.4986107602930034], [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559], [0.05563007969699366, -0.20397695888897652, 1.0569715142428786]], d65);
+        return rgb.map((v) => { const c = Math.max(0, Math.min(1, v)); return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055); });
+      };
+      const parse = (css) => {
+        let m = /^rgba?\(([^)]+)\)$/.exec(css);
+        if (m) { const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; }
+        m = /^color\(srgb ([^)]+)\)$/.exec(css);
+        if (m) { const p = m[1].split(/[\s/]+/).filter(Boolean).map(Number); return [p[0] * 255, p[1] * 255, p[2] * 255, p.length > 3 ? p[3] : 1]; }
+        m = /^lab\(([^)]+)\)$/.exec(css);
+        if (m) { const p = m[1].split(/[\s/]+/).filter(Boolean).map(Number); return p.slice(0, 3).every(Number.isFinite) ? [...fromLab(p[0], p[1], p[2]), p.length > 3 ? p[3] : 1] : null; }
+        return null;
+      };
+      const over = (top, under) => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3])).concat([1]);
+      const lum = (c) => c.slice(0, 3).map((v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+      const root = document.querySelector('.mlv-root') || document.body;
+      // A fresh element per token, with no transition (viewer M4 verification, F4). One reused
+      // element transitions from the colour it had: base.css sets every transition under .mlv-root
+      // to 0.01 ms, not 0 s, under reduced motion or a screen reader, so its second and third reads
+      // were the transition's start value (in Chrome 154 an oklab() no element matches).
+      const token = (name) => {
+        const probe = root.appendChild(document.createElement('span'));
+        probe.style.transition = 'none';
+        probe.style.color = `var(${name})`;
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      };
+      const tokens = { text: token('--mlv-text'), text2: token('--mlv-text-2'), text3: token('--mlv-text-3') };
+      const page = parse(getComputedStyle(document.documentElement).backgroundColor) || [255, 255, 255, 0];
+      const base = page[3] > 0 ? over(page, [255, 255, 255, 1]) : [255, 255, 255, 1];
+      const ground = (el) => {
+        const layers = [];
+        for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+          const c = parse(getComputedStyle(e).backgroundColor);
+          if (c && c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
+        }
+        return layers.reduceRight((under, layer) => over(layer, under), base);
+      };
+      const faded = (el) => { for (let e = el; e && e.nodeType === 1; e = e.parentElement) if (Number(getComputedStyle(e).opacity) < 1) return true; return false; };
+      const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+      const out = {};
+      for (const key of ['text2', 'text3']) {
+        const ink = parse(tokens[key]);
+        if (!ink) {
+          out[key] = { colour: tokens[key], computed: tokens[key], elements: 0, faded: 0, lowest: null, below45: null, grounds: [], error: `the token's computed colour ${tokens[key]} is not rgb(), color(srgb) or lab()` };
+          continue;
+        }
+        const grounds = new Map();
+        let elements = 0;
+        let fadedCount = 0;
+        for (const el of document.querySelectorAll('body *')) {
+          if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !ownText(el) || !shown(el)) continue;
+          if (getComputedStyle(el).color !== tokens[key]) continue;
+          if (faded(el)) { fadedCount++; continue; }
+          elements++;
+          const under = ground(el);
+          const id = hex(under);
+          const r = ratio(over(ink, under), under);
+          const entry = grounds.get(id) || { ground: id, ratio: Math.round(r * 100) / 100, count: 0, example: el.tagName.toLowerCase() + [...el.classList].slice(0, 2).map((c) => '.' + c).join('') };
+          entry.count++;
+          grounds.set(id, entry);
+        }
+        const list = [...grounds.values()].sort((a, b) => a.ratio - b.ratio);
+        out[key] = {
+          colour: hex(ink), computed: tokens[key], elements, faded: fadedCount, lowest: list[0] || null,
+          below45: elements ? list.filter((g) => g.ratio < 4.5).reduce((n, g) => n + g.count, 0) : null,
+          grounds: list.slice(0, 12),
+          error: elements ? null : 'no shown element is painted in this colour, so nothing was measured',
+        };
+      }
+      out.text = { computed: tokens.text, colour: parse(tokens.text) ? hex(parse(tokens.text)) : tokens.text };
+      return out;
+    },
     severityChips: () => [...document.querySelectorAll('.mlv-chip--btn[data-severity]')].filter(shown)
       .map((c, i) => ({ i, severity: c.getAttribute('data-severity'), count: Number(txt(c.querySelector('.mlv-chip__count'))) || 0 })),
     facts() {
@@ -445,6 +542,7 @@ function pageHelpers() {
         exceptions: (document.querySelector('.mlv-canvas') || { getAttribute: () => null }).getAttribute('data-exceptions') === 'on',
         tooltip: tip ? txt(tip).slice(0, 300) : null,
         titles: this.titles(),
+        inks: this.inks(),
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
         searchCount: txt(document.querySelector('.mlv-result__count')) || null,
@@ -576,7 +674,7 @@ try {
     loads.set(id, frames);
     await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: opts.scale, mobile: false });
     await page.send('Emulation.setEmulatedMedia', { features: [
-      { name: 'prefers-color-scheme', value: THEMES[theme] === 'light' ? 'light' : 'dark' },
+      { name: 'prefers-color-scheme', value: LIGHT_PAGES.has(theme) ? 'light' : 'dark' },
       { name: 'prefers-reduced-motion', value: 'no-preference' },
     ] });
     logs.length = 0;
@@ -608,6 +706,10 @@ try {
     });
     writeIndex();
     process.stdout.write(`  ${file}${did ? ' - ' + did : ''}\n`);
+    for (const key of ['text2', 'text3']) {
+      const probe = facts.inks && facts.inks[key];
+      if (probe && probe.error) process.stdout.write(`    colour probe ${key}: ${probe.error}\n`);
+    }
   }
 
   async function clickNode(input, order) {

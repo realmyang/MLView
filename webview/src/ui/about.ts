@@ -1,6 +1,10 @@
 /**
  * The About tab (viewer M2): the revision's authored request and coverage, and nothing else.
  *
+ *   Changes since <id>     viewer M4 (step 16), only after a new revision replaced the one this
+ *                          panel showed: the steps, connections and findings added, removed or
+ *                          changed, by id (`revisiondiff.ts`), and phases renamed; or one line
+ *                          saying why none are listed
  *   Asked                  `request.question`, clamped, with Show all
  *   What the model traced  `coverage.summary`, split into paragraphs at its own run-in heads
  *                          ("Data:", "Model:" …), only when it has at least three; else as written
@@ -18,11 +22,27 @@
 import { add, button, el, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { STALE_TEXT } from '../freshness.js';
+import { changeSpoken, changeTagText, fieldList, markedTotal } from '../revisiondiff.js';
+import type { ChangeGroup, ChangeKind, ItemChange, RevisionDiff } from '../revisiondiff.js';
+import type { GraphIndex } from '../layout/model.js';
 import type { StaleReason, WorkflowDocument } from '../types.js';
 
 export interface AboutPaneState {
   document: WorkflowDocument | null;
   staleReason?(file: string): StaleReason | undefined;
+  /**
+   * Viewer M4 (step 16): the changes since the revision this panel showed before (the host sent it
+   * because the displayed revision names it as its parent), or null.
+   */
+  changes?: RevisionDiff | null;
+  /** Viewer M4: the revision this panel showed before, when the displayed one does not follow it. */
+  replaced?: string | null;
+  /** The displayed revision's index: the F-labels of added and changed findings. */
+  index?: GraphIndex | null;
+  /** A link in Changes: select that step, connection or finding. */
+  onShowChange?(kind: ChangeKind, id: string): void;
+  /** Changes' Review button: walk the claims added or changed in this revision. */
+  onReviewChanges?(): void;
 }
 
 /** A question longer than this many characters (or lines) starts clamped, with Show all. */
@@ -112,6 +132,10 @@ export function renderAboutPane(panel: HTMLElement, s: AboutPaneState): void {
   const uid = 'mlv-about' + ++aboutSeq;
   const root = add(panel, el('div', 'mlv-about'));
   root.setAttribute('data-revision', doc.revision.id);
+
+  // Viewer M4: what changed since the revision this panel showed before, first.
+  if (s.changes) changesSection(root, s.changes, s);
+  else if (s.replaced) notFollowingSection(root, doc, s.replaced);
 
   // Asked.
   const asked = section(root, 'asked', 'Asked');
@@ -217,7 +241,135 @@ export function renderAboutPane(panel: HTMLElement, s: AboutPaneState): void {
   const bits = [doc.producer.host, doc.producer.model || 'model not named', 'revision ' + doc.revision.id + (doc.revision.parent ? ' (after ' + doc.revision.parent + ')' : '')];
   bits.push(doc.verification ? 'published ' + doc.verification.publishedAt : 'published without source hashes');
   add(provenance, el('p', 'mlv-about__meta', bits.join(' · ')));
+  // Viewer M4: a revision with a parent this panel never showed has no Changes section; say why.
+  if (doc.revision.parent && !s.changes && !s.replaced) {
+    const note = add(provenance, el('p', 'mlv-about__note mlv-about__unseen', 'This panel did not show revision ' + doc.revision.parent + ', so no changes since it are listed.'));
+    note.setAttribute('data-about-note', 'parent-not-shown');
+  }
   add(provenance, el('p', 'mlv-about__trust mlv-workflow__provenance', 'Model-authored; MLView checks citations, not the interpretation.'));
+}
+
+/* ── viewer M4 (step 16): Changes since <parent> ─────────────────────── */
+
+/** What the Changes section says about its own reach. */
+export const CHANGES_SCOPE =
+  'Steps, connections and findings are matched by id, so one whose id changed is listed as removed and added. ' +
+  'This covers only revisions this panel has shown; closing the panel, reloading the window or restarting extensions forgets it.';
+
+const GROUPS: { key: 'steps' | 'connections' | 'findings'; title: string }[] = [
+  { key: 'steps', title: 'Steps' },
+  { key: 'connections', title: 'Connections' },
+  { key: 'findings', title: 'Findings' },
+];
+
+/** "1 added · 2 changed", or "none added, removed or changed". */
+export function changeCountText(group: ChangeGroup): string {
+  const parts: string[] = [];
+  if (group.added.length) parts.push(group.added.length + ' added');
+  if (group.changed.length) parts.push(group.changed.length + ' changed');
+  if (group.removed.length) parts.push(group.removed.length + ' removed');
+  return parts.length ? parts.join(' · ') : 'none added, removed or changed';
+}
+
+function changesSection(root: HTMLElement, diff: RevisionDiff, s: AboutPaneState): void {
+  const box = section(root, 'changes', 'Changes since ');
+  box.setAttribute('data-since', diff.since);
+  // The revision id as written: ids are case-sensitive, and the heading's capitals would change it.
+  const headText = box.querySelector('.mlv-rail__headtext');
+  if (headText) add(headText, el('span', 'mlv-about__revid', diff.since));
+  add(box, el('p', 'mlv-about__note', 'Compared with revision ' + diff.since + ', which this panel showed before this one. ' + CHANGES_SCOPE));
+  const marked = markedTotal(diff);
+  const total = GROUPS.reduce((n, g) => n + diff[g.key].added.length + diff[g.key].changed.length + diff[g.key].removed.length, 0);
+  if (!total) {
+    add(box, el('p', 'mlv-about__text', 'No step, connection or finding was added, removed or changed.'));
+    phaseRenames(box, diff);
+    return;
+  }
+  if (marked && s.onReviewChanges) {
+    // Viewer M4 review (A11Y-M4-1): named by what it shows (WCAG 2.5.3, Label in Name), so "Click
+    // Review the 7 added and changed claims" reaches it by voice; the title explains the filter.
+    const review = button('mlv-link mlv-about__review', 'Review the ' + marked + (marked === 1 ? ' added or changed claim' : ' added and changed claims'));
+    review.title = 'Walk the claims added or changed in this revision, in the diagram\'s order (the walk\'s "Changed in this revision" filter)';
+    on(review, 'click', () => s.onReviewChanges && s.onReviewChanges());
+    add(box, el('p', 'mlv-about__text')).appendChild(review);
+  }
+  for (const g of GROUPS) {
+    const group = diff[g.key];
+    const block = add(box, el('div', 'mlv-about__changegroup'));
+    block.setAttribute('data-change-group', g.key);
+    const h = add(block, el('h5', 'mlv-rail__heading mlv-about__subhead'));
+    add(h, el('span', 'mlv-rail__headtext', g.title));
+    add(h, el('span', 'mlv-rail__count', changeCountText(group)));
+    const items = group.added.concat(group.changed, group.removed);
+    if (!items.length) continue;
+    const list = add(block, el('ul', 'mlv-about__changes'));
+    for (const item of items) list.appendChild(changeRow(item, s));
+  }
+  phaseRenames(box, diff);
+}
+
+/**
+ * Viewer M4 review (M4R-4): phases renamed under the same id, listed once. Their steps did not
+ * move, so they carry no tag for it.
+ */
+function phaseRenames(box: HTMLElement, diff: RevisionDiff): void {
+  if (!diff.phases.length) return;
+  const block = add(box, el('div', 'mlv-about__changegroup'));
+  block.setAttribute('data-change-group', 'phases');
+  const h = add(block, el('h5', 'mlv-rail__heading mlv-about__subhead'));
+  add(h, el('span', 'mlv-rail__headtext', 'Phases'));
+  add(h, el('span', 'mlv-rail__count', diff.phases.length + ' renamed'));
+  const list = add(block, el('ul', 'mlv-about__changes'));
+  for (const phase of diff.phases) {
+    const li = add(list, el('li', 'mlv-about__change', '\u201C' + phase.from + '\u201D is now \u201C' + phase.to + '\u201D'));
+    li.setAttribute('data-change', 'renamed');
+    li.setAttribute('data-change-kind', 'phase');
+    li.setAttribute('data-change-id', phase.id);
+  }
+}
+
+/**
+ * One added, changed or removed item: its tag in words, then a link to it (removed: text only).
+ * Viewer M4 review (A11Y-M4-1): the link is named by its own text (WCAG 2.5.3, Label in Name: the
+ * F label and title it shows), followed by hidden words that say what the tag and the field list
+ * show, ", changed in this revision: label", as the Outline's rows do. The tag and the field list
+ * beside it are then hidden from screen readers, so nothing is read twice.
+ */
+function changeRow(item: ItemChange, s: AboutPaneState): HTMLElement {
+  const li = el('li', 'mlv-about__change');
+  li.setAttribute('data-change', item.status);
+  li.setAttribute('data-change-kind', item.kind);
+  li.setAttribute('data-change-id', item.id);
+  const tag = add(li, el('span', 'mlv-rev-tag', changeTagText(item)));
+  tag.setAttribute('data-change', item.status);
+  li.appendChild(document.createTextNode(' '));
+  if (item.status === 'removed') {
+    // No ghost on the diagram: the item is gone, so it is named here, as text, with its id.
+    add(li, el('span', 'mlv-about__changegone', item.title));
+    add(li, el('span', 'mlv-about__changeid mlv-mono', ' ' + item.id));
+    return li;
+  }
+  tag.setAttribute('aria-hidden', 'true');
+  const issue = item.kind === 'issue' && s.index ? s.index.issueById.get(item.id) : undefined;
+  const text = (issue && issue.short ? issue.short + ' · ' : '') + item.title;
+  const link = el('button', 'mlv-link mlv-about__changelink', text) as HTMLButtonElement;
+  link.type = 'button';
+  add(link, el('span', 'mlv-sr', ', ' + changeSpoken(item)));
+  on(link, 'click', () => s.onShowChange && s.onShowChange(item.kind, item.id));
+  li.appendChild(link);
+  if (item.status === 'changed' && item.fields.length) add(li, el('span', 'mlv-about__changefields', ' · ' + fieldList(item.fields))).setAttribute('aria-hidden', 'true');
+  return li;
+}
+
+/** A new revision that does not follow the one this panel showed: no comparison, and why. */
+function notFollowingSection(root: HTMLElement, doc: WorkflowDocument, replaced: string): void {
+  const box = section(root, 'changes', 'Changes');
+  box.setAttribute('data-replaced', replaced);
+  const parent = doc.revision.parent;
+  add(box, el('p', 'mlv-about__note',
+    'No changes are listed: revision ' + doc.revision.id + ' does not follow revision ' + replaced + ', which this panel showed before it' +
+      (parent ? ' (its parent is ' + parent + ').' : ' (it names no parent).') +
+      ' Changes are listed only against the revision this panel showed just before.'));
 }
 
 function section(root: HTMLElement, id: string, title: string): HTMLElement {

@@ -6,6 +6,614 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer M4: open from the Explorer, changes since the previous revision
+
+The viewer's fourth milestone. This section holds, so far, the two smaller
+items deferred from M2: the size of the first view's text (A11Y-7) and the
+secondary and muted text colours (first Light Modern and Light+, then every
+shipped theme). Both were checked by local jsdom tests and in
+headless Chrome with a simulated host (the screenshot harness), not in live VS
+Code, with a screen reader or as a usability check. It also holds roadmap step
+16, changes since the previous revision, and roadmap step 18, opening a
+`*.mlview.json` from the Explorer as the diagram (each its own part below, with
+how it was checked), and the corrections made after an independent review of
+this branch (the last part). No contract change, no new setting or keybinding,
+no geometry change (the golden is byte-identical), and the version is
+unchanged.
+
+The first view's text size (A11Y-7):
+- The diagram opens whole only when it fits at 75% zoom or more, so a card
+  title (13 px) is at least 9.75 px on screen, the size M2 judged still
+  readable ("about 10 px at 75%"). Otherwise it opens on phase 1 at 90%
+  (11.7 px titles), anchored at the phase's top-left, and phase 1 is no longer
+  fitted at 75-89% when it almost fits. Key `0` returns to this view, as
+  before; **Fit the whole diagram** in the **⋯** menu still shows everything,
+  at any zoom.
+- Why: M2 opened the whole document down to 62% and fitted phase 1 between 75%
+  and 90%, so a wider panel could open the same diagram with smaller titles
+  than a narrower one. Measured with the screenshot harness at panel widths
+  320, 541, 700, 786, 900, 1100, 1382, 1440 and 1920 px, 900 px tall:
+  dino-copilot opened at 90% (11.7 px titles) up to 900 px and whole at 69-72%
+  (9.0-9.4 px) from 1100 px; vit-cc at 81% (10.5 px) at 786 px, between 90% at
+  700 and 900 px; yolov5-cc2 at 80-86% (10.3-11.2 px) from 1100 px. Panels
+  600 px tall gave the same pattern (dino-copilot 81-88% at 1100-1440 px). With
+  this change all three open at 90% (11.7 px) at every one of those sizes.
+- The rule now: the first view never paints titles under 9.75 px, and a wider
+  or taller diagram area never paints the same document with smaller titles,
+  except where it shows the whole document instead of phase 1, still at 9.75
+  px or more. The cost: a wide panel shows less of a medium-sized document at
+  first (dino-copilot at 1440x900: 14 whole titles instead of 17, the last
+  column of its second phase cut off), at a size you can read.
+- One exception: where the side panel docks beside the diagram (a panel 1260
+  px wide), the diagram area loses 360 px to it, so a small document that
+  fits whole on both sides can open smaller with the panel docked (a
+  synthetic 1000x500 px document: 120% to 85%), never under 75%.
+- Zoomed out below 62% cards still show only their titles, as before; the
+  level of detail is not part of this change. Moving to a phase from the phase
+  overview or the phase index still fits a phase that fits at 75% or more.
+- Tests (`webview/test/readable-view.test.mjs`) sweep diagram areas 200-2600
+  px wide and 200-1600 px tall over synthetic frames with the sizes of those
+  three documents, a small and a medium document and the synthetic test
+  shapes, and the listed panel widths. Existing first-paint tests changed on
+  purpose: the whole-document bound (the M2 edge case at 62% now opens phase
+  1), phase 1 fitted at 80% (now 90%), a frame with no phase lane (whole at
+  22% before, now its top-left at 90%), and the refit-on-resize test in
+  `viewer-layout.test.mjs` (both sizes now open at 90%, so the refit shows as
+  a move instead of a zoom).
+
+Secondary and muted text:
+- Both colours were VS Code's `descriptionForeground`, which is not readable
+  or not quieter everywhere. In Light Modern it is the text colour (#3B3B3B),
+  so secondary text (card subtitles, side-panel notes, the status bar, phase
+  numbers) and muted text (counts, section headings, quote line numbers, a
+  lane's step count) were not quieter than the text. In Light+ (#717171) it
+  was 4.40:1 on the side panel, header and cards and 3.68-4.07:1 on an
+  unresolved card's hatching, a hovered row, a quote, a lane header, a phase
+  index row in view and the phase overview's blocks. In Dark 2026, VS Code
+  1.139's default dark theme (#8C8C8C), it was 4.80:1 on cards but 3.80:1 on
+  a hovered row or a quote, 4.07-4.36:1 on the hatching, a hovered group
+  header, a lane header, a phase index row in view and the overview's blocks,
+  3.87:1 on the menu's key hints and 3.30:1 for a group's step count on a
+  hovered group header; Light 2026's (#606060) was 4.24:1 there. WCAG asks
+  4.5:1 for small text. The first M4 fix darkened the card surface for
+  light-theme muted text only (Light Modern #5E5E5E, Light+ #5C5C5C), which
+  left Light+'s secondary text lighter than its muted text.
+- Now both are derived from the theme's own text colour, and High Contrast
+  keeps its text colour for both. In a light theme muted text is the text
+  mixed into its card surface in CIE Lab at 74%, lifted to L* 42 where that
+  mix is darker, and secondary text is halfway between the text and muted
+  text; in a dark theme they are steps below the text's lightness, never
+  under a floor and never above the text (the hierarchy parts below). Neither
+  rule names a theme, and both keep the text, secondary and muted text in
+  order in any theme. CSS cannot compare two colours at run time, so there is
+  no contrast clamp: the shares, steps and floors are chosen so that every
+  shipped theme clears 4.5:1 on every background. (The first version of this
+  change mixed the text into the card surface at 90% and 80% in sRGB in every
+  theme; the hierarchy part below replaced it.)
+- Lowest ratio on any background each is drawn on, secondary then muted,
+  computed from the harness's theme table: Dark Modern #B3B3B3 6.37:1 and
+  #9C9C9C 4.99:1, Dark+ #BBBBBB 6.45:1 and #A3A3A3 4.99:1, Dark 2026 #9A9D9E
+  4.67:1 for both, Light Modern #515151 6.28:1 and #676767 4.62:1, Light+
+  #323232 9.61:1 and #636363 4.53:1, Light 2026 #404040 8.29:1 and #636364
+  4.83:1 (the 90% and 80% mixes are in the table below).
+- The cost: Dark Modern's secondary text is brighter than VS Code's
+  description colour was (#9D9D9D to #B3B3B3) and its muted text about the
+  same (#9C9C9C). Light Modern's secondary text is no longer its text colour.
+  Light+'s editor text is pure black; its secondary and muted text are
+  #323232 and #636363, and its muted text is the closest to 4.5:1 of any
+  theme (4.53:1 on an unresolved card's hatching). The dashed borders of
+  inferred and unresolved cards, a hovered
+  connection and the ring on a traced card's neighbours use the secondary
+  colour, so they change with it. With a third-party theme the order still
+  holds, but a colour can fall under 4.5:1: in a dark theme the floor is a
+  fixed lightness, which clears 4.5:1 on backgrounds up to #353535, so a row
+  hovered with 8% white over a widget background lighter than #232323 can
+  take muted text under it; in a light theme muted text is never darker than
+  L* 42, which clears 4.5:1 on a row hovered with 8% black only over a widget
+  background of #F3F3F3 (Light+'s) or lighter, and where the 74% mix is the
+  lighter one, on such a row it needs the text at about 10.7-11:1 on its
+  widget background (computed, not seen in a real theme).
+- On a hovered or focused item of the **⋯** menu, the icon, key hint and note
+  now take the item's colour (VS Code's `menu.selectionForeground`), and the
+  key hint's key cap keeps its outline, in that colour, but drops its fill.
+  The menu's selection is a solid blue in Dark Modern, Dark+, Light Modern and
+  Light+ (#0078D4, #005FB8, #0060C0), where secondary text was 1.25-2.05:1.
+  The key hint is a `<kbd>`, which VS Code's default webview stylesheet paints
+  with `keybindingLabel.background`, a translucent grey; with only the colour
+  change the white hint sat on that cap over the blue, 3.34:1 in Light Modern
+  and 3.29:1 in Light+ (the verification below). White on the selection
+  colour itself is 6.31:1 in Light Modern, 6.11:1 in Light+ and 4.53:1 in
+  Dark Modern and Dark+, measured in pixels.
+- The exported SVG derives the same colours (`LIGHT_TEXT_LEVELS`,
+  `DARK_TEXT_LEVELS` in `webview/src/export/palette.ts`).
+- `webview/test/muted-text.test.mjs` is a matrix: the harness's six themes
+  outside High Contrast x both colours x every background they sit on (the
+  canvas, a lane, cards and other surfaces, the hatching, `--mlv-surface-2` on
+  a surface, on the canvas and once or twice on a lane, a lane header, a phase
+  index row in view, the menu, the bundle badge, VS Code's key cap under a
+  `<kbd>`, the nine overview block tones, and a chip or group count inside a
+  hovered or selected row or group header with the fill the stylesheet gives
+  it there), and the order of the text, secondary and muted text on each. A
+  census fails on a background the stylesheets paint that the matrix does not
+  know, on a muted-text selector not mapped to its backgrounds, on a
+  `--mlv-surface-2` box with its own secondary or muted text that does not
+  name the containers it sits in, on a `<kbd>` without a modelled background
+  and on a `<code>` that paints its own background but keeps VS Code's code
+  colour. The hovered menu item's key hint is checked on the key cap as the
+  stylesheet leaves it. The harness theme table gained the four menu colours (VS Code
+  1.139's values, with the registry's defaults). The screenshot harness has
+  Dark+, Light+, Light High Contrast, Dark 2026 and Light 2026 (`--theme`).
+  The hierarchy part below added the L* check, the second engine and the
+  dark rule's sweep.
+- Headless Chrome 154 on the vit-cc shakedown artifact at 1440x900, in the six
+  themes, 11 states each: `capture.mjs` now records a computed-colour probe
+  per screenshot (`facts.inks` in index.json: each element whose own text is
+  painted in either colour, against the background colours composited under
+  it). Before the change the lowest were 3.78:1 in Dark 2026 and 3.86:1 in
+  Light+; with the 90% and 80% mixes, 5.71:1 (secondary) and 4.75:1 (muted) in
+  Dark 2026, and no element under 4.5:1 in any of the six themes (the
+  hierarchy part below has the current run). The probe reads computed
+  colours, not pixels, and skips background images and SVG text. Those 11
+  states do not hover the **⋯** menu or a Findings row with a stale chip, and
+  the probe counts only elements painted in one of the two colours, so it did
+  not see the cases the verification below found.
+
+Secondary and muted text, corrections after an independent verification
+(headless Chrome 154 with a pixel probe run outside the repository, which
+measures each text run's colour against the screenshot's pixels under it with
+the glyphs hidden; each fix has a test in `muted-text.test.mjs` that fails
+with the fix taken out):
+- The **⋯** menu's hovered key hint (above): it still sat on VS Code's key
+  cap, 3.34:1 (Light Modern) and 3.29:1 (Light+). The menu test checked only
+  the item's colour on the selection, not the cap under the hint.
+- A chip in a hovered or selected Findings row drops its fill and keeps its
+  border. The fill is the row's own colour (`--mlv-surface-2`, VS Code's
+  `list.hoverBackground`), which is translucent in Dark 2026 and Light 2026,
+  so the chip painted it a second time: its secondary text ("cites a changed
+  file") was 4.49:1 computed and 4.53:1 in pixels in Dark 2026, now 5.78:1 in
+  pixels. Themes with an opaque hover colour look as before. The matrix had no
+  case for a box raised twice on a surface; it now composites each such box
+  in the containers it sits in (a group count on a hovered group header stays
+  the lowest for secondary text, 5.00:1 in Dark 2026).
+- About's run-configuration tokens (`k=v`, a `<code>`) take their paragraph's
+  text colour. They kept VS Code's `textPreformat.foreground` on the viewer's
+  `--mlv-surface-2`: #8C8C8C at 3.82:1 in Dark 2026, and white on white
+  (1.00:1, invisible) in Light High Contrast, where VS Code's dark blue code
+  background was replaced. Now 6.87:1 and 14.55:1 in pixels. They lose the
+  code hue of Light+ (#A31515) and Dark+ (#D7BA7D). This predates the colour
+  change above.
+- The screenshot probe (`facts.inks`) read the three colours through one
+  element. With reduced motion or a screen reader, base.css sets every
+  transition to 0.01 ms, so the second and third reads returned the
+  transition's start value (an `oklab()` colour no element matches) and the
+  probe reported nothing under 4.5:1 having measured nothing. It now reads
+  each colour through a fresh element with no transition, and a colour that
+  no shown element is painted in is an `error` in index.json (printed with
+  the screenshot), not a pass. The harness emulates
+  `prefers-reduced-motion: no-preference`, so the figures above were read
+  correctly.
+- The three text colours were close (finding F3); the next part changes
+  that.
+
+Secondary and muted text, the hierarchy (finding F3 of the verification above):
+- With the 90% and 80% mixes the three levels were close. As a share of the
+  lightness (CIE L*) distance from the text colour to the card surface,
+  secondary text sat 9-12% of the way (ΔL* 5.8-6.3 in the dark themes, 8.3-8.4
+  in Light Modern and Light+, 10.3 in Light 2026), against 25-50% with
+  `descriptionForeground` where it differed from the text, and muted text 18%
+  in the dark themes and 21-23% in the light ones; Light+ drew the three as
+  #000000, #181818 and #313131. M2's calm canvas needs step counts, notes,
+  provenance and the status bar to read as quieter than titles and claims.
+- A light theme now mixes in CIE Lab, 87% and 74%, so secondary and muted
+  text sit exactly 13% and 26% of the way to the card in every light theme.
+  Light Modern bounds the shares: its muted text clears 4.5:1 on an
+  unresolved card's hatching up to 26.8% of the way. (The light hierarchy
+  part below lifts muted text to L* 42 and puts secondary text halfway to
+  it.)
+- A dark theme cannot use one share. Dark 2026's text (#BBBEBF, L* 76.8) is
+  dim, so its muted text has room for 20.9% of the way before a hovered row
+  (8% white) takes it under 4.5:1, where Dark Modern and Dark+ have about
+  30%. So in a dark theme secondary and muted text are 9 and 18 L* below the
+  text, with its hue, never under L* 64.5 and never above the text (CSS
+  relative colour syntax, `lab(from var(--mlv-text) ...)` in `tokens.css`).
+  L* 64.5 is the lowest lightness that clears 4.5:1 on every background the
+  default dark themes paint under either colour (Dark+ needs 64.3 under a key
+  hint in the menu, Dark 2026 63.3 on a hovered row). Where the text is under
+  L* 79.5 a secondary step 9 below it would sit less than 6 L* above that
+  floor, so secondary text is muted text: Dark 2026 gets two levels (19% of
+  the way, ΔL* 12.3), as Dark Modern had before M4 (`descriptionForeground`
+  #9D9D9D for both), instead of a secondary level barely quieter than its
+  text. A theme whose text is under L* 64.5 (Solarized Dark, #839496) keeps
+  its text colour for both.
+- On a hovered group header the step count drops its fill, as a chip in a
+  hovered row does. In the 2026 themes `list.hoverBackground` is translucent,
+  so the count painted it twice: the lightest background under secondary text
+  in Dark 2026 (5.00:1 with the 90% mix), which would have held secondary text
+  there to 14% of the way. Themes with an opaque hover colour look as before.
+- The dark rule is behind `@supports` on its exact expression. An engine
+  without relative colour syntax (Chromium before 119; VS Code 1.100, the
+  extension's minimum, ships a later one) keeps a two-level mix, 80% in CIE
+  Lab, which also clears 4.5:1 in the six themes (lowest 4.59:1, Dark 2026).
+  Relative colour syntax was checked in headless Chrome 154 only, not in an
+  older Chromium or in VS Code.
+- Not used, and why: VS Code's `descriptionForeground` (the text colour in
+  Light Modern, 4.40:1 in Light+ and 3.80:1 on a hovered row in Dark 2026, and
+  CSS cannot tell where it passes); a fixed dark anchor in light themes (the
+  surface at 38% toward black, as the first M4 fix did, puts Light Modern's
+  muted text 20% of the way, and a clamp to the text needs relative colour
+  syntax too); separate light and dark shares alone (one dark share is bound
+  by Dark 2026 to about 20%); a rule naming a theme.
+- Tests (`webview/test/muted-text.test.mjs`): an L* check per theme, muted
+  text 25% or more of the way and secondary text a step (10% or more) from
+  the text and from muted text wherever the theme has room at 4.5:1 (found
+  by bisection on the line from the text to the card), otherwise the
+  two-level case the test names (Dark 2026), held to two equal levels that
+  use the room the theme has. The 4.5:1 matrix and its census now run for
+  both engines, with and without relative colour syntax; the static "raised
+  twice on a lane" stack is gone (only the group count was drawn on it, and
+  the nested-box census now composites it with no fill). A sweep of the
+  text's lightness (L* 40-100, three hues and #839496) holds the dark rule's
+  order in any dark theme. The 50-70% contrast window for muted text is
+  replaced by the L* check. `test/colour-lab.mjs` holds the Lab arithmetic and
+  the CSS math, written apart from the export's, and the export test compares
+  the two; `calm-canvas.test.mjs` resolves the new colours too. Each new check
+  fails with its fix taken out (the group count's fill, the floor, the cap at
+  the text, the light shares, the `@supports` block).
+- Headless Chrome 154 on the vit-cc shakedown artifact at 1440x900, the eight
+  themes, 11 states each, before and after (176 screenshots, looked at):
+  Chrome's computed colours equal the table's in the six themes outside High
+  Contrast (`facts.inks`, which now reads `lab()`), and no element painted in
+  either colour is under 4.5:1 (lowest after: 4.65:1 in Dark 2026, a finding
+  id on a selected Findings row; 4.87:1 in Light Modern, a lane's step count).
+  The states hover no group header; the matrix covers it.
+
+Secondary and muted text, the light hierarchy (finding V1 of an independent
+verification of the hierarchy part; each fix has a test that fails with it
+taken out):
+- The uniform 87% and 74% mix hardly moved secondary text in the light
+  themes: Light Modern #4E4E4E to #515151, Light+ #181818 to #202020 and
+  Light 2026 #363636 to #383838, 13% of the way to the card. In 2x crops the
+  rail, cards, phase index and status bar looked almost the same before and
+  after, and in Light+ the phase index's step counts and the status bar
+  (secondary text) still looked black next to #000000 names. Only Light
+  Modern's hatching caps muted text at 26.8% of the way; at 4.5:1 Light+ has
+  room for 44% and Light 2026 for 37%.
+- Now a light theme's muted text is the 74% Lab mix or L* 42, whichever is
+  lighter, with the mix's a and b (`lab(from color-mix(in lab,
+  var(--mlv-text) 74%, var(--mlv-surface)) max(l, 42) a b)`, behind its own
+  `@supports`), and secondary text is halfway between the text and muted
+  text in Lab (`color-mix(in lab, var(--mlv-text) 50%, var(--mlv-text-3))`,
+  in every engine). Light+ draws #000000, #323232 and #636363 (21.9% and
+  43.8% of the way), Light 2026 #202020, #404040 and #636364 (17.3% and
+  34.6%); Light Modern is unchanged (#515151 and #676767), since its mix is
+  L* 43.8 and its hatching allows no more. As a contrast ratio between the
+  text and secondary text, Light+'s step is 1.64 (1.29 before), against 1.41
+  in Light Modern and 1.31 in Dark Modern.
+- L* 42 is about the lightest that clears 4.5:1 on every background the
+  default light themes paint under muted text: Light+ allows 42.15 on an
+  unresolved card's hatching (4.53:1 at 42), Light 2026 44.0 and Light Modern
+  44.5. It is a fixed lightness, so with a third-party theme's near-black
+  text it clears 4.5:1 on a card down to L* 89 (#DFDFDF) and on a row hovered
+  with 8% black over a widget background of #F3F3F3 or lighter, no further.
+  An engine without relative colour syntax keeps the plain 74% mix, with
+  secondary text halfway to it (13% and 26%, as before).
+- Tests (`webview/test/muted-text.test.mjs`): the L* check now holds muted
+  text to 80% or more of the room the theme has at 4.5:1 in every theme (the
+  uniform mix used 59% of Light+'s and 71% of Light 2026's), and where three
+  levels fit, secondary text to 12.5% or more of the way (finding V2: the 10%
+  step passed an 89% light mix and the old 90% sRGB mix in Light Modern and
+  Light 2026) and to 40% or more of its own room. A sweep of the text's
+  lightness (L* 0-60, three hues) and the card's (L* 89-100), with Solarized
+  Light, holds the light rule's order, the halfway secondary text, the lift
+  and 4.5:1 on the card wherever the plain mix had it. Taken out one at a
+  time: the lift (`max(l, 0)`, the previous colours) fails the L* check
+  (Light+ muted text 26.0% of the way, under 80% of 44.0%); secondary text
+  back at the 87% mix fails it (13.0%, under 40% of 44.0%); an 89% light mix
+  fails at 11.0% (Light Modern) and a dark secondary step of 7 L* at 10.0%
+  (Dark Modern); a lift to L* 46 fails the 4.5:1 matrix. The export
+  (`LIGHT_TEXT_LEVELS`, `lightTextLevels`) and `calm-canvas.test.mjs`
+  derive the same colours; the export reads a mix of a mix (an engine
+  without relative colour syntax) and derives the rest.
+- Headless Chrome 154 on the default inputs (the configured-training sample
+  and the synthetic document) at 1440x900, the eight themes, six states (as
+  opened, a selected step, a hovered step, exceptions mode, a finding's pane
+  and the phase index; 88 screenshots, 8 skipped), and 2x before and after
+  crops of Light+ and Light 2026 with a selected step: Chrome's computed
+  colours equal the tests' (Light+ #323232
+  and #636363, Light 2026 #404040 and #636364, the other themes as before),
+  the darkest glyph pixels of the phase index's step counts, the status bar
+  and a card's detail are those colours, and no element painted in either
+  colour is under 4.5:1 (lowest 4.85:1 in Light+, a lane's step count; 4.82:1
+  in Light 2026, quote line numbers on a selected row). In the crops muted
+  text (a lane's step count) is visibly greyer; secondary text at #323232 is
+  a smaller change in small text. Not checked in live VS Code.
+
+Before and after, computed from the harness's theme table: the colour on the
+card surface, its contrast there, the lowest contrast on any background it is
+drawn on, and its share of the L* distance from the text to the card. The
+"after" columns are the colours now (the light hierarchy part above for
+Light+ and Light 2026).
+
+| Theme | Level | Before | Card | Lowest | L* share | After | Card | Lowest | L* share |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Dark Modern (#CCCCCC) | secondary | #BBBBBB | 8.47:1 | 6.92:1 | 8.9% | #B3B3B3 | 7.80:1 | 6.37:1 | 12.9% |
+| | muted | #AAAAAA | 6.98:1 | 5.84:1 | 18.0% | #9C9C9C | 5.96:1 | 4.99:1 | 25.1% |
+| Dark+ (#D4D4D4) | secondary | #C3C3C3 | 8.64:1 | 6.98:1 | 9.0% | #BBBBBB | 7.98:1 | 6.45:1 | 12.8% |
+| | muted | #B1B1B1 | 7.14:1 | 5.89:1 | 18.1% | #A3A3A3 | 6.06:1 | 4.99:1 | 25.6% |
+| Dark 2026 (#BBBEBF) | secondary | #ACAEAF | 7.25:1 | 5.00:1 | 9.0% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| | muted | #9C9FA0 | 6.03:1 | 4.77:1 | 18.1% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| Light Modern (#3B3B3B) | secondary | #4E4E4E | 7.85:1 | 6.56:1 | 11.4% | #515151 | 7.51:1 | 6.28:1 | 13.0% |
+| | muted | #616161 | 5.85:1 | 5.11:1 | 22.3% | #676767 | 5.29:1 | 4.62:1 | 26.0% |
+| Light+ (#000000) | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #323232 | 11.48:1 | 9.61:1 | 21.9% |
+| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #636363 | 5.41:1 | 4.53:1 | 43.8% |
+| Light 2026 (#202020) | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #404040 | 9.94:1 | 8.29:1 | 17.3% |
+| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #636364 | 5.76:1 | 4.83:1 | 34.6% |
+
+Changes since the previous revision (roadmap step 16, built fresh; the legacy
+diff was deleted in M1):
+- When the assistant publishes a new revision whose `revision.parent` is the
+  revision the panel is showing, About opens on **Changes since <id>**: the
+  steps, connections and findings added, removed or changed, compared by id.
+  Each group's heading counts them ("1 added · 2 changed · 1 removed"). Added
+  and changed items are links that select the item (a changed one lists what
+  changed, such as "label" or "evidence"); removed items are listed as text
+  with their id, and nothing removed is drawn on the diagram. **Review the N
+  added and changed claims** starts the walk on them.
+- What counts as changed. A step: its label, detail, basis, phase (moved to
+  another phase; a phase renamed under the same id is listed once, see the last
+  part), group, kind or evidence. A connection: its ends, label, kind, basis or
+  evidence. A finding: its title, description, severity, basis, What to
+  change, cited steps, cited connections, evidence or counter-evidence. Evidence
+  is compared by what each cited record cites (file, lines, notebook cell and
+  quote), so a quote changed under the same evidence id is a change and an
+  evidence id renamed with the same file, lines and quote is not. Reordered
+  lists are not changes. An item whose id changed shows as one removed and one
+  added, and the section says so. The request, summary, coverage and title are
+  not compared. Step 16's scope did not list a finding's What to change or
+  counter-evidence; they are compared here because the Selection tab shows
+  them.
+- Steps added or changed carry a small "new" or "changed" tag at the card's
+  bottom-left edge, right after the "inferred" or "? unresolved" tag when there
+  is one (in a group's header for a group): a word on a solid outline, no
+  colour, the same size on screen at every zoom (it sat at the bottom-right
+  edge until the review, see the last part). The card's
+  accessible name adds "new in this revision" or "changed in this revision:
+  label". The tag is an overlay that moves no box or route: the geometry
+  golden is byte-identical, and a test compares the routed geometry with and
+  without a comparison on the vit-cc shape. Connections and findings carry the
+  tag in the Outline, the Findings list and the Selection tab, whose line under
+  the title reads "changed since revision r1: label." The SVG export draws no
+  tag.
+- The review walk gains **Changed in this revision**: the added and changed
+  claims in the diagram's order, offered only when there are some.
+- Only revisions this panel has shown are compared, and the section says so. A
+  new revision whose parent is not the displayed one shows no comparison;
+  About says "No changes are listed: revision r3 does not follow revision r1,
+  which this panel showed before it (its parent is r2)." A revision opened with
+  a parent the panel never showed says so in one line under Provenance.
+  Closing the panel, reloading the window or restarting extensions forgets the
+  comparison; a page VS Code rebuilt (a hidden panel shown again) gets it back
+  from the host. Nothing is written to disk and there is no new setting.
+- Protocol (internal, no contract change): the `workflow` frame gains two
+  optional fields. `previous` is the valid document the panel showed just
+  before, sent only when the new document names it as its parent; `replaced`
+  is that revision's id when the new document does not follow it. The host
+  keeps them in memory per panel (`nextComparison` in
+  `vscode-extension/src/revisionLineage.ts`) and sends them with every
+  `workflow` frame, a new page's included; the bootstrap passes them to
+  `mountWorkflow`. The webview checks them again (`sanitizeComparison`) and
+  compares with a pure `revisionDiff` (`webview/src/revisiondiff.ts`). The
+  wording says added, removed, changed and new, never fixed, wrong, better or
+  worse; a test forbids those words.
+- Tests: `webview/test/revision-changes.test.mjs` (each change kind, a quote
+  changed under the same id, reorderings and renamed evidence ids that are not
+  changes, a renamed step id, malformed frames; About, the links, the tags and
+  their spoken names, the unchanged geometry, the Outline and Findings rows,
+  the walk filter and a remount that resumes it, the case that does not follow,
+  the export and the legend), `vscode-extension/test/revision-changes.test.js`
+  (the host posts `previous` only when the parent matches, again for a new
+  page, through a refresh and a reopen, never for a rejected revision, and a
+  new panel has none), a bootstrap case, and `authoredChangesHandshake` (the
+  real host, its bootstrap and the built viewer). Mutation checks: comparing
+  evidence by id, or in order, fails the webview tests; posting `previous`
+  whatever the parent fails the host tests.
+- Live (VS Code 1.139, macOS, an isolated Extension Development Host driven
+  over the DevTools protocol with focus emulation in every webview frame, on a
+  scratch copy of the public vit-cc workspace): with the diagram open, the
+  skill's helper published a second revision (`upsert` of one step with a new
+  label and of one new finding, `validate`, `publish` with `revision.parent`
+  set to the displayed id). The panel showed About with "Changes since
+  cats-dogs-r1" (Steps 1 changed, Connections none, Findings 1 added), the
+  "changed" tag on that step's card with its spoken name, and **Review the 2
+  added and changed claims** started the walk on "Changed in this revision, 2
+  claims", opening the step's notebook cell beside the diagram; `j` moved to
+  the new finding. **Developer: Reload Webviews** rebuilt the page and the
+  comparison and the walk's filter came back; **Developer: Reload Window**
+  dropped the comparison and Provenance said the panel did not show
+  cats-dogs-r1. That run found the revision id capitalised by the section
+  heading; the id now keeps its case (checked in jsdom only). This run used the
+  step-16 build, when the diagram was still M3's webview panel; step 18 then
+  made the diagram an editor, and the publish was not repeated live in the
+  diagram editor (nor Reload Window, which now restores the editor itself, nor
+  two diagrams of one file, each with its own comparison). Not checked live:
+  a revision that does not follow (the helper publishes only a child of the
+  revision in the file; the tests write one directly), a screen reader,
+  Windows or Linux, or usability. The step's owner input (one
+  Refine round and whether the section helps) is still the owner's.
+
+Open from the Explorer (roadmap step 18):
+- A `*.mlview.json` now opens as the diagram: a click in the Explorer, Quick
+  Open and links open the **MLView Diagram** editor (a read-only custom editor,
+  priority `default`). Its tab keeps the file's name; the panel's old
+  "MLView: <title>" tab title is gone. A single click opens a preview tab, as
+  for any file; double-click or **Keep Open** keeps it.
+- The JSON stays one step away: **View: Reopen Editor With…** → **Text Editor**,
+  or **Open With…** → **Text Editor** in the Explorer's context menu. Source
+  Control diffs and Timeline comparisons of the file open as text in VS Code
+  1.139 (checked live). Older versions in the supported range (1.100 and
+  later) were not run; before 1.129 a custom editor was not kept out of diffs
+  by default, so a diff there may show the diagram editor, and its git side,
+  which is not a file on disk, the page described below.
+- **MLView: Open Generated Diagram** stays: Command Palette, a new entry in the
+  Explorer's context menu, and the JSON text editor's title bar and context
+  menu. The title button shows only on the text editor, not on the diagram. The
+  command opens the diagram editor beside (`vscode.openWith`), keeping the
+  focus where it is. When the file already has a diagram open, that diagram
+  comes to the front of its own group and shows the file as it is, as before.
+- Read-only, drawn from disk: the editor is a `CustomReadonlyEditorProvider`,
+  not a custom text editor. A custom text editor's document holds up every
+  extension-host restart, so adding a second folder to the window asked
+  "Please confirm restart of extensions" (seen live in 1.139). The diagram
+  draws the file on disk, never an editor's unsaved text; unsaved changes are
+  reported in the banner, as before. A saved edit is drawn when it is a new
+  revision (a new `revision.id`, as the skill's helper publishes it); an edit
+  saved under the displayed revision's id is refused, the diagram keeps that
+  revision and the banner says so, until **MLView: Open Generated Diagram**
+  shows the file as it is (unchanged since M1).
+- Several diagrams at once: diagrams of different files, and the same file in
+  two groups, each with its own selection, walk and revision lineage. Reveal in
+  Diagram uses one diagram per file: the active one, else the one in front of
+  its group, else the first opened. A diagram editor is only ever brought
+  forward in its own group: shown into another group, VS Code put the one
+  editor in two groups, only one of them drew it, and closing either closed
+  both (a live finding in this step, fixed and checked live again).
+- One hosting path: VS Code resolves the editor and MLView hosts it in the same
+  `AuthoredPanel` as before. The old webview panel (`mlview.authoredDiagram`,
+  a different view type from `mlview.diagram`) is no longer created. One
+  restored from before M4 is replaced by the diagram editor in its group and
+  closed, with a fresh view: its selection, zoom and the walk's place are not
+  carried over (Reload Window kept them for M3's panel).
+- Restarts: **Developer: Reload Window** brings diagram editors back by itself,
+  with the selection and view (live). After an extension-host restart (adding a
+  second folder to a one-folder window is one), VS Code leaves diagram tabs it
+  does not draw again. MLView's per-window list of open diagrams (the M1
+  registry) now marks entries as editors, and each such tab is replaced by a
+  diagram editor of its file in the same group, with a fresh view (first view,
+  no selection). When that tab is alone in its group, the file opens briefly as
+  text to keep the group open, then closes. Live: adding a folder asked
+  nothing, and the diagram came back in its group, in its first view.
+- A file MLView cannot draw (not a local file, not named `*.mlview.json` when
+  chosen through **Open With…**, or outside every workspace folder) opens a
+  static page that says why and how to see the JSON.
+- The workspace file watcher and the save and change listeners now start with
+  the first diagram and stop with the last; before, they started when the
+  extension activated. The citation index and the Reveal in Diagram context key
+  are cleared with the last diagram, as before.
+- Manifest, on purpose (comments in `packaging.test.js`, `activation.test.js`
+  and `scripts/vsix_check.py`): `customEditors` (`mlview.diagram`,
+  `*.mlview.json`, `default`), the `explorer/context` entry, and the
+  `editor/title` entry limited to the text editor. Activation events are
+  unchanged: VS Code activates on a contributed custom editor by itself.
+  `scripts/vsix_check.py` accepts only this custom editor and pattern.
+- Tests: `vscode-extension/test/custom-editor.test.js` (registration; resolve
+  hosts the diagram; drawn from disk, not unsaved text; the command uses
+  `openWith`, reuses an open diagram and brings it forward only in its own
+  group, also when VS Code has not reported the group; the command from a
+  diagram tab; the notice pages; the last diagram stops the watchers and
+  clears the context key; two diagrams of one file; old-panel migration; jumps
+  go to another group; Reveal in Diagram picks the active diagram).
+  `host-restart.test.js` was rewritten for editor entries, the text
+  placeholder, old panels and Reload Window. The mock models VS Code showing
+  one editor in two groups, and the tests assert it never happens. Mutation
+  checks: dropping the placeholder, the migration guard, stopping the watchers,
+  the one-diagram-per-file choice, the group fallback for jumps, the migration
+  order, closing before reopening, the reveal on reopen, or the own-group
+  reveal each fails tests.
+- Live (VS Code 1.139, macOS, an isolated Extension Development Host driven
+  over the DevTools protocol with focus emulation in every webview frame, on a
+  scratch copy of the public vit-cc workspace): an Explorer click opened the
+  diagram; Reopen Editor With → Text Editor and Open With → Text Editor showed
+  the JSON; the title button on the text editor opened the diagram beside with
+  the focus kept; Enter on a card opened its notebook cell beside with the
+  focus kept; the walk (`r`, `j`) highlighted each claim's lines beside;
+  Reveal in Diagram from `vit_pytorch/efficient.py` selected the step in the
+  diagram editor, in the diagram's group, with the focus; Reload Window and
+  adding a folder as above; the same file open in two groups drew twice and
+  the walk ran in one; Git's Open Changes and a Timeline entry opened text
+  diffs. Not checked: VS Code before 1.139, Windows or Linux, remote
+  workspaces, a screen reader, or usability. A diagram in a preview tab is
+  replaced when another file opens in its group as a preview, as any preview
+  editor is: a jump or walk step from one diagram replaced another diagram's
+  preview tab in the group it opened the source in (seen live). Since the
+  review, a diagram that shows changes is kept open (see the last part).
+
+Corrections after the review (independent reviewers' findings on this branch;
+each fix has a test that fails with the fix taken out):
+- The two card tags at low zoom (M4R-1, UX-M4-4). Zoomed out below about 52%,
+  a card's "changed" tag ran into its "inferred" tag and was drawn over it, and
+  a "new" tag at the bottom-right edge could cover the finding badge of the
+  card below. The "new" or "changed" tag now sits in one row with the basis
+  tag, right after it, where a lone basis tag sits; the row is never wider on
+  screen than the card, so it never reaches the next card or its tags. On a
+  card too narrow for both words, "new" or "changed" is cut short with an
+  ellipsis ("chan…"); the basis tag is never cut. Headless Chrome with a
+  simulated host, on a synthetic second revision of vit-cc with every
+  top-level step inferred and relabelled, at 90, 75, 62, 52, 43, 36 and 30% zoom:
+  no card's two tags overlap and no revision tag touches another card's basis
+  tag (before: 20 of 21 cards overlapped at 52%, all 21 below, by up to 38 px).
+  A tag still hangs over the top of the card below at those zooms, as a lone
+  basis tag has since M2.
+- The card's hover card now says what changed ("Changed since revision r1:
+  label."). The card's tag takes no pointer events, so its own tooltip never
+  showed; that tooltip is gone (UX-M4-7).
+- Renamed phases (M4R-4). A step's phase was compared by its label, so
+  renaming a phase marked every step in it "changed: phase" and the rename
+  itself was never named. A step now changes its phase only when it moves to
+  another phase (a phase keeps its identity through its id, or through its
+  label when its id is gone and exactly one new phase has that label), and
+  About lists a renamed phase once, under **Phases** ("“Data” is now “Data
+  loading”"). The legend says so.
+- About's Changes buttons are named by what they show (A11Y-M4-1, WCAG 2.5.3):
+  **Review the N added and changed claims** was named by its tooltip, and each
+  link "Select the step …", without its "changed" tag, its fields or the
+  finding's F label. A link's name is now its text followed by the words for
+  its tag and fields ("F1 · Clip missing, changed in this revision:
+  severity"), and the tag and field list beside it are hidden from screen
+  readers. Chrome's accessibility tree (headless) read "Review the 23 added
+  and changed claims" and "… (cell 1) (v2), changed in this revision: label and
+  basis". Not checked with a screen reader or voice control.
+- Muted notes (A11Y-M4-2). About's notes and provenance line, the Changes
+  section's field lists and removed ids, the Selection tab's "changed since"
+  line and the muted freshness words ("unchanged", "not checked") are now
+  muted text: in Light+ they were 4.40:1, and in Light Modern they were the
+  text colour. At the time this left `--mlv-text-2` itself as it was (4.40:1
+  in Light+, lighter than muted text there); it was changed afterwards with
+  muted text (Secondary and muted text, above), so these notes are now Light+
+  #313131 and Light Modern #616161, 5.11:1 or more.
+- A diagram that shows changes keeps its tab (UX-M4-3). A single click in the
+  Explorer opens the diagram as a preview tab, and the next file opened as a
+  preview in its group replaced it, dropping the comparison, which lives only
+  in that diagram. When a diagram in a preview tab shows **Changes since**, it
+  is kept open (as **Keep Open** does), at once if it is in front of its group,
+  else when it comes to the front; the focus does not move. A preview diagram
+  still behind another tab can still be replaced, and then its comparison is
+  gone.
+- Restarts with a file that left the workspace (M4R-2). After an
+  extension-host restart, the dead tab of a diagram whose file is no longer in
+  a workspace folder is closed, which closes its group when it was alone, and
+  VS Code numbers the groups after it again; the next dead diagram then opened
+  in the wrong group, possibly the code's. Dead tabs are now replaced from the
+  last group to the first, and each is closed as the tabs API holds it at that
+  moment (VS Code hands out new tab objects when groups change).
+- The page for a file outside every workspace folder (M4R-3) said "add it to
+  the workspace, then open the file again", but opening it again only brought
+  the same page forward. That tab now draws the diagram as soon as a folder
+  holds the file (a multi-root window), and the page is in the per-window list
+  of open diagrams, so after an extension-host restart (adding a folder to a
+  one-folder window) the next host draws the diagram in its place, or shows the
+  page again while the file is still outside. The page says: add the folder
+  to the workspace and this tab draws the diagram, or open that folder and
+  open the file there.
+- Documentation (INT-1, INT-2, INT-3, DOC-M4-5, DOC-M4-6): saving the JSON
+  redraws only a new revision (above); the step-16 live check ran on the panel
+  build, before step 18 (above); a panel from before M4 reopens with a fresh
+  view; **MLView: Open Generated Diagram** brings an open diagram to the front
+  of its own group instead of opening one beside; and "diffs show text" is
+  qualified as checked in VS Code 1.139 only.
+- Checked by jsdom and mock `vscode` tests and headless-Chrome probes of a
+  simulated host. None of these corrections was run in live VS Code, with a
+  screen reader or as a usability check.
+
 ## Unreleased — viewer M3: review walk and the way back
 
 The viewer's third milestone: the review walk, which goes

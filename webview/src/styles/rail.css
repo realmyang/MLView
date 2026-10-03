@@ -274,6 +274,16 @@
   background: var(--mlv-surface-2);
 }
 
+/* Viewer M4 verification (F2): a chip in a hovered or selected row keeps its border and drops its
+ * fill, which is the row's own colour (--mlv-surface-2, list.hoverBackground). Where that colour is
+ * opaque (Dark Modern, Dark+, Light Modern, Light+) nothing changes; where it is translucent (Dark
+ * 2026, Light 2026) the chip painted it a second time, and its secondary text ("cites a changed
+ * file") was 4.49:1 in Dark 2026 (test/muted-text.test.mjs; 4.53:1 by a pixel probe). */
+.mlv-issue:hover .mlv-chip,
+.mlv-issue.is-selected .mlv-chip {
+  background: transparent;
+}
+
 .mlv-issue__text {
   flex: 1 1 auto;
   min-width: 0;
@@ -476,9 +486,10 @@
   font-style: italic;
 }
 
-/* Freshness: muted words when unchanged or unchecked; colour only for a stale file. */
+/* Freshness: muted words when unchanged or unchecked; colour only for a stale file. Viewer M4
+ * review (A11Y-M4-2): muted text, the colour of the notes beside it. */
 .mlv-quote__fresh.is-muted {
-  color: var(--mlv-text-2);
+  color: var(--mlv-text-3);
 }
 
 .mlv-quote__fresh.mlv-insp__stale {
@@ -562,17 +573,31 @@
   font-weight: var(--mlv-fw-semi);
 }
 
+/*
+ * Viewer M4 review (A11Y-M4-2): About's notes and provenance line, the Changes section's field
+ * lists and removed ids, and the Selection pane's "changed since" line are muted text
+ * (--mlv-text-3), which clears 4.5:1 and is muted in every shipped theme
+ * (test/muted-text.test.mjs). --mlv-text-2 was VS Code's descriptionForeground then: 4.40:1 on
+ * the rail in Light+ (#717171) and the text colour in Light Modern, so this small text was under
+ * 4.5:1 or not muted at all. Both tokens are derived from the text colour now (tokens.css); this
+ * copy stays muted.
+ */
 .mlv-about__meta,
 .mlv-about__note {
   margin: 0 0 var(--mlv-s3);
-  color: var(--mlv-text-2);
+  color: var(--mlv-text-3);
   font-size: var(--mlv-fs-11);
   overflow-wrap: anywhere;
 }
 
+/* A run configuration's k=v token, a <code>. VS Code's default webview stylesheet colours <code>
+ * with textPreformat.foreground over textPreformat.background; this rule replaces the background,
+ * so it replaces the colour too (viewer M4 verification, F5): Dark 2026's #8C8C8C was 3.82:1 on
+ * --mlv-surface-2, and Light High Contrast's white on its white --mlv-surface-2 was invisible. */
 .mlv-about__kv {
   padding: 0 3px;
   border-radius: 3px;
+  color: inherit;
   background: var(--mlv-surface-2);
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-11);
@@ -630,6 +655,61 @@
   margin: 0;
   color: var(--mlv-text-2);
   font-size: var(--mlv-fs-11);
+}
+
+/*
+ * Viewer M4 (step 16): Changes since <parent>. Each group's counts sit in its heading; each item is
+ * its tag in words, then a link to it (a removed item is text, with its id).
+ */
+/* The revision id in the Changes heading keeps its own case (ids are case-sensitive). */
+.mlv-about__revid {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.mlv-about__subhead {
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-about__changes {
+  list-style: none;
+  margin: var(--mlv-s2) 0 0;
+  padding: 0;
+}
+
+.mlv-about__change {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__change .mlv-rev-tag {
+  vertical-align: 1px;
+}
+
+.mlv-about__changegone {
+  color: var(--mlv-text);
+}
+
+.mlv-about__changeid,
+.mlv-about__changefields {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M4: the "new" / "changed" tag in a row of the Outline, the Findings list or a pane. */
+.mlv-rev-tag--row {
+  flex: none;
+  font-family: var(--mlv-font);
+}
+
+.mlv-insp__change {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__change .mlv-rev-tag {
+  vertical-align: 1px;
 }
 
 .mlv-insp__issue {

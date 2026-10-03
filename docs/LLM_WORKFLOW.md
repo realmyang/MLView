@@ -19,8 +19,14 @@ the resulting VSIX through **Extensions: Install from VSIX**. For development,
 open the `vscode-extension/` directory in another VS Code window and start its
 **Run MLView Extension** launch configuration (or **Run MLView Extension (no
 build)** after a build). Both open the repository root in the Extension
-Development Host: run **MLView: Open Generated Diagram** there and select
-`samples/configured_training.mlview.json`. The artifact viewer needs no Python
+Development Host: click `samples/configured_training.mlview.json` in its
+Explorer, which opens as the diagram, or run **MLView: Open Generated
+Diagram** and select it. To read the JSON, use **View: Reopen Editor With…** →
+**Text Editor**; diffs of the file show text (checked in VS Code 1.139; before
+1.129 a diff may open the diagram editor). The diagram is drawn from the file
+on disk, never from unsaved text: a saved edit is drawn when it is a new
+revision, and one saved under the displayed revision's id is refused until you
+run **MLView: Open Generated Diagram**. The artifact viewer needs no Python
 installation. Publishing through the skill's helper requires Python 3.10+.
 
 Install the portable skill into the project you want to understand:
@@ -175,9 +181,10 @@ outgoing connections, then the findings whose first cited step it is;
 findings that cite no step (only connections, or the workflow as a whole) come
 last, in document order. It starts on **Not observed**, the claims marked
 inferred or unresolved, with the same count as the header's **N not
-observed**; **Findings**, **All claims** and, while VS Code reports changed or
-missing cited files, **Changed files** are the other filters, each with its
-count. `j` / `k` or ↓ / ↑ (or the walk bar's up and down buttons) go to the
+observed**; **Findings**, **All claims**, **Changed in this revision** (the
+claims added or changed since the revision this panel showed before, when the
+new one names it as its parent) and, while VS Code reports changed or missing
+cited files, **Changed files** are the other filters, each with its count. `j` / `k` or ↓ / ↑ (or the walk bar's up and down buttons) go to the
 next or previous claim, `[` / `]` to the
 claim's other quotes, Enter opens the current quote again (Alt+Enter moves the
 focus to the editor), `n` / `p` go to the next or previous finding, `u` /
@@ -288,9 +295,9 @@ neighbours and lights its connections without fading anything; focus mode
 (select, then F) fades the rest. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
 again, and VS Code's Reduce Motion setting turns the animation off.
 
-The diagram opens readable: the whole document if it fits at 62% zoom or
-more, otherwise the first phase at 90% (or all of the first phase, when it
-fits at 75% or more). Reopening the same revision keeps where you were. Press
+The diagram opens readable: the whole document if it fits at 75% zoom or
+more, otherwise the first phase at 90%, so card titles open at about 10 px on
+screen or larger whatever the panel's width. Reopening the same revision keeps where you were. Press
 `0` to return to that first view from any zoom; **Fit the whole diagram** in
 the header's **⋯** menu shows everything. Shift+0 opens the phase overview;
 it no longer folds every group (each group keeps its own chevron). Zoomed out below 62%, cards show only their titles, at about
@@ -394,6 +401,19 @@ revision in it:
   published faster than the panel read them.
 - If the artifact file is deleted, the last diagram stays visible and the
   panel starts again with the next revision that appears.
+- When a new revision's `revision.parent` is the revision the panel is
+  showing, as it is for every helper publish from a Refine prompt, the panel
+  keeps the revision it showed in memory and About opens on **Changes since**
+  it: the steps, connections and findings added, removed or changed, matched
+  by id, with "new" and "changed" tags and the walk's **Changed in this
+  revision**. A revision that does not follow the displayed one gets no
+  comparison, and About says so. Only revisions this panel has shown are
+  compared; closing the panel, reloading the window or restarting extensions
+  forgets the comparison, and nothing is written to disk. Keeping stable IDs
+  across revisions keeps the list short: an item whose ID changed shows as
+  removed and added. A phase renamed under the same ID is listed once and
+  marks none of its steps; a step is changed for its phase only when it moves
+  to another phase.
 
 A copied Refine prompt always continues from the revision in the file. When
 that differs from the displayed revision, the copy notification says so, and
@@ -442,9 +462,10 @@ an untitled multi-root workspace and restart its extensions. MLView handles
 every extension restart inside a window the same way, whatever caused it
 (**Developer: Restart Extension Host**, an extension install or update that
 restarts extensions, **Save Workspace As...**, the notice's **Add folder to
-workspace** or VS Code's **Add Folder to Workspace...**): each open diagram
-comes back in its tab's place and is checked against the workspace as it is
-then, here against the added folder. A diagram in front of its editor group
+workspace** or VS Code's **Add Folder to Workspace...**): VS Code does not draw
+the open diagram tabs again, so MLView replaces each with the diagram of the
+same file in its tab's place, checked against the workspace as it is then,
+here against the added folder. A diagram in front of its editor group
 comes back at once; one behind other tabs comes back when it is brought to the
 front, after a blank half second, because until then it cannot be told from a
 tab VS Code restored at startup and has not shown yet. A diagram put back this

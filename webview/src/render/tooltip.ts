@@ -9,6 +9,8 @@ import { add, clear, el, locSpan } from '../dom.js';
 import { severityGlyph } from '../markers.js';
 import { EDGE_MARKER_R, edgeKindText } from './edges.js';
 import { basisTagText } from './nodes.js';
+import { changeSentence } from '../revisiondiff.js';
+import type { RevisionMark } from './nodes.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LayoutBox } from '../layout/layout.js';
 import type { Point, RoutedEdge } from '../layout/routing.js';
@@ -70,6 +72,11 @@ export class Tooltip {
   readonly root: HTMLElement;
   private viewport: () => Viewport;
   private bounds: () => Size;
+  /**
+   * Viewer M4 review (UX-M4-7): a step's "new" or "changed" mark (the canvas sets it), so its hover
+   * card says "Changed since revision r1: label." as the Selection pane does.
+   */
+  revisionMark: (id: string) => RevisionMark | undefined = () => undefined;
 
   constructor(viewport: () => Viewport, bounds?: () => Size) {
     this.root = el('div', 'mlv-tooltip');
@@ -86,6 +93,8 @@ export class Tooltip {
     add(this.root, el('div', 'mlv-tooltip__title', node.label || node.qualname));
     const basisText = basisTagText(node.basis);
     if (basisText) add(this.root, el('div', 'mlv-tooltip__row mlv-tooltip__basis', basisText.replace('? ', '') + ', not observed'));
+    const mark = this.revisionMark(id);
+    if (mark) add(this.root, el('div', 'mlv-tooltip__row mlv-tooltip__change', changeSentence(mark, mark.since)));
     if (node.sublabel) add(this.root, el('div', 'mlv-tooltip__row', node.sublabel));
     if (node.loc.file) add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
     // A group's badge counts what it contains (`planScene`), so its card lists

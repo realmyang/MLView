@@ -51,6 +51,8 @@ import { selectionAnnouncement } from './ui/selection.js';
 import { ReviewWalk } from './app/walk.js';
 import { WalkBar } from './ui/walkbar.js';
 import { sameClaim } from './walk.js';
+import { revisionDiff, sanitizeComparison } from './revisiondiff.js';
+import type { RevisionDiff } from './revisiondiff.js';
 import type { SearchHit } from './search.js';
 import type {
   ActionResult,
@@ -183,6 +185,15 @@ export class App implements MLViewApp {
   paneColumns: 1 | 2 = 1;
   /** The authored document last applied, as the very object that arrived. */
   workflowDocument: WorkflowDocument | null = null;
+  /**
+   * Viewer M4 (step 16): the steps, connections and findings added, removed or changed since the
+   * revision this panel showed before, when the host sent that revision with the frame (only when
+   * the displayed one names it as its parent); null otherwise. Recomputed from every `workflow`
+   * frame, never saved: a new panel has no comparison.
+   */
+  revisionChanges: RevisionDiff | null = null;
+  /** Viewer M4: the revision this panel showed before, when the displayed one does not follow it. */
+  revisionReplaced: string | null = null;
   /** Its revision id, which decides whether a new frame may keep the viewport. */
   workflowRevision: string | null = null;
   /**
@@ -385,8 +396,14 @@ export class App implements MLViewApp {
    * viewport. On the first document of a remounted viewer, a viewport saved
    * for this same revision is restored instead of fitting (VIEWUI-3).
    */
-  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void {
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>, comparison?: { previous?: WorkflowDocument; replaced?: string }): void {
     const revisionChanged = this.workflowRevision !== document.revision.id;
+    // Viewer M4 (step 16): the comparison goes with the document it came with. Before the graph is
+    // set, so the cards, the rail and the walk all read it.
+    const checked = sanitizeComparison(document, comparison || {});
+    this.revisionChanges = checked.previous ? revisionDiff(checked.previous, document) : null;
+    this.revisionReplaced = !checked.previous && checked.replaced ? checked.replaced : null;
+    this.view.setRevisionChanges(this.revisionChanges);
     let next = preserve;
     if (!preserve || !preserve.viewport) {
       let viewport: Viewport | null = null;

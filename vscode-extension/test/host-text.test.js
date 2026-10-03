@@ -127,20 +127,23 @@ test('SECURITY1-3: restore and open refuse a ".." path that leaves the workspace
   await serializer.deserializeWebviewPanel(restored, { artifact: sneaky });
   assert.equal(restored.disposed, true);
   assert.equal(restored.posted.length, 0);
+  assert.equal(vscode.__recorded.openWith.length, 1, 'only the fixture\'s own open: the restored panel opens nothing');
   const panels = vscode.__recorded.panels.length;
   await fixture.controller.open(vscode.Uri.file(sneaky));
   assert.equal(vscode.__recorded.panels.length, panels);
   assert.equal(vscode.__recorded.messages.at(-1)[1], 'MLView: the generated diagram must belong to an open workspace folder.');
-  // A ".." spelling that stays inside the folder opens the normalised artifact (one panel per
-  // artifact: the panel already showing it is closed first).
+  // A ".." spelling that stays inside the folder opens the normalised artifact (viewer M4: an
+  // earlier MLView panel reopens as the diagram editor, then closes).
   fixture.panel.dispose();
   const inside = fixture.root + '/sub/../run.mlview.json';
   const accepted = vscode.window.createWebviewPanel('mlview.authoredDiagram', 'restored', {}, {});
   await serializer.deserializeWebviewPanel(accepted, { artifact: inside });
-  assert.equal(accepted.disposed, false);
-  accepted.fire({ v: 1, type: 'ready' });
+  assert.equal(accepted.disposed, true);
+  assert.equal(vscode.__recorded.openWith.at(-1).uri.fsPath, fixture.artifact);
+  const reopened = vscode.__recorded.panels.at(-1);
+  reopened.fire({ v: 1, type: 'ready' });
   await h.tick();
-  assert.equal(accepted.posted[0].artifact, fixture.artifact);
+  assert.equal(reopened.posted[0].artifact, fixture.artifact);
 });
 
 test('LINEAGE2-3: folderSpelling re-spells a case-variant folder prefix on macOS and Windows only', () => {

@@ -41,6 +41,7 @@ import {
   WALK_FILTERS,
 } from '../walk.js';
 import { STALE_TEXT } from '../freshness.js';
+import { changeOf } from '../revisiondiff.js';
 import type { App } from '../app.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { Claim, WalkFilter, WalkOpenStatus } from '../walk.js';
@@ -136,14 +137,17 @@ export class ReviewWalk {
 
   private isStale = (file: string): boolean => !!this.app.freshness.reasonOf(file);
 
+  /** Viewer M4 (step 16): added or changed since the revision this panel showed before. */
+  private isRevised = (claim: Claim): boolean => !!changeOf(this.app.revisionChanges, claim.kind, claim.id);
+
   changedOffered(): boolean {
     return changedOffered(this.app.freshness.list().map((file) => file.reason));
   }
 
   counts(): Record<WalkFilter, number> {
     const index = this.index();
-    if (!index) return { notObserved: 0, findings: 0, changed: 0, all: 0 };
-    return filterCounts(this.claims(), index, this.isStale);
+    if (!index) return { notObserved: 0, findings: 0, revision: 0, changed: 0, all: 0 };
+    return filterCounts(this.claims(), index, this.isStale, this.isRevised);
   }
 
   offered(): WalkFilter[] {
@@ -152,7 +156,7 @@ export class ReviewWalk {
 
   private listFor(filter: WalkFilter): Claim[] {
     const index = this.index();
-    return index ? filterClaims(this.claims(), filter, index, this.isStale) : [];
+    return index ? filterClaims(this.claims(), filter, index, this.isStale, this.isRevised) : [];
   }
 
   /** The claim the walk is on, or null. */
@@ -187,7 +191,9 @@ export class ReviewWalk {
       if (offered.indexOf(filter) < 0) {
         this.app.announce(filter === 'notObserved'
           ? 'No claim is marked inferred or unresolved in this revision.'
-          : filter === 'changed' ? 'No claim cites a file that changed or went missing.' : 'No claims to walk with that filter.');
+          : filter === 'changed' ? 'No claim cites a file that changed or went missing.'
+          : filter === 'revision' ? 'No claim was added or changed since the revision this panel showed before.'
+          : 'No claims to walk with that filter.');
         return false;
       }
       next = filter;

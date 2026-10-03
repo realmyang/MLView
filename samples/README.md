@@ -5,7 +5,8 @@ They need not be installed or executed to produce a diagram.
 
 - `configured_training/` contains configuration-selected distillation plus a
   separate inference entrypoint. Open [its recorded diagram](configured_training.mlview.json)
-  with **MLView: Open Generated Diagram** from the repository workspace.
+  from the repository workspace: click it in the Explorer, which opens it as
+  the diagram, or run **MLView: Open Generated Diagram**.
 - `vision_pipeline/` and `vision_pipeline_clean/` are intentionally contrasting
   training examples for interpretation and review.
 - Additional framework examples are in [evaluation fixtures](../evals/workflow/fixtures/README.md).

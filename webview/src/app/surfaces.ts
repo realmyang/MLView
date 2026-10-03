@@ -89,5 +89,8 @@ export function renderRail(app: App): void {
     document: app.graph ? app.workflowDocument : null,
     columns: app.paneColumns,
     walk: app.walk ? app.walk.paneMark() : null,
+    // Viewer M4 (step 16): the comparison with the revision this panel showed before.
+    changes: app.graph ? app.revisionChanges : null,
+    replaced: app.graph ? app.revisionReplaced : null,
   });
 }

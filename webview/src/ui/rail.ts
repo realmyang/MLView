@@ -19,6 +19,7 @@ import { renderSelectionPane } from './selection.js';
 import type { WalkMark } from './selection.js';
 import { renderAboutPane } from './about.js';
 import type { Issue, Loc, MLEdge, MLNode, RailTab, RelatedLoc, StaleReason, WorkflowDocument } from '../types.js';
+import type { ChangeKind, RevisionDiff } from '../revisiondiff.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
@@ -49,6 +50,10 @@ export interface RailCallbacks {
   onToggleCollapse(nodeId: string): void;
   /** Viewer M2: open About at the document-wide limitations, which are listed there once. */
   onShowLimitations(): void;
+  /** Viewer M4: About's Changes links select the step, connection or finding. */
+  onShowChange(kind: ChangeKind, id: string): void;
+  /** Viewer M4: About's Changes section starts the walk on "Changed in this revision". */
+  onReviewChanges(): void;
   /** Viewer M2, the bottom sheet: the chevron or a click on the handle opens or collapses it. */
   onSheetToggle(): void;
   /** Escape inside the open sheet: collapse it and give the focus back to the canvas. */
@@ -84,6 +89,13 @@ export interface RailState {
   columns: 1 | 2;
   /** Viewer M3: the review walk's quote mark for the Selection pane, while it shows the walk's claim. */
   walk?: WalkMark | null;
+  /**
+   * Viewer M4 (step 16): what changed since the revision this panel showed before (About lists it;
+   * the Selection pane, the Outline and the Findings list tag what was added or changed), or null.
+   */
+  changes?: RevisionDiff | null;
+  /** Viewer M4: the revision this panel showed before, when the displayed one does not follow it. */
+  replaced?: string | null;
 }
 
 /** The tabs, in order. The Selection tab keeps the id `inspector` (saved view states use it). */
@@ -468,7 +480,15 @@ export class Rail {
     const panel = this.panels.get('about')!;
     clear(panel);
     add(panel, el('h3', 'mlv-sr', TABS[0].heading));
-    renderAboutPane(panel, { document: s.index ? s.document : null, staleReason: s.staleReason });
+    renderAboutPane(panel, {
+      document: s.index ? s.document : null,
+      staleReason: s.staleReason,
+      changes: s.changes || null,
+      replaced: s.replaced || null,
+      index: s.index,
+      onShowChange: (kind, id) => this.cb.onShowChange(kind, id),
+      onReviewChanges: () => this.cb.onReviewChanges(),
+    });
   }
 
   private renderIssues(s: RailState): void {
@@ -478,6 +498,7 @@ export class Rail {
       keep: s.keep,
       selectedIssueId: s.selectedIssueId,
       staleReason: s.staleReason,
+      changes: s.changes || null,
     }, {
       onSelectIssue: (id, ev) => this.cb.onSelectIssue(id, ev),
       onOpenIssue: (id, focusEditor) => this.cb.onOpenIssue(id, focusEditor),
@@ -504,6 +525,7 @@ export class Rail {
       document: s.document,
       staleReason: s.staleReason,
       walk: s.walk || null,
+      changes: s.changes || null,
     }, {
       onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onShowNode: (id) => this.cb.onShowNode(id),
@@ -544,6 +566,7 @@ export class Rail {
         selectedNodeId: s.selectedNode ? s.selectedNode.id : relationNodeId,
         collapsed: s.collapsed,
         relationMode: this.relationMode,
+        changes: s.changes || null,
       },
       {
         onSelectNode: (id, ev) => this.cb.onSelectNode(id, ev),

@@ -108,6 +108,11 @@
     transform: translateY(-50%) scale(calc(1 / var(--mlv-z, 1))) !important;
   }
 
+  .mlv-canvas[data-lod="compact"] .mlv-node > .mlv-node__tags {
+    transform-origin: 0 50% !important;
+    transform: translateY(-50%) scale(calc(1 / var(--mlv-z, 1))) !important;
+  }
+
   .mlv-canvas[data-lod="compact"] .mlv-node__title--wrap {
     -webkit-line-clamp: 1 !important;
     line-clamp: 1 !important;

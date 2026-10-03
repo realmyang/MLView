@@ -157,6 +157,16 @@ export function buildAppUi(app: App): void {
       if (app.index && app.index.isGroup(id)) app.view.toggleCollapse(id);
     },
     onShowLimitations: () => app.showAbout({ at: 'limitations', focus: true }),
+    // Viewer M4 (step 16): About's Changes links select the claim, as the Selection pane's links do.
+    onShowChange: (kind, id) => {
+      if (kind === 'node') app.focusNode(id, { center: true, pulse: true });
+      else if (kind === 'edge') app.select({ kind: 'edge', id }, { reveal: true });
+      else app.focusIssue(id);
+    },
+    // Viewer M4: walk the claims added or changed in this revision; the keyboard goes to the diagram.
+    onReviewChanges: () => {
+      if (app.walk.start('revision')) focusCanvas(app);
+    },
     onSheetToggle: () => app.toggleRail(),
     // Viewer M3: Escape inside the open sheet ends a running walk first (one Escape always ends it)
     // and gives the focus back to the diagram; otherwise it collapses the sheet, as in M2.

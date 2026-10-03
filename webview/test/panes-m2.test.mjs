@@ -242,7 +242,7 @@ test('About lists every cited file with its freshness: muted when unchanged or u
       assert.ok(badge(file).classList.contains('is-muted'));
       assert.equal(badge(file).querySelector('svg'), null, 'no icon for a state that is not a problem');
     }
-    // Muted is the secondary text colour, the same as any note: never a success colour.
+    // Muted is the muted text colour (viewer M4 review), the same as any note: never a success colour.
     const note = $(ctx, '.mlv-about [data-about="files"] .mlv-about__note');
     assert.equal(ctx.window.getComputedStyle(badge('data.py')).color, ctx.window.getComputedStyle(note).color);
     assert.match(note.textContent, /It does not mean they support the claims\./);

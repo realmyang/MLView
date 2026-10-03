@@ -137,11 +137,141 @@ from a restored tab not yet shown. A diagram put back this way starts with a
 fresh view (selection and zoom reset); Reload Window keeps them. The root hint no longer also shows a VS Code
 notification, which outlived a restart with dead buttons; the panel's notice
 carries both actions. Multi-root windows recheck in place; Reload Window
-revives panels through the serializer. Checked by mock `vscode` tests (with a
+revives panels through the serializer. (Viewer M4, step 18, below: diagrams
+are now editors that Reload Window restores by itself.) Checked by mock `vscode` tests (with a
 mutation check) and in an isolated VS Code 1.139 Extension Development Host for
 the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M4, the smaller deferred items: the first view never opens
+card titles under about 10 px (9.75 px: the whole document opens only when it
+fits at 75% or more, otherwise phase 1 at 90%), and a wider panel never opens
+the same document with smaller titles unless it shows the whole document
+instead of phase 1. On three public shakedown artifacts at panel widths from
+320 to 1920 px, 600 and 900 px tall, the M2 plan opened at 69-90% (9.0-11.7 px
+titles, smaller in some wider panels than in narrower ones) and the M4 plan
+opens at 90% (11.7 px) everywhere, measured with the screenshot harness; a
+wide panel now shows fewer whole titles at first. Where the rail docks (a
+1260 px panel) the canvas loses 360 px, so a document that fits whole can open
+smaller there, never under 75%. Secondary and muted text are derived from
+the theme's own text colour instead of VS Code's description colour, which is
+Light Modern's text colour, 3.68-4.41:1 on cards, hovered rows and lane
+headers in Light+, and 3.30-4.36:1 on hovered rows, lane headers and other
+raised backgrounds in Dark 2026, VS Code's default dark theme. In a light
+theme muted text is the text mixed into the card surface in CIE Lab at 74%
+(26% of the lightness distance from the text to the card), lifted to L* 42
+where that is darker, and secondary text is halfway between the text and
+muted text, which gives Light+ (black text) #323232 and #636363 (relative
+colour syntax behind `@supports`; an engine without it keeps the plain mix).
+In a dark
+theme they are 9 and 18 L* below the text, never under L* 64.5 and never above
+the text, and secondary text is muted text where the text is under L* 79.5,
+which gives Dark 2026 two levels (CSS relative colour syntax behind
+`@supports`; an engine without it keeps a two-level mix). High Contrast keeps
+its text colour. Computed from the harness's VS Code 1.139 colours, both clear
+4.5:1 on every background they are drawn on in the six themes outside High
+Contrast (lowest 4.53:1, muted text on an unresolved card's hatching in
+Light+) and keep their order under the text colour. A first version mixed the
+text at 90% and 80% in every theme, which left secondary text 9-12% of the
+lightness distance from the text (finding F3 of an independent verification);
+a second mixed it at 87% and 74% in every light theme, which left Light+'s
+secondary text #202020 beside black titles and moved Light 2026's by 1%
+(finding V1 of a verification of that change).
+That verification also had a hovered **⋯** menu item's key hint drop VS
+Code's key-cap fill (3.29-3.34:1 in Light+ and Light Modern before), a chip in
+a hovered or selected Findings row drop its fill (4.49:1 computed in Dark 2026
+before), and About's `k=v` tokens use the text colour (3.82:1 in Dark 2026 and
+invisible in Light High Contrast before); a group's step count now drops its
+fill on a hovered group header as well. Before (90% and 80%) and after, on
+the card surface, the lowest on any background, and the share of the L*
+distance to the card:
+
+| Theme | Level | Before | Card | Lowest | L* share | After | Card | Lowest | L* share |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Dark Modern | secondary | #BBBBBB | 8.47:1 | 6.92:1 | 8.9% | #B3B3B3 | 7.80:1 | 6.37:1 | 12.9% |
+| | muted | #AAAAAA | 6.98:1 | 5.84:1 | 18.0% | #9C9C9C | 5.96:1 | 4.99:1 | 25.1% |
+| Dark+ | secondary | #C3C3C3 | 8.64:1 | 6.98:1 | 9.0% | #BBBBBB | 7.98:1 | 6.45:1 | 12.8% |
+| | muted | #B1B1B1 | 7.14:1 | 5.89:1 | 18.1% | #A3A3A3 | 6.06:1 | 4.99:1 | 25.6% |
+| Dark 2026 | secondary | #ACAEAF | 7.25:1 | 5.00:1 | 9.0% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| | muted | #9C9FA0 | 6.03:1 | 4.77:1 | 18.1% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
+| Light Modern | secondary | #4E4E4E | 7.85:1 | 6.56:1 | 11.4% | #515151 | 7.51:1 | 6.28:1 | 13.0% |
+| | muted | #616161 | 5.85:1 | 5.11:1 | 22.3% | #676767 | 5.29:1 | 4.62:1 | 26.0% |
+| Light+ | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #323232 | 11.48:1 | 9.61:1 | 21.9% |
+| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #636363 | 5.41:1 | 4.53:1 | 43.8% |
+| Light 2026 | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #404040 | 9.94:1 | 8.29:1 | 17.3% |
+| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #636364 | 5.76:1 | 4.83:1 | 34.6% |
+
+No contract change, no new setting and no geometry change. Checked by local
+jsdom tests and headless-Chrome 154 screenshots of a simulated host only
+(Chrome's computed colours match the table), not in live VS Code, in an older
+Chromium or as a usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M4, step 16 (changes since the previous revision): when a
+new revision names the one the panel is showing as its parent, About opens on
+**Changes since <id>**: the steps, connections and findings added, removed or
+changed, compared by id, each added or changed item a link (with the fields
+that changed) and each removed one listed as text, never drawn. Added and
+changed steps carry a "new" or "changed" tag on their card, an overlay that
+moves no box (the geometry golden is byte-identical); connections and findings
+carry it in the Outline, the Findings list and the Selection tab. The review
+walk gains **Changed in this revision**. Only revisions the panel has shown
+are compared: a revision that does not follow gets one line saying so, and
+closing the panel, reloading the window or restarting extensions forgets the
+comparison (a page VS Code rebuilt gets it back from the host). The `workflow`
+frame gains optional `previous` and `replaced` fields; no contract change, no
+new setting, nothing written to disk. Checked by jsdom and mock `vscode` tests
+and in an isolated VS Code 1.139 Extension Development Host on a scratch copy
+of the public vit-cc workspace, where the skill's helper published a child
+revision while the diagram was open. That live check ran on the step-16 build,
+before step 18 made the diagram an editor; it was not repeated live in the
+diagram editor. Not checked with a screen reader, on Windows or Linux, or as a
+usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M4, step 18 (open from the Explorer): a `*.mlview.json`
+opens as the diagram when clicked in the Explorer, from Quick Open or from a
+link: the **MLView Diagram** editor, read-only, its tab named after the file.
+The JSON opens with **View: Reopen Editor With…** → **Text Editor** or the
+Explorer's **Open With…**, and Source Control diffs and Timeline comparisons
+show text in VS Code 1.139 (older versions were not run). **MLView: Open
+Generated Diagram** is also in the Explorer's context menu and the title bar
+of the file opened as text, and opens the diagram editor beside, keeping the
+focus. The diagram is drawn from the file on disk, never from unsaved text.
+Several diagrams can be open, the same file in two groups included; Reveal in
+Diagram uses the active one, and a diagram is only ever brought forward in its
+own group. The editor is read-only because a custom text editor made VS Code
+ask to confirm every extension restart. The old webview panel is no longer
+created; one restored from an earlier MLView reopens as the diagram editor,
+with a fresh view (its selection, zoom and walk place are not carried over).
+After an extension restart MLView replaces the tabs VS Code leaves undrawn, as
+M1 did for panels, with a fresh view. The file watcher now runs only while a
+diagram is open. No contract change, no new setting or keybinding, no
+geometry change. Checked by mock `vscode` tests (with mutation checks) and in
+an isolated VS Code 1.139 Extension Development Host on a scratch copy of the
+public vit-cc workspace: Explorer click, Reopen With and Open With → Text
+Editor, the title button, Enter, the walk, Reveal in Diagram from
+`efficient.py`, Reload Window, adding a second folder, the same file twice and
+Git and Timeline diffs. That run found a diagram shown into another group
+became one editor in two groups; fixed and checked again. Not checked on
+Windows or Linux, in remote workspaces, with a screen reader, on VS Code before
+1.139, or as a usability check ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M4, corrections after an independent review of the branch:
+the "new" / "changed" tag now sits in one row with a card's "inferred" or
+"? unresolved" tag, so the two no longer overlap when zoomed out (below about
+52% the "changed" tag used to cover the other), and on a card too narrow for
+both it is cut short with an ellipsis; the card's hover card says what changed;
+a phase renamed under the same id no longer marks its steps changed and is
+listed once in About; About's Changes buttons are named by their visible text;
+About's notes, the change field lists and the Selection tab's "changed since"
+line are muted text (Light+ 5.37:1 or more instead of 4.40:1); a preview
+diagram tab that shows changes is kept open, so a single click on another file
+no longer drops the comparison; after an extension-host restart a diagram whose
+file left the workspace no longer moves the next diagram into another group;
+the page for a file outside every folder draws the diagram once a folder holds
+the file. Each fix has a test that fails without it; checked by jsdom and mock
+`vscode` tests and headless Chrome with a simulated host, not in live VS Code,
+with a screen reader or as a usability check ([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
 button or **Review the claims** in the **⋯** menu goes through the displayed
@@ -357,7 +487,8 @@ says "· 5 findings touch this phase" after its numbers; cards with a detail
 show two lines of it instead of the file:line row; a hover dims nothing; lane
 headings are numbered, at the title size, on a plate. Announcements say steps
 and connections and lead with the F label. A first view between 62% and about
-85% zoom still opens whole at small text (deferred). Dead scope, phase-chip
+85% zoom still opens whole at small text (deferred; viewer M4 changed the
+first view, see its paragraph). Dead scope, phase-chip
 and export-region code is removed and the benchmark tools run again. No
 contract change, no new setting and no geometry change. Checked by local jsdom
 tests and headless-Chrome probes of a simulated host only, not in live VS
@@ -433,7 +564,8 @@ live VS Code, with a screen reader or as a usability check
 Unreleased viewer M2, step 6 (a readable first view): the diagram opens whole
 when it fits at 62% or more, otherwise on its first phase at 90% (or the whole
 first phase when that fits at 75% or more); a view saved for the same revision
-still wins. On the public shakedown artifacts the first paint went from
+still wins. (Viewer M4 changed both bounds: whole from 75%, phase 1 at 90%
+only.) On the public shakedown artifacts the first paint went from
 17-59% (2.1-7.1 px titles) to 84-90% (11.0-11.7 px titles) at 541, 900 and
 1440 px, measured with the screenshot harness. Key `0` returns to that view;
 the Fit button is now **Fit the whole diagram** (in the header's ⋯ menu since

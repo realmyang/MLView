@@ -85,6 +85,23 @@ def test_retired_show_output_command_fails(tmp_path):
     assert any("commands" in p for p in module.check(tmp_path, vsix)[0])
 
 
+def test_the_diagram_editor_passes(tmp_path):
+    editors = [{"viewType": "mlview.diagram", "selector": [{"filenamePattern": "*.mlview.json"}], "priority": "default"}]
+    vsix = package(tmp_path, contributions={"customEditors": editors})
+    assert module.check(tmp_path, vsix, payload_only=True).problems == []
+
+
+def test_another_custom_editor_or_pattern_fails(tmp_path):
+    for editors in (
+        [{"viewType": "mlview.other", "selector": [{"filenamePattern": "*.mlview.json"}]}],
+        [{"viewType": "mlview.diagram", "selector": [{"filenamePattern": "*.json"}]}],
+        [{"viewType": "mlview.diagram", "selector": [{"filenamePattern": "*.mlview.json"}, {"filenamePattern": "*.py"}]}],
+        "mlview.diagram",
+    ):
+        vsix = package(tmp_path, contributions={"customEditors": editors})
+        assert module.check(tmp_path, vsix, payload_only=True).problems == ["unexpected custom editors"], editors
+
+
 def test_stale_renderer_fails(tmp_path):
     write_sources(tmp_path, **{"media/mlview.js": b"new renderer"})
     assert module.check(tmp_path, package(tmp_path))[0] == ["stale packaged payload: media/mlview.js"]

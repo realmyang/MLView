@@ -222,6 +222,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Viewer M4 hierarchy: on a hovered group header the step count drops its fill, which is the
+ * header's own colour (--mlv-surface-2, list.hoverBackground), as a chip in a hovered row does
+ * (rail.css). Where that colour is opaque (Dark Modern, Dark+, Light Modern, Light+) the pill
+ * already vanished into the header; where it is translucent (Dark 2026, Light 2026) the count
+ * painted it twice, the lightest background under secondary text in Dark 2026, which held
+ * secondary text to 14% of the L* distance to the card (test/muted-text.test.mjs). */
+.mlv-group__header:hover .mlv-group__count {
+  background: transparent;
+}
+
 .mlv-group.is-dim,
 .mlv-lane.is-dim {
   opacity: 0.5;

@@ -134,14 +134,22 @@ test('same revision content replacement is rejected and the prior workflow stays
   controller.dispose();
 });
 
-test('panel restore reloads the saved artifact without invoking analysis', async () => {
+// Viewer M4 (step 18), changed deliberately: a panel of the webview type MLView used before M4,
+// restored with the window, reopens as the diagram editor in its group, then closes.
+test('an earlier panel restored with the window reopens as the diagram editor, without invoking analysis', async () => {
   const {artifact,controller}=setup(workflow());
-  const panel=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
+  const legacy=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{viewColumn:2},{});
   const serializer=vscode.__recorded.serializers.get('mlview.authoredDiagram');
-  await serializer.deserializeWebviewPanel(panel,{artifact});
+  await serializer.deserializeWebviewPanel(legacy,{artifact});
+  assert.equal(legacy.disposed,true,'the earlier panel closes');
+  assert.equal(legacy.posted.length,0,'nothing is drawn in it');
+  assert.deepEqual(vscode.__recorded.openWith.map(c=>[c.uri.fsPath,c.viewType,c.options.viewColumn,c.options.preserveFocus]),[[artifact,'mlview.diagram',2,true]]);
+  const panel=vscode.__recorded.panels.at(-1);
+  assert.equal(panel.viewType,'mlview.diagram');
   assert.equal(panel.webview.options.enableScripts,true);
   assert.equal(panel.webview.options.localResourceRoots.length,1);
-  panel.fire({v:1,type:'ready'});await tick();
+  panel.fire({v:1,type:'ready'});
+  await waitFor(()=>panel.posted.some(x=>x.type==='workflow'),'the diagram editor showed nothing');
   assert.equal(panel.posted.find(x=>x.type==='workflow').document.title,'Authored');
   controller.dispose();
 });
@@ -157,14 +165,18 @@ test('initial and restored historical artifacts stay visible when cited source c
   opened.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise((resolve)=>setTimeout(resolve,20));
   assert.equal(vscode.__recorded.shownDocuments.length,0);
 
-  // One panel per artifact: a revived tab for an artifact already shown is closed, so close it first.
+  // Viewer M4: an earlier MLView panel restored with the window reopens as the diagram editor.
   opened.dispose();
-  const restored=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
+  const legacy=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
   const serializer=vscode.__recorded.serializers.get('mlview.authoredDiagram');
-  await serializer.deserializeWebviewPanel(restored,{artifact});
-  restored.fire({v:1,type:'ready'});await tick();
+  await serializer.deserializeWebviewPanel(legacy,{artifact});
+  assert.equal(legacy.disposed,true);
+  const restored=vscode.__recorded.panels.at(-1);
+  assert.equal(restored.viewType,'mlview.diagram');
+  // The page can be ready before the first check ends: wait for the banner it then gets.
+  restored.fire({v:1,type:'ready'});await waitFor(()=>restored.posted.some(x=>x.type==='workflowError'&&x.message),'the reopened diagram showed no banner');
   assert.ok(restored.posted.find(x=>x.type==='workflow'));
-  assert.match(restored.posted.find(x=>x.type==='workflowError').message,/historical diagram is visible/);
+  assert.match(restored.posted.filter(x=>x.type==='workflowError').at(-1).message,/historical diagram is visible/);
   controller.dispose();
 });
 
@@ -634,15 +646,20 @@ test('unsaved notebook cells guard navigation without changing validation', asyn
 test('restore and open accept only a workspace *.mlview.json artifact', async () => {
   const fixture=await openFixture({});
   const serializer=vscode.__recorded.serializers.get('mlview.authoredDiagram');
+  const opened=vscode.__recorded.openWith.length;
   for (const artifact of [path.join(fixture.root,'notes.txt'),'run.mlview.json',path.join(fixture.root,'run.mlview.json.bak'),path.join(path.dirname(fixture.root),'elsewhere.mlview.json')]) {
     fs.writeFileSync(path.join(fixture.root,'notes.txt'),'{}');
     const restored=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
     await serializer.deserializeWebviewPanel(restored,{artifact});
     assert.equal(restored.disposed,true,`restore of ${artifact} must dispose`);
   }
+  assert.equal(vscode.__recorded.openWith.length,opened,'none of them reopens as a diagram editor');
+  // Viewer M4: an accepted earlier panel reopens as the diagram editor, then closes.
   const accepted=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
-  await serializer.deserializeWebviewPanel(accepted,{artifact:fixture.artifact.replace(/run\.mlview\.json$/,'RUN.MLVIEW.JSON')});
-  assert.equal(accepted.disposed,false,'the suffix check is ASCII case-insensitive');
+  const variant=fixture.artifact.replace(/run\.mlview\.json$/,'RUN.MLVIEW.JSON');
+  await serializer.deserializeWebviewPanel(accepted,{artifact:variant});
+  assert.deepEqual(vscode.__recorded.openWith.slice(opened).map(c=>[c.uri.fsPath,c.viewType]),[[variant,'mlview.diagram']],'the suffix check is ASCII case-insensitive');
+  assert.equal(accepted.disposed,true);
   const panels=vscode.__recorded.panels.length;
   await fixture.controller.open(vscode.Uri.file(path.join(fixture.root,'notes.txt')));
   assert.equal(vscode.__recorded.panels.length,panels);

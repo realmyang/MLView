@@ -18,7 +18,8 @@ VS Code extension. The JavaScript bundle exposes this browser API:
 ```ts
 window.MLView = {
   version: '0.3.0',
-  mountWorkflow(root: HTMLElement, document: WorkflowDocument, bridge: HostBridge): WorkflowViewApp,
+  mountWorkflow(root: HTMLElement, document: WorkflowDocument, bridge: HostBridge,
+                comparison?: { previous?: WorkflowDocument; replaced?: string }): WorkflowViewApp,
   normalizeWorkflow(document: WorkflowDocument): MLGraph,
   bridges: { vscode(): HostBridge }
 }
@@ -55,6 +56,54 @@ Viewer M1 protocol details:
   arms an opener (`src/ui/doubleclick.ts`), and the second click, wherever it
   lands, opens what the first one selected: the first click can rebuild the
   rows, collapse a finding above, or open the bottom sheet under the pointer.
+
+Viewer M4 protocol, changes since the previous revision (roadmap step 16; no
+contract change):
+
+- The `workflow` frame has two optional fields. `previous` is the valid
+  document the panel showed just before, sent only when `document.revision.parent`
+  is its id; `replaced` is the id of the revision the panel showed before when
+  `document` does not follow it. The host keeps them in memory per panel
+  (`nextComparison` in `vscode-extension/src/revisionLineage.ts`: a child
+  compares with the revision it replaced, any other revision records only what
+  it replaced, the same revision again keeps what it had) and sends them with
+  every `workflow` frame, including the first one a new page gets after
+  `ready`. A new panel (a window reload, an extension restart) has neither.
+  Nothing is persisted, by the host or in the webview's saved state.
+- The host bootstrap passes them to `mountWorkflow` as its fourth argument;
+  later frames go to `App.setWorkflow(document, preserve, comparison)`. The
+  viewer checks them again (`sanitizeComparison` in `src/revisiondiff.ts`:
+  `previous` must be a 1.0 document whose id is the parent and not the
+  document's own id; `replaced` a string that is neither) and recomputes the
+  comparison from every frame, so a frame without them shows none.
+- `revisionDiff(prev, next)` is pure. It compares steps, connections and
+  findings by id: added, removed, or changed when one of these differs: a
+  step's label, detail, basis, phase (a move: phases are matched by id, or by
+  label when the id is gone and exactly one new phase has it), parent, kind or
+  evidence; a
+  connection's source, target, label, kind, basis or evidence; a finding's
+  title, message, severity, basis, suggestion, cited steps and connections (as
+  sets), evidence or counter-evidence. Evidence is a sorted multiset of what
+  each cited record cites (file, line, endLine, cell, quote), never its ids.
+  Its `marks` map (`kind:id`) holds the added and changed items, and `phases`
+  the phases renamed under the same id (viewer M4 review, M4R-4), which About
+  lists once and which tag no step.
+- What reads it: About's first section (`Changes since <id>`, or one line for
+  `replaced`; a parent the panel never showed is one line under Provenance),
+  the card tag (`.mlv-rev-tag`, drawn by `render/nodes.ts` from a
+  `revisionMark` option of `renderScene`, outside the scene plan, so the SVG
+  export does not draw it and no box moves; since the review it shares a row,
+  `.mlv-node__tags`, with the card's basis tag, placed as a lone basis tag and
+  capped at the card's width on screen, with "new" / "changed" cut short by an
+  ellipsis when both do not fit), the card's hover card ("Changed since
+  revision r1: label."), the Selection pane's line under
+  the title, the Outline's step and relationship rows, the Findings list rows,
+  and the walk's `revision` filter ("Changed in this revision", between
+  Findings and Changed files, offered only when it holds a claim). The legend
+  has a "Changes since the previous revision" section.
+- `test/revision-changes.test.mjs` covers the diff, the check, every surface
+  and the unchanged routed geometry; `authoredChangesHandshake` in
+  `test/authored-handshake.mjs` drives the real host.
 
 Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol change):
 
@@ -107,10 +156,12 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
   byte-identical, and the viewport is not part of it):
   - `readablePlan(frame, w, h)` in `render/canvas.ts` is pure: the whole
     document, centred, when `fitPlan` (now only the whole-document fit, capped
-    at 1.2) gives `LOD_FULL_ZOOM` (0.62) or more; otherwise phase 1 (the first
-    lane, widened left by `frame.channelW`) fitted when that zoom is
-    `PHASE_FIT_MIN_ZOOM` (0.75) or more, capped at `READABLE_ZOOM` (0.9), else
-    anchored top-left at 0.9. A document narrower or shorter than the canvas
+    at 1.2) gives `READABLE_MIN_ZOOM` (0.75) or more; otherwise phase 1 (the
+    first lane, widened left by `frame.channelW`) at `READABLE_ZOOM` (0.9),
+    anchored top-left. Until viewer M4 the whole document opened down to
+    `LOD_FULL_ZOOM` (0.62) and phase 1 was fitted between 0.75 and 0.9
+    (`PHASE_FIT_MIN_ZOOM`, now only `phasePlan`'s); see "Viewer M4 first
+    view" below. A document narrower or shorter than the canvas
     at that zoom is centred on that axis. `ViewportController.fit()` runs it
     (first paint, key 0, a refit on resize); `fitWhole()` is the ⋯ menu's
     **Fit the whole diagram** (Shift+0 was Overview, fold every group and fit
@@ -133,6 +184,78 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
     over every compact zoom from the shipped stylesheet's numbers and the card
     heights `cardHeight` reserves (10 px or more down to 0.35 for a one-line
     title with a file:line row; never more lines than the box holds).
+- Viewer M4 first view (A11Y-7; no geometry change, the golden is
+  byte-identical):
+  - The first view never paints a card title under 9.75 px (13 px x
+    `READABLE_MIN_ZOOM`, 0.75, the size M2 judged still readable), and a wider
+    or taller canvas never paints the same document with smaller titles, except
+    where it shows the whole document instead of phase 1, still at 0.75 or
+    more. Phase 1 always opens at 0.9; the whole fit only grows with the
+    canvas. `LOD_FULL_ZOOM` (0.62) is unchanged and only picks the card face.
+  - Under the M2 plan, the screenshot harness measured dino-copilot at 90%
+    (11.7 px titles) up to 900 px wide and whole at 69-72% (9.0-9.4 px) from
+    1100 px; vit-cc at 81% (10.5 px) at 786 px between 90% at 700 and 900 px;
+    yolov5-cc2 at 80-86% (10.3-11.2 px) from 1100 px. With M4 all three open
+    at 90% (11.7 px) at every width from 320 to 1920 px, 600 and 900 px tall.
+    The cost: a wide panel shows fewer whole titles at first (dino-copilot at
+    1440x900: 14 instead of 17); **Fit the whole diagram** and the phase index
+    are unchanged.
+  - Across the width where the rail docks (a panel of 1260 px), the canvas
+    loses 360 px to the rail, so a document that opens whole on both sides can
+    open smaller with the rail docked (a 1000x500 document: 1.2 to 0.85),
+    never under 0.75.
+  - `test/readable-view.test.mjs` sweeps canvas widths 200-2600 px and heights
+    200-1600 px over synthetic frames with the sizes of those three documents,
+    a small and a medium document, and the viewer's own layout of the
+    `VIT_SHAPE`, `YOLO_SHAPE` and regression fixtures, and the panel widths
+    320-1920 px through the measured panel-to-canvas sizes.
+- Viewer M4 secondary and muted text (`--mlv-text-2`, `--mlv-text-3`),
+  derived from the theme's text colour; high contrast keeps its text colour
+  for both. In a light theme, muted text is `color-mix(in lab,
+  var(--mlv-text) 74%, var(--mlv-surface))` (26% of the L* distance from the
+  text to the card) lifted to L* 42 where that mix is darker, `lab(from
+  <the mix> max(l, 42) a b)` behind `@supports` on the exact expression, and
+  secondary text is `color-mix(in lab, var(--mlv-text) 50%,
+  var(--mlv-text-3))`, halfway to it (Light+: #000000, #323232, #636363; an
+  engine without relative colour syntax keeps the plain mix). In a dark
+  theme, 9 and 18 L* below the text, never under L* 64.5 (the lowest that
+  clears 4.5:1 on every background VS Code's default dark themes paint under
+  them) and never above the text,
+  with secondary text joining muted text where the text is under L* 79.5:
+  `lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b)` and its
+  secondary form, behind `@supports` on the exact expression, with a
+  two-level `color-mix(in lab, ... 80%, ...)` for an engine without relative
+  colour syntax. Dark 2026's dim text gets two levels. They no longer read
+  `descriptionForeground`, which is Light Modern's text colour (#3B3B3B),
+  4.40:1 on Light+'s widget background (#717171) and about 3.8:1 on a hovered
+  row in Dark 2026 (#8C8C8C). No per-theme rule; CSS cannot compare two
+  run-time colours, so the floor is a fixed lightness, not measured against a
+  third-party theme's backgrounds (nor is the light lift). Lowest, secondary
+  then muted: Dark Modern 6.37:1 and 4.99:1, Dark+ 6.45:1 and 4.99:1, Dark
+  2026 4.67:1 for both, Light Modern 6.28:1 and 4.62:1, Light+ 9.61:1 and
+  4.53:1, Light 2026 8.29:1 and 4.83:1. A hovered **⋯** menu item's icon,
+  key hint and note take the item's colour, and the key hint's key cap (VS Code paints every
+  `<kbd>`) drops its fill there. A chip in a hovered or selected Findings row,
+  and a group's step count on a hovered group header, drop their fill (the
+  row's or header's own `--mlv-surface-2`, translucent in the 2026 themes).
+  About's `k=v` tokens (`<code>`) take their paragraph's text colour, not VS
+  Code's `textPreformat.foreground`. `export/palette.ts` derives the same
+  (`LIGHT_TEXT_LEVELS`, `DARK_TEXT_LEVELS`). `test/muted-text.test.mjs` is the
+  theme x token x background matrix for engines with and without relative
+  colour syntax, nested `--mlv-surface-2` boxes included, with a census of
+  the stylesheets' backgrounds, the muted-text selectors, the
+  `--mlv-surface-2` boxes with their own secondary or muted text, and the
+  `<kbd>` and `<code>` elements, an L* check per theme (muted text at 80% or
+  more of the room the theme has at 4.5:1 and 25% or more of the way to the
+  card, secondary text 12.5% or more of the way, 40% or more of its room and
+  a step from muted text, or the named two-level case) and sweeps of the
+  light rule over text and card lightness and of the dark rule over text
+  lightness;
+  `test/colour-lab.mjs` holds the Lab arithmetic and CSS math the token tests
+  share. `tools/screenshots/capture.mjs` records a computed-colour probe per
+  screenshot (`facts.inks`, reading rgb(), color(srgb) and lab()), reading
+  each colour through a fresh element and reporting a colour no element
+  matched as an `error`.
 - The Selection pane (viewer M2 below) shows the claim first; its quotes sit
   under a caption saying that a matching quote does not show support, and one
   line links to the document-wide limitations in About.
@@ -492,8 +615,10 @@ change, no new setting; the golden is byte-identical):
   it (`clearOf`). `animateTo(target, VIEW_ANIMATION_MS)` (240 ms, instant
   under `motionMode() === 'reduced'`) moves the canvas-centre point in a
   straight line with the zoom on a log scale; any other move cancels it.
-  `phasePlan(frame, k, w, h)` is the view of phase k at reading size, the
-  readable plan's rule for phase 1.
+  `phasePlan(frame, k, w, h)` is the view of phase k at reading size: the
+  phase fitted between `PHASE_FIT_MIN_ZOOM` (0.75) and 0.9, else 0.9 anchored
+  (M2's first-view rule for phase 1; since viewer M4 the first view opens
+  phase 1 at 0.9 only).
 - `test/phase-overview.test.mjs` covers the geometry at the three sizes on the
   vit-cc and yolov5-cc2 shapes (counts, partition, blocks inside the canvas,
   columns, scrolling), link classification and slot sharing, reading order
@@ -621,7 +746,9 @@ node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/sh
   When no file is really stale, the stale states mark one file cited by the
   clicked step as changed, and `index.json` says it was simulated.
 - The page plays the VS Code side: VS Code theme colours (Dark Modern, Light
-  Modern, Dark High Contrast), a stub `acquireVsCodeApi`, and the panel's own
+  Modern, Dark High Contrast; since viewer M4 also Dark+, Light+, Light High
+  Contrast, Dark 2026 and Light 2026: `--theme dark-plus`, `light-plus`,
+  `hc-light`, `dark-2026`, `light-2026`), a stub `acquireVsCodeApi`, and the panel's own
   inline bootstrap read from `vscode-extension/src/authoredPanel.ts`. It
   posts what the extension posts: `init`, `workflow`, and for the stale states
   `stale` and the stale banner. Nothing answers the viewer's requests;
