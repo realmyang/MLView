@@ -695,6 +695,8 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
     private rootHint: RootHint | undefined;
     /** The whole-range highlight of the last source jump; disposing it clears it from every editor. */
     private highlight: vscode.TextEditorDecorationType | undefined;
+    /** The editor and selection the last source jump set, until the walk releases it (see `releaseJumpSelection`). */
+    private jumpSelection: { editor: vscode.TextEditor; selection: vscode.Selection } | undefined;
     /** The number of the latest source jump (see `Jump`). */
     private jumpSeq = 0;
     /**
@@ -1358,8 +1360,10 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         const shown = this.lastValid;
         const evidence = shown?.document.evidence.find(x => x.id === id);
         if (!shown || !evidence) {
-            if (walk)
+            if (walk) {
                 this.clearHighlight();
+                this.releaseJumpSelection();
+            }
             answer({ outcome: 'blocked', reason: 'unknown', message: blockedOpenText('unknown', ''), warning: '' });
             return;
         }
@@ -1387,8 +1391,10 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         // Viewer M3 (step 11): a blocked walk open also clears the previous claim's highlight, so
         // the editor beside never shows an earlier claim's lines while the walk says this claim's
         // file was not opened. A blocked Enter, double-click or Open link keeps it, as in M2.
-        if (outcome.outcome === 'blocked' && walk)
+        if (outcome.outcome === 'blocked' && walk) {
             this.clearHighlight();
+            this.releaseJumpSelection();
+        }
         answer(outcome);
     }
     private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, options: { focus: boolean; highlight: boolean }, markBehind: () => void): Promise<JumpOutcome> {
@@ -1495,6 +1501,29 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
     private endWalk(): void {
         this.jumpSeq++;
         this.clearHighlight();
+        this.releaseJumpSelection();
+    }
+    /**
+     * Viewer M3 (live check): the walk ended, cleared or was blocked, and its highlight went, but the
+     * editor kept the earlier claim's lines selected (drawn in the inactive-selection colour). When
+     * that editor is still visible and its selection is still exactly the one the jump set, it is
+     * collapsed to the start of the cited range; a selection the reader changed is left alone.
+     */
+    private releaseJumpSelection(): void {
+        const set = this.jumpSelection;
+        this.jumpSelection = undefined;
+        if (!set || !vscode.window.visibleTextEditors.includes(set.editor))
+            return;
+        const same = (a: vscode.Position, b: vscode.Position): boolean => a.line === b.line && a.character === b.character;
+        const current = set.editor.selection;
+        if (!current || !same(current.anchor, set.selection.anchor) || !same(current.active, set.selection.active))
+            return;
+        try {
+            set.editor.selection = new vscode.Selection(set.selection.anchor, set.selection.anchor);
+        }
+        catch (error) {
+            this.log.warn(`could not collapse the walk's selection: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
     /**
      * True when the cited file is fresh in the displayed revision's last validation and its bytes
@@ -1663,7 +1692,9 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
     }
     /** Select the whole range, reveal it, and move the highlight to it (`highlight` false: only clear the old one). */
     private showRange(editor: vscode.TextEditor, range: vscode.Range, highlight = true): void {
-        editor.selection = new vscode.Selection(range.start, range.end);
+        const selection = new vscode.Selection(range.start, range.end);
+        editor.selection = selection;
+        this.jumpSelection = { editor, selection };
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
         this.clearHighlight();
         if (!highlight)
@@ -1817,6 +1848,7 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         this.scheduler.dispose();
         this.cancelRetry();
         this.clearHighlight();
+        this.jumpSelection = undefined;
         this.citations = undefined;
         this.citedIdentities = undefined;
         this.pendingReveal = undefined;

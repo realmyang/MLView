@@ -401,8 +401,9 @@ export type UiToHost =
   /**
    * Viewer M3: the review walk ended (`end`), or it moved to a claim it opens nothing for (`clear`:
    * a claim with no quote, or one it only selected). Either way the host clears the cited-range
-   * highlight and drops a walk open still on its way, so the editor never shows an earlier claim's
-   * lines as if they were this one's.
+   * highlight, collapses the selection the walk set if the editor still has it, and drops a walk
+   * open still on its way, so the editor never shows an earlier claim's lines as if they were this
+   * one's.
    */
   | { v: 1; type: 'walk'; state: 'end' | 'clear' }
   /** Viewer M1: the workspace-root hint's two actions. The host owns the folder. */

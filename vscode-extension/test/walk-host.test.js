@@ -3,9 +3,10 @@
  * Viewer M3, the host side of the review walk (roadmap step 12): numbered opens (`seq`) whose
  * superseded requests are dropped, one `actionResult` per open with a `requestId`, blocked opens of
  * stale or missing files that never open them and raise no notification for the walk, the
- * whole-range highlight with its overview-ruler mark cleared at the walk's end and on dispose, and
- * the jump checks cached per revision and freshness version. Mock `vscode` only: none of this is a
- * live check.
+ * whole-range highlight with its overview-ruler mark cleared at the walk's end and on dispose, the
+ * walk's own selection collapsed when the walk ends, clears or is blocked (a selection the reader
+ * changed is kept), and the jump checks cached per revision and freshness version. Mock `vscode`
+ * only: none of this is a live check.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -228,6 +229,98 @@ test('a blocked walk open clears the previous claim\'s highlight; a blocked ordi
   await h.waitFor(() => openResults(panel).length === 5, 'the unknown open was not answered');
   assert.equal(openResults(panel)[4].reason, 'unknown');
   assert.equal(vscode.__recorded.decorationTypes[1].disposed, true);
+});
+
+/** Viewer M3 (live check): the selection a walk open set, as [startLine, startChar, endLine, endChar]. */
+const sel = (editor) => range(editor.selection);
+
+test('the walk end and a walk clear collapse the selection the walk set to its start', async () => {
+  const { document, files } = twoFiles();
+  const { panel } = await open({ raw: document, files });
+  vscode.__setShownEditorsVisible(true);
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => openResults(panel).length === 1, 'the open was not answered');
+  const editor = shown()[0].editor;
+  assert.deepEqual(sel(editor), [1, 0, 2, 'save()'.length], 'the open selects the cited lines');
+  panel.fire({ v: 1, type: 'walk', state: 'end' });
+  assert.deepEqual(sel(editor), [1, 0, 1, 0], 'the walk end leaves the cursor at the start of the cited lines');
+  assert.equal(vscode.__recorded.decorationTypes[0].disposed, true);
+  walkOpen(panel, 'e2', 2);
+  await h.waitFor(() => openResults(panel).length === 2, 'the next open was not answered');
+  const other = shown()[1].editor;
+  assert.deepEqual(sel(other), [0, 0, 0, 'other()'.length]);
+  panel.fire({ v: 1, type: 'walk', state: 'clear' });
+  assert.deepEqual(sel(other), [0, 0, 0, 0], 'a walk clear collapses it too');
+  // Released once: a second end changes nothing, even if the reader selected the same lines again.
+  other.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, 'other()'.length));
+  panel.fire({ v: 1, type: 'walk', state: 'end' });
+  assert.deepEqual(sel(other), [0, 0, 0, 'other()'.length]);
+});
+
+test('the walk end leaves a selection the reader changed, and an editor no longer shown', async () => {
+  const { document, files } = twoFiles();
+  const { panel } = await open({ raw: document, files });
+  vscode.__setShownEditorsVisible(true);
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => openResults(panel).length === 1, 'the open was not answered');
+  const editor = shown()[0].editor;
+  // The reader moved the cursor (or selected something else) in the editor beside.
+  editor.selection = new vscode.Selection(new vscode.Position(2, 0), new vscode.Position(2, 3));
+  panel.fire({ v: 1, type: 'walk', state: 'end' });
+  assert.deepEqual(sel(editor), [2, 0, 2, 3], 'the reader\'s selection is kept');
+  assert.equal(vscode.__recorded.decorationTypes[0].disposed, true, 'the highlight still goes');
+  // Only the end of the range differs: still the reader's, still kept.
+  walkOpen(panel, 'e', 2);
+  await h.waitFor(() => openResults(panel).length === 2, 'the second open was not answered');
+  const again = shown()[1].editor;
+  again.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(2, 2));
+  panel.fire({ v: 1, type: 'walk', state: 'end' });
+  assert.deepEqual(sel(again), [1, 0, 2, 2]);
+  // An editor that is no longer visible (its preview tab was replaced, or it was closed) is not touched.
+  walkOpen(panel, 'e', 3);
+  await h.waitFor(() => openResults(panel).length === 3, 'the third open was not answered');
+  const closed = shown()[2].editor;
+  vscode.__setVisibleTextEditors([]);
+  panel.fire({ v: 1, type: 'walk', state: 'end' });
+  assert.deepEqual(sel(closed), [1, 0, 2, 'save()'.length]);
+});
+
+test('a blocked walk open collapses the previous claim\'s selection; a blocked ordinary open keeps it', async () => {
+  const { document, files } = twoFiles();
+  // other.py is missing on disk, so its evidence is blocked; source.py is fresh.
+  const { panel } = await open({ raw: document, files: { 'source.py': files['source.py'] } });
+  vscode.__setShownEditorsVisible(true);
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => openResults(panel).length === 1, 'the fresh open was not answered');
+  const editor = shown()[0].editor;
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e2', requestId: 'plain1' });
+  await h.waitFor(() => openResults(panel).length === 2, 'the ordinary open was not answered');
+  assert.equal(openResults(panel)[1].outcome, 'blocked');
+  assert.deepEqual(sel(editor), [1, 0, 2, 'save()'.length], 'an ordinary blocked open keeps the selection, as it keeps the highlight');
+  walkOpen(panel, 'e2', 2);
+  await h.waitFor(() => openResults(panel).length === 3, 'the walk open was not answered');
+  assert.equal(openResults(panel)[2].outcome, 'blocked');
+  assert.deepEqual(sel(editor), [1, 0, 1, 0], 'a blocked walk open collapses it with the highlight');
+  // Unknown evidence from the walk does the same.
+  walkOpen(panel, 'e', 3);
+  await h.waitFor(() => openResults(panel).length === 4, 'the fresh open was not answered again');
+  const again = shown()[1].editor;
+  walkOpen(panel, 'nope', 4);
+  await h.waitFor(() => openResults(panel).length === 5, 'the unknown open was not answered');
+  assert.deepEqual(sel(again), [1, 0, 1, 0]);
+});
+
+test('the walk end collapses the selection in a notebook cell editor', async () => {
+  const { panel, root } = await openNotebookPanel();
+  walkOpen(panel, 'e', 1);
+  await h.waitFor(() => openResults(panel).length === 1, 'the notebook open was not answered', 3000);
+  assert.equal(openResults(panel)[0].outcome, 'done');
+  const notebook = vscode.workspace.notebookDocuments.find((nb) => nb.uri.fsPath === path.join(root, 'notes.ipynb'));
+  const cellEditor = vscode.window.visibleTextEditors.find((e) => e.document === notebook.cellAt(1).document);
+  assert.ok(cellEditor, 'the cell editor is visible');
+  assert.deepEqual(sel(cellEditor), [1, 0, 2, 'save()'.length]);
+  panel.fire({ v: 1, type: 'walk', state: 'end' });
+  assert.deepEqual(sel(cellEditor), [1, 0, 1, 0]);
 });
 
 test('the walk end drops a notebook open waiting for its cell editor', async () => {

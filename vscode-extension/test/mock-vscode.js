@@ -371,6 +371,8 @@ let visibleTextEditors = [];
 let visibleNotebookEditors = [];
 /** Whether showNotebookDocument makes the selected cells' editors visible (as VS Code does once it draws them). */
 let notebookCellEditors = true;
+/** Opt-in: showTextDocument's editor becomes the visible one in its column, as a preview tab replaces the last. */
+let shownEditorsVisible = false;
 
 /**
  * Viewer M2 live fix: the column an editor shown with `viewColumn` lands in. With tab groups set
@@ -737,6 +739,7 @@ const vscode = {
     showTextDocument: async (document, options) => {
       const editor = makeTextEditor(document, resolveColumn(options && options.viewColumn, document && document.uri && path.basename(document.uri.fsPath)));
       recorded.shownDocuments.push({ document, options, editor });
+      if (shownEditorsVisible) visibleTextEditors = [...visibleTextEditors.filter((other) => other.viewColumn !== editor.viewColumn), editor];
       return editor;
     },
     /**
@@ -1031,6 +1034,10 @@ const vscode = {
   __setNotebookCellEditors(enabled) {
     notebookCellEditors = !!enabled;
   },
+  /** Whether showTextDocument's editor joins visibleTextEditors, replacing the one in its column (default false). */
+  __setShownEditorsVisible(enabled) {
+    shownEditorsVisible = !!enabled;
+  },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
     documents.set(docKey(fsPath), text);
@@ -1219,6 +1226,7 @@ const vscode = {
     notebookDocuments = [];
     visibleTextEditors = [];
     visibleNotebookEditors = [];
+    shownEditorsVisible = false;
     vscode.window.activeTextEditor = undefined;
     for (const key of [
       'saveListeners',
