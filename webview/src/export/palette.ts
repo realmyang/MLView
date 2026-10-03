@@ -92,11 +92,12 @@ export const EDGE_MIX: Record<ThemeKind, number> = { light: 0.64, dark: 0.54, hc
 export const NODE_EDGE_MIX: Record<ThemeKind, number> = { light: 0.58, dark: 0.46, hc: 1 };
 
 /**
- * Viewer M4: secondary (`--mlv-text-2`) and muted (`--mlv-text-3`) text in a light theme are the
- * text colour mixed into the card surface in CIE Lab at these shares,
- * color-mix(in lab, text 87% / 74%, surface): 13% and 26% of the L* distance to the card.
+ * Viewer M4: muted text (`--mlv-text-3`) in a light theme is the text colour mixed into the card
+ * surface in CIE Lab at `mix` (color-mix(in lab, text 74%, surface), 26% of the L* distance to the
+ * card), lifted to L* `floor` where the mix is darker, with the mix's a and b; secondary text
+ * (`--mlv-text-2`) is halfway between the text and muted text in Lab (tokens.css).
  */
-export const LIGHT_TEXT_MIX = { text2: 0.87, text3: 0.74 } as const;
+export const LIGHT_TEXT_LEVELS = { mix: 0.74, floor: 42 } as const;
 
 /**
  * Viewer M4: in a dark theme each is a step below the text's L*, kept above a floor and never
@@ -177,6 +178,20 @@ export function mixLabHex(a: string, b: string, share: number): string {
   return toHex(labToSrgb(la.map((v, i) => v * share + lb[i] * (1 - share))));
 }
 
+/** A light theme's secondary and muted text for its text colour and card surface, as tokens.css derives them; null when either is unreadable. */
+export function lightTextLevels(text: string, surface: string): { text2: string; text3: string } | null {
+  const ct = parseColor(text);
+  const cs = parseColor(surface);
+  if (!ct || !cs) return null;
+  const lt = srgbToLab(ct);
+  const ls = srgbToLab(cs);
+  const { mix, floor } = LIGHT_TEXT_LEVELS;
+  const muted = lt.map((v, i) => v * mix + ls[i] * (1 - mix));
+  muted[0] = Math.max(muted[0], floor);
+  const secondary = lt.map((v, i) => (v + muted[i]) / 2);
+  return { text2: toHex(labToSrgb(secondary)), text3: toHex(labToSrgb(muted)) };
+}
+
 /** A dark theme's secondary and muted text for its text colour, as tokens.css derives them; null when the text is unreadable. */
 export function darkTextLevels(text: string): { text2: string; text3: string } | null {
   const rgb = parseColor(text);
@@ -203,8 +218,8 @@ const LIGHT: Palette = {
   border: '#E3E5EB',
   borderStrong: '#C9CDD6',
   text: '#16181D',
-  text2: '#2F3135', // derive(): color-mix(in lab, text 87%, surface), as tokens.css (viewer M4)
-  text3: '#4A4B50', // derive(): color-mix(in lab, text 74%, surface)
+  text2: '#3A3C41', // derive(): halfway from the text to muted text in Lab, as tokens.css (viewer M4)
+  text3: '#616368', // derive(): color-mix(in lab, text 74%, surface), lifted to L* 42
   link: '#2B57C4',
   accent: '#3B6CF6',
   edge: '#8C93A3',
@@ -298,15 +313,10 @@ function derive(palette: Palette, theme: ThemeKind): Palette {
   }
   palette.edge = mixHex(palette.text, palette.bg, EDGE_MIX[theme]) || palette.edge;
   palette.nodeEdge = mixHex(palette.text, palette.bg, NODE_EDGE_MIX[theme]) || palette.border;
-  if (theme === 'light') {
-    palette.text2 = mixLabHex(palette.text, palette.surface, LIGHT_TEXT_MIX.text2) || palette.text2;
-    palette.text3 = mixLabHex(palette.text, palette.surface, LIGHT_TEXT_MIX.text3) || palette.text3;
-  } else {
-    const levels = darkTextLevels(palette.text);
-    if (levels) {
-      palette.text2 = levels.text2;
-      palette.text3 = levels.text3;
-    }
+  const levels = theme === 'light' ? lightTextLevels(palette.text, palette.surface) : darkTextLevels(palette.text);
+  if (levels) {
+    palette.text2 = levels.text2;
+    palette.text3 = levels.text3;
   }
   return palette;
 }
@@ -340,13 +350,17 @@ export function mixHex(a: string, b: string, share: number): string {
 
 /**
  * A `color-mix(in srgb | lab, <colour> <p>%, <colour>)` whose colours are literals (what a custom
- * property holds once its var() references are substituted), as a hex literal; '' otherwise.
+ * property holds once its var() references are substituted), as a hex literal; '' otherwise. The
+ * second colour may itself be such a color-mix(): a light theme's secondary text is the text mixed
+ * with muted text, which is a plain mix in an engine without relative colour syntax.
  */
 export function resolveColorMix(value: string): string {
   const m = /^color-mix\(\s*in (srgb|lab)\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s*\)$/i.exec(value.trim());
   if (!m) return '';
   const share = Number(m[3]) / 100;
-  return m[1].toLowerCase() === 'lab' ? mixLabHex(m[2], m[4], share) : mixHex(m[2], m[4], share);
+  const second = /^color-mix\(/i.test(m[4]) ? resolveColorMix(m[4]) : m[4];
+  if (!second) return '';
+  return m[1].toLowerCase() === 'lab' ? mixLabHex(m[2], second, share) : mixHex(m[2], second, share);
 }
 
 export function severityColor(palette: Palette, severity: string | null): string {

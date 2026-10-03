@@ -177,13 +177,17 @@ const HC_BODY = 'body.vscode-high-contrast, body.vscode-high-contrast-light, :ro
 /**
  * The custom properties in force on the canvas for a harness theme, as tokens.css declares them
  * for an engine with relative colour syntax (every VS Code the extension supports): its @supports
- * block (viewer M4, secondary and muted text in a dark theme) applies over the dark block.
+ * blocks (viewer M4, secondary and muted text in a light and in a dark theme) apply over the light
+ * and the dark block.
  */
 async function themeVars() {
   const { blocks, rest: tokens } = splitSupports(await css('tokens.css'));
   const themes = await harnessThemes();
-  const light = block(tokens, LIGHT_ROOT);
-  const dark = { ...block(tokens, DARK_BODY), ...Object.assign({}, ...blocks.map((b) => block(b.body, DARK_BODY))) };
+  // Each @supports block holds the light branch or the dark branches, not both.
+  const names = (text) => [...text.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim().replace(/\s+/g, ' '));
+  const inSupports = (selector) => Object.assign({}, ...blocks.filter((b) => names(b.body).includes(selector)).map((b) => block(b.body, selector)));
+  const light = { ...block(tokens, LIGHT_ROOT), ...inSupports(LIGHT_ROOT) };
+  const dark = { ...block(tokens, DARK_BODY), ...inSupports(DARK_BODY) };
   const hc = block(tokens, HC_BODY);
   const root = block(tokens, '.mlv-root');
   const out = {};

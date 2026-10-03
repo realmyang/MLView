@@ -65,12 +65,16 @@
  * @contrast (4.5:1): About's k=v tokens (<code>) in every theme, High Contrast included
  * @contrast (4.5:1): --mlv-text-3 on the backgrounds its selectors sit on: the canvas,
  *   --mlv-surface, a hatched card, --mlv-surface-2 on a surface and a lane header
- * @contrast (4.5:1): the same for an engine without relative colour syntax (the dark fallback)
+ * @contrast (4.5:1): the same for an engine without relative colour syntax (the light and dark
+ *   fallbacks)
  * @order: --mlv-text at least as strong as --mlv-text-2, and --mlv-text-2 as --mlv-text-3, on
  *   every background
- * @hierarchy: on the L* line from --mlv-text to --mlv-surface, --mlv-text-3 at 25% or more and
- *   --mlv-text-2 a step of 10% or more from each, where the theme has room for that at 4.5:1;
- *   otherwise --mlv-text-2 equals --mlv-text-3 (Dark 2026)
+ * @hierarchy: on the L* line from --mlv-text to --mlv-surface, --mlv-text-3 at 80% or more of the
+ *   room the theme has there at 4.5:1, and where that room allows three levels, --mlv-text-3 at
+ *   25% or more and --mlv-text-2 at 12.5% or more, at 40% or more of its own room and 10% or more
+ *   short of --mlv-text-3; otherwise --mlv-text-2 equals --mlv-text-3 (Dark 2026)
+ * @hierarchy: the light rule (a mix lifted to L* 42) and the dark rule keep the order in any theme
+ *   (a sweep of the text's lightness, and of the card's in a light theme)
  *
  * The connection and card-border colours are the theme's own text colour
  * mixed into its background, so they follow any theme, not only the defaults.
@@ -184,12 +188,13 @@
   /* Viewer M4: secondary (--mlv-text-2) and muted (--mlv-text-3) text are derived from the theme's
    * own text colour, never from descriptionForeground: Light Modern sets that to its text colour
    * (#3B3B3B), Light+'s (#717171) is 4.40:1 on its widget background and Dark 2026's (#8C8C8C)
-   * about 3.8:1 on a hovered row. In a light theme they are the text mixed into the card surface
-   * in CIE Lab, 87% and 74%: exactly 13% and 26% of the L* distance from the text to the card, a
-   * step each, and on the surface's side of the text, so the order text > secondary > muted holds
-   * in any theme. Light Modern bounds the shares (muted text clears 4.5:1 on its hatching up to
-   * 26.8%). The dark rule is below the dark blocks (test/muted-text.test.mjs). */
-  --mlv-text-2: color-mix(in lab, var(--mlv-text) 87%, var(--mlv-surface));
+   * about 3.8:1 on a hovered row. In a light theme muted text is the text mixed into the card
+   * surface in CIE Lab at 74% (26% of the L* distance to the card; Light Modern's hatching allows
+   * up to 26.8%), lifted to L* 42 by the rule below the dark blocks, and secondary text is halfway
+   * between the text and muted text in Lab, so the order text > secondary > muted holds in any
+   * theme. These two lines are the whole rule for an engine without relative colour syntax. The
+   * dark rule is below the dark blocks too (test/muted-text.test.mjs). */
+  --mlv-text-2: color-mix(in lab, var(--mlv-text) 50%, var(--mlv-text-3));
   --mlv-text-3: color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface));
   --mlv-link: var(--vscode-textLink-foreground, #2B57C4);
   --mlv-accent: var(--vscode-focusBorder, #3B6CF6);
@@ -315,6 +320,26 @@ body.vscode-dark,
   --mlv-sev-high-ink: #1A0405;
   --mlv-sev-medium-ink: #2A1A00;
   --mlv-sev-low-ink: #0B1020;
+}
+
+/*
+ * Viewer M4: muted text in a light theme, never darker than L* 42. A share of the way to the card
+ * gives near-black text near-black steps: Light+'s text is #000000, so 26% of the way is #3B3B3B
+ * and halfway to it #202020, which read as black beside the titles (viewer M4 hierarchy
+ * verification, V1). So muted text is the 74% Lab mix or L* 42, whichever is lighter, with the
+ * mix's a and b, and secondary text stays halfway to it (the light block above): Light+ #000000,
+ * #323232 and #636363, Light 2026 17% and 35% of the way, Light Modern unchanged (its mix is L*
+ * 43.8). L* 42 is about the lightest that clears 4.5:1 on every background the default light
+ * themes paint under muted text (Light+ allows 42.15, on an unresolved card's hatching; Light 2026
+ * 44.0, Light Modern 44.5). It is a fixed lightness, not measured against a third-party theme's
+ * backgrounds: it clears 4.5:1 on a card down to L* 89 (#DFDFDF) itself, less under a hovered row.
+ * An engine without relative colour syntax keeps the plain mix.
+ */
+@supports (color: lab(from color-mix(in lab, #000 74%, #fff) max(l, 42) a b)) {
+  :root,
+  .mlv-root[data-theme="light"] {
+    --mlv-text-3: lab(from color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface)) max(l, 42) a b);
+  }
 }
 
 /*

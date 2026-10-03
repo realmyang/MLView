@@ -159,18 +159,25 @@ the theme's own text colour instead of VS Code's description colour, which is
 Light Modern's text colour, 3.68-4.41:1 on cards, hovered rows and lane
 headers in Light+, and 3.30-4.36:1 on hovered rows, lane headers and other
 raised backgrounds in Dark 2026, VS Code's default dark theme. In a light
-theme they are the text mixed into the card surface in CIE Lab (87% and 74%,
-13% and 26% of the lightness distance from the text to the card). In a dark
+theme muted text is the text mixed into the card surface in CIE Lab at 74%
+(26% of the lightness distance from the text to the card), lifted to L* 42
+where that is darker, and secondary text is halfway between the text and
+muted text, which gives Light+ (black text) #323232 and #636363 (relative
+colour syntax behind `@supports`; an engine without it keeps the plain mix).
+In a dark
 theme they are 9 and 18 L* below the text, never under L* 64.5 and never above
 the text, and secondary text is muted text where the text is under L* 79.5,
 which gives Dark 2026 two levels (CSS relative colour syntax behind
 `@supports`; an engine without it keeps a two-level mix). High Contrast keeps
 its text colour. Computed from the harness's VS Code 1.139 colours, both clear
 4.5:1 on every background they are drawn on in the six themes outside High
-Contrast (lowest 4.62:1, muted text on an unresolved card's hatching in Light
-Modern) and keep their order under the text colour. A first version mixed the
+Contrast (lowest 4.53:1, muted text on an unresolved card's hatching in
+Light+) and keep their order under the text colour. A first version mixed the
 text at 90% and 80% in every theme, which left secondary text 9-12% of the
-lightness distance from the text (finding F3 of an independent verification).
+lightness distance from the text (finding F3 of an independent verification);
+a second mixed it at 87% and 74% in every light theme, which left Light+'s
+secondary text #202020 beside black titles and moved Light 2026's by 1%
+(finding V1 of a verification of that change).
 That verification also had a hovered **⋯** menu item's key hint drop VS
 Code's key-cap fill (3.29-3.34:1 in Light+ and Light Modern before), a chip in
 a hovered or selected Findings row drop its fill (4.49:1 computed in Dark 2026
@@ -190,10 +197,10 @@ distance to the card:
 | | muted | #9C9FA0 | 6.03:1 | 4.77:1 | 18.1% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
 | Light Modern | secondary | #4E4E4E | 7.85:1 | 6.56:1 | 11.4% | #515151 | 7.51:1 | 6.28:1 | 13.0% |
 | | muted | #616161 | 5.85:1 | 5.11:1 | 22.3% | #676767 | 5.29:1 | 4.62:1 | 26.0% |
-| Light+ | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #202020 | 14.61:1 | 12.23:1 | 13.0% |
-| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #3B3B3B | 10.08:1 | 8.44:1 | 26.0% |
-| Light 2026 | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #383838 | 11.28:1 | 9.41:1 | 13.0% |
-| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #515152 | 7.57:1 | 6.35:1 | 26.0% |
+| Light+ | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #323232 | 11.48:1 | 9.61:1 | 21.9% |
+| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #636363 | 5.41:1 | 4.53:1 | 43.8% |
+| Light 2026 | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #404040 | 9.94:1 | 8.29:1 | 17.3% |
+| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #636364 | 5.76:1 | 4.83:1 | 34.6% |
 
 No contract change, no new setting and no geometry change. Checked by local
 jsdom tests and headless-Chrome 154 screenshots of a simulated host only

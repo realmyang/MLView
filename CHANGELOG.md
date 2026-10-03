@@ -79,13 +79,14 @@ Secondary and muted text:
   light-theme muted text only (Light Modern #5E5E5E, Light+ #5C5C5C), which
   left Light+'s secondary text lighter than its muted text.
 - Now both are derived from the theme's own text colour, and High Contrast
-  keeps its text colour for both. In a light theme they are the text mixed
-  into its card surface in CIE Lab, 87% for secondary text and 74% for muted
+  keeps its text colour for both. In a light theme muted text is the text
+  mixed into its card surface in CIE Lab at 74%, lifted to L* 42 where that
+  mix is darker, and secondary text is halfway between the text and muted
   text; in a dark theme they are steps below the text's lightness, never
-  under a floor and never above the text (the hierarchy part below). Neither
+  under a floor and never above the text (the hierarchy parts below). Neither
   rule names a theme, and both keep the text, secondary and muted text in
   order in any theme. CSS cannot compare two colours at run time, so there is
-  no contrast clamp: the shares, steps and floor are chosen so that every
+  no contrast clamp: the shares, steps and floors are chosen so that every
   shipped theme clears 4.5:1 on every background. (The first version of this
   change mixed the text into the card surface at 90% and 80% in sRGB in every
   theme; the hierarchy part below replaced it.)
@@ -93,22 +94,25 @@ Secondary and muted text:
   computed from the harness's theme table: Dark Modern #B3B3B3 6.37:1 and
   #9C9C9C 4.99:1, Dark+ #BBBBBB 6.45:1 and #A3A3A3 4.99:1, Dark 2026 #9A9D9E
   4.67:1 for both, Light Modern #515151 6.28:1 and #676767 4.62:1, Light+
-  #202020 12.23:1 and #3B3B3B 8.44:1, Light 2026 #383838 9.41:1 and #515152
-  6.35:1 (the 90% and 80% mixes are in the table below).
+  #323232 9.61:1 and #636363 4.53:1, Light 2026 #404040 8.29:1 and #636364
+  4.83:1 (the 90% and 80% mixes are in the table below).
 - The cost: Dark Modern's secondary text is brighter than VS Code's
   description colour was (#9D9D9D to #B3B3B3) and its muted text about the
   same (#9C9C9C). Light Modern's secondary text is no longer its text colour.
-  Light+'s editor text is pure black, so its secondary and muted text are
-  dark greys (#202020, #3B3B3B) and its hierarchy rests partly on size and
-  weight. The dashed borders of inferred and unresolved cards, a hovered
+  Light+'s editor text is pure black; its secondary and muted text are
+  #323232 and #636363, and its muted text is the closest to 4.5:1 of any
+  theme (4.53:1 on an unresolved card's hatching). The dashed borders of
+  inferred and unresolved cards, a hovered
   connection and the ring on a traced card's neighbours use the secondary
   colour, so they change with it. With a third-party theme the order still
   holds, but a colour can fall under 4.5:1: in a dark theme the floor is a
   fixed lightness, which clears 4.5:1 on backgrounds up to #353535, so a row
   hovered with 8% white over a widget background lighter than #232323 can
-  take muted text under it; in a light theme muted text on a row hovered with
-  8% black needs the text at about 10.7-11:1 on its widget background
-  (computed, not seen in a real theme).
+  take muted text under it; in a light theme muted text is never darker than
+  L* 42, which clears 4.5:1 on a row hovered with 8% black only over a widget
+  background of #F3F3F3 (Light+'s) or lighter, and where the 74% mix is the
+  lighter one, on such a row it needs the text at about 10.7-11:1 on its
+  widget background (computed, not seen in a real theme).
 - On a hovered or focused item of the **⋯** menu, the icon, key hint and note
   now take the item's colour (VS Code's `menu.selectionForeground`), and the
   key hint's key cap keeps its outline, in that colour, but drops its fill.
@@ -120,7 +124,7 @@ Secondary and muted text:
   and 3.29:1 in Light+ (the verification below). White on the selection
   colour itself is 6.31:1 in Light Modern, 6.11:1 in Light+ and 4.53:1 in
   Dark Modern and Dark+, measured in pixels.
-- The exported SVG derives the same colours (`LIGHT_TEXT_MIX`,
+- The exported SVG derives the same colours (`LIGHT_TEXT_LEVELS`,
   `DARK_TEXT_LEVELS` in `webview/src/export/palette.ts`).
 - `webview/test/muted-text.test.mjs` is a matrix: the harness's six themes
   outside High Contrast x both colours x every background they sit on (the
@@ -203,7 +207,9 @@ Secondary and muted text, the hierarchy (finding F3 of the verification above):
 - A light theme now mixes in CIE Lab, 87% and 74%, so secondary and muted
   text sit exactly 13% and 26% of the way to the card in every light theme.
   Light Modern bounds the shares: its muted text clears 4.5:1 on an
-  unresolved card's hatching up to 26.8% of the way.
+  unresolved card's hatching up to 26.8% of the way. (The light hierarchy
+  part below lifts muted text to L* 42 and puts secondary text halfway to
+  it.)
 - A dark theme cannot use one share. Dark 2026's text (#BBBEBF, L* 76.8) is
   dim, so its muted text has room for 20.9% of the way before a hovered row
   (8% white) takes it under 4.5:1, where Dark Modern and Dark+ have about
@@ -261,9 +267,72 @@ Secondary and muted text, the hierarchy (finding F3 of the verification above):
   id on a selected Findings row; 4.87:1 in Light Modern, a lane's step count).
   The states hover no group header; the matrix covers it.
 
+Secondary and muted text, the light hierarchy (finding V1 of an independent
+verification of the hierarchy part; each fix has a test that fails with it
+taken out):
+- The uniform 87% and 74% mix hardly moved secondary text in the light
+  themes: Light Modern #4E4E4E to #515151, Light+ #181818 to #202020 and
+  Light 2026 #363636 to #383838, 13% of the way to the card. In 2x crops the
+  rail, cards, phase index and status bar looked almost the same before and
+  after, and in Light+ the phase index's step counts and the status bar
+  (secondary text) still looked black next to #000000 names. Only Light
+  Modern's hatching caps muted text at 26.8% of the way; at 4.5:1 Light+ has
+  room for 44% and Light 2026 for 37%.
+- Now a light theme's muted text is the 74% Lab mix or L* 42, whichever is
+  lighter, with the mix's a and b (`lab(from color-mix(in lab,
+  var(--mlv-text) 74%, var(--mlv-surface)) max(l, 42) a b)`, behind its own
+  `@supports`), and secondary text is halfway between the text and muted
+  text in Lab (`color-mix(in lab, var(--mlv-text) 50%, var(--mlv-text-3))`,
+  in every engine). Light+ draws #000000, #323232 and #636363 (21.9% and
+  43.8% of the way), Light 2026 #202020, #404040 and #636364 (17.3% and
+  34.6%); Light Modern is unchanged (#515151 and #676767), since its mix is
+  L* 43.8 and its hatching allows no more. As a contrast ratio between the
+  text and secondary text, Light+'s step is 1.64 (1.29 before), against 1.41
+  in Light Modern and 1.31 in Dark Modern.
+- L* 42 is about the lightest that clears 4.5:1 on every background the
+  default light themes paint under muted text: Light+ allows 42.15 on an
+  unresolved card's hatching (4.53:1 at 42), Light 2026 44.0 and Light Modern
+  44.5. It is a fixed lightness, so with a third-party theme's near-black
+  text it clears 4.5:1 on a card down to L* 89 (#DFDFDF) and on a row hovered
+  with 8% black over a widget background of #F3F3F3 or lighter, no further.
+  An engine without relative colour syntax keeps the plain 74% mix, with
+  secondary text halfway to it (13% and 26%, as before).
+- Tests (`webview/test/muted-text.test.mjs`): the L* check now holds muted
+  text to 80% or more of the room the theme has at 4.5:1 in every theme (the
+  uniform mix used 59% of Light+'s and 71% of Light 2026's), and where three
+  levels fit, secondary text to 12.5% or more of the way (finding V2: the 10%
+  step passed an 89% light mix and the old 90% sRGB mix in Light Modern and
+  Light 2026) and to 40% or more of its own room. A sweep of the text's
+  lightness (L* 0-60, three hues) and the card's (L* 89-100), with Solarized
+  Light, holds the light rule's order, the halfway secondary text, the lift
+  and 4.5:1 on the card wherever the plain mix had it. Taken out one at a
+  time: the lift (`max(l, 0)`, the previous colours) fails the L* check
+  (Light+ muted text 26.0% of the way, under 80% of 44.0%); secondary text
+  back at the 87% mix fails it (13.0%, under 40% of 44.0%); an 89% light mix
+  fails at 11.0% (Light Modern) and a dark secondary step of 7 L* at 10.0%
+  (Dark Modern); a lift to L* 46 fails the 4.5:1 matrix. The export
+  (`LIGHT_TEXT_LEVELS`, `lightTextLevels`) and `calm-canvas.test.mjs`
+  derive the same colours; the export reads a mix of a mix (an engine
+  without relative colour syntax) and derives the rest.
+- Headless Chrome 154 on the default inputs (the configured-training sample
+  and the synthetic document) at 1440x900, the eight themes, six states (as
+  opened, a selected step, a hovered step, exceptions mode, a finding's pane
+  and the phase index; 88 screenshots, 8 skipped), and 2x before and after
+  crops of Light+ and Light 2026 with a selected step: Chrome's computed
+  colours equal the tests' (Light+ #323232
+  and #636363, Light 2026 #404040 and #636364, the other themes as before),
+  the darkest glyph pixels of the phase index's step counts, the status bar
+  and a card's detail are those colours, and no element painted in either
+  colour is under 4.5:1 (lowest 4.85:1 in Light+, a lane's step count; 4.82:1
+  in Light 2026, quote line numbers on a selected row). In the crops muted
+  text (a lane's step count) is visibly greyer; secondary text at #323232 is
+  a smaller change in small text. Not checked in live VS Code.
+
 Before and after, computed from the harness's theme table: the colour on the
 card surface, its contrast there, the lowest contrast on any background it is
-drawn on, and its share of the L* distance from the text to the card.
+drawn on, and its share of the L* distance from the text to the card. The
+"after" columns are the colours now (the light hierarchy part above for
+Light+ and Light 2026).
 
 | Theme | Level | Before | Card | Lowest | L* share | After | Card | Lowest | L* share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -275,10 +344,10 @@ drawn on, and its share of the L* distance from the text to the card.
 | | muted | #9C9FA0 | 6.03:1 | 4.77:1 | 18.1% | #9A9D9E | 5.90:1 | 4.67:1 | 19.1% |
 | Light Modern (#3B3B3B) | secondary | #4E4E4E | 7.85:1 | 6.56:1 | 11.4% | #515151 | 7.51:1 | 6.28:1 | 13.0% |
 | | muted | #616161 | 5.85:1 | 5.11:1 | 22.3% | #676767 | 5.29:1 | 4.62:1 | 26.0% |
-| Light+ (#000000) | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #202020 | 14.61:1 | 12.23:1 | 13.0% |
-| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #3B3B3B | 10.08:1 | 8.44:1 | 26.0% |
-| Light 2026 (#202020) | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #383838 | 11.28:1 | 9.41:1 | 13.0% |
-| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #515152 | 7.57:1 | 6.35:1 | 26.0% |
+| Light+ (#000000) | secondary | #181818 | 15.96:1 | 13.36:1 | 8.8% | #323232 | 11.48:1 | 9.61:1 | 21.9% |
+| | muted | #313131 | 11.79:1 | 9.87:1 | 21.0% | #636363 | 5.41:1 | 4.53:1 | 43.8% |
+| Light 2026 (#202020) | secondary | #363636 | 11.63:1 | 8.16:1 | 11.9% | #404040 | 9.94:1 | 8.29:1 | 17.3% |
+| | muted | #4C4C4C | 8.29:1 | 6.96:1 | 23.1% | #636364 | 5.76:1 | 4.83:1 | 34.6% |
 
 Changes since the previous revision (roadmap step 16, built fresh; the legacy
 diff was deleted in M1):

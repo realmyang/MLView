@@ -2,8 +2,9 @@
 // background they are drawn on, in every shipped theme, keep their order (the text colour at least
 // as strong as secondary text, secondary text at least as strong as muted text), and keep a
 // visible distance from the text: on the CIE L* line from the text to the card surface, muted text
-// at 25% or more and secondary text a step from each, wherever the theme has room at 4.5:1;
-// otherwise secondary text is muted text (two levels, Dark 2026).
+// uses most of the room the theme has there at 4.5:1, at 25% or more of the way, and secondary text
+// sits a step from each, wherever the theme has room for three levels; otherwise secondary text is
+// muted text (two levels, Dark 2026).
 //
 // History. Both tokens were VS Code's descriptionForeground. Light Modern sets it to its text
 // colour (#3B3B3B), so secondary and muted text were not quieter than the text; Light+'s (#717171)
@@ -11,11 +12,14 @@
 // about 3.8:1 on a hovered row. The first M4 fix darkened the card surface for light-theme muted
 // text only. The second mixed the text into the card surface at 90% and 80% in sRGB in every theme,
 // which cleared 4.5:1 but left secondary text 9-12% of the L* distance from the text (viewer M4
-// verification, F3). Now a light theme mixes in CIE Lab, 87% and 74% (13% and 26% of the L*
-// distance); a dark theme steps 9 and 18 L* below the text, never under L* 64.5 and never above the
-// text, and joins secondary to muted text where the text is under L* 79.5 (relative colour syntax,
-// gated by @supports; an engine without it keeps a two-level color-mix). High contrast keeps the
-// text colour.
+// verification, F3). The third mixed in CIE Lab, 87% and 74% in light themes (13% and 26% of the L*
+// distance), which left Light+'s near-black text near-black steps (#000000, #202020, #3B3B3B) and
+// moved Light 2026's secondary text by 1% (viewer M4 hierarchy verification, V1). Now a light theme
+// mixes muted text 74% in Lab and lifts it to L* 42 where that is lighter, with secondary text
+// halfway to it; a dark theme steps 9 and 18 L* below the text, never under L* 64.5 and never above
+// the text, and joins secondary to muted text where the text is under L* 79.5 (relative colour
+// syntax, each rule gated by @supports on its own expression; an engine without it keeps the plain
+// light mix and a two-level dark color-mix). High contrast keeps the text colour.
 //
 // The matrix is theme x token x background. The themes are the screenshot harness's table
 // (webview/tools/screenshots/themes.js, VS Code 1.139's colours). The backgrounds are read from the
@@ -188,9 +192,13 @@ const DARK_BODY = 'body.vscode-dark, :root[data-theme="dark"], .mlv-root[data-th
 const DARK_MEDIA = ':root:not([data-theme="light"]):not([data-theme="hc"]), .mlv-root:not([data-theme="light"]):not([data-theme="hc"])';
 const HC_BODY = 'body.vscode-high-contrast, body.vscode-high-contrast-light, :root[data-theme="hc"], .mlv-root[data-theme="hc"]';
 
-/** A light theme's secondary and muted text, and a dark theme's without relative colour syntax. */
-const LIGHT_SECONDARY = 'color-mix(in lab, var(--mlv-text) 87%, var(--mlv-surface))';
-const LIGHT_MUTED = 'color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface))';
+/** A light theme's secondary text (halfway to muted text) and muted text without relative colour syntax. */
+const LIGHT_SECONDARY = 'color-mix(in lab, var(--mlv-text) 50%, var(--mlv-text-3))';
+const LIGHT_MIX = 'color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface))';
+/** A light theme's muted text, in the @supports block: the mix, lifted to L* 42 where that is lighter. */
+const LIGHT_MUTED_L = 'max(l, 42)';
+const LIGHT_MUTED = `lab(from ${LIGHT_MIX} ${LIGHT_MUTED_L} a b)`;
+/** A dark theme's secondary and muted text without relative colour syntax. */
 const DARK_FALLBACK = 'color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface))';
 /** A dark theme's, in the @supports block: steps below the text's L*, a floor, the text as a cap. */
 const DARK_SECONDARY_L = 'min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100)))';
@@ -198,17 +206,24 @@ const DARK_MUTED_L = 'min(l, max(64.5, l - 18))';
 const DARK_SECONDARY = `lab(from var(--mlv-text) ${DARK_SECONDARY_L} a b)`;
 const DARK_MUTED = `lab(from var(--mlv-text) ${DARK_MUTED_L} a b)`;
 
+/** tokens.css without its @supports blocks, and the light and dark rule blocks in it. */
+async function tokenBlocks() {
+  const { blocks, rest } = splitSupports(await css('tokens.css'));
+  assert.equal(blocks.length, 2, 'two @supports blocks in tokens.css: the light rule and the dark rule');
+  const [light, dark] = blocks;
+  return { rest, light, dark };
+}
+
 /**
  * The custom properties in force for each harness theme. `engine` is 'relative' for an engine
  * with relative colour syntax (Chromium 119+, every VS Code the extension supports), which applies
- * tokens.css's @supports block, or 'fallback' for one without, which does not.
+ * tokens.css's @supports blocks, or 'fallback' for one without, which does not.
  */
 async function themeVars(engine = 'relative') {
-  const { blocks, rest } = splitSupports(await css('tokens.css'));
-  assert.equal(blocks.length, 1, 'one @supports block in tokens.css');
-  const extra = engine === 'relative' ? block(blocks[0].body, DARK_BODY) : {};
-  const light = block(rest, LIGHT_ROOT);
-  const dark = { ...block(rest, DARK_BODY), ...extra };
+  const { rest, light: lightRule, dark: darkRule } = await tokenBlocks();
+  const relative = engine === 'relative';
+  const light = { ...block(rest, LIGHT_ROOT), ...(relative ? block(lightRule.body, LIGHT_ROOT) : {}) };
+  const dark = { ...block(rest, DARK_BODY), ...(relative ? block(darkRule.body, DARK_BODY) : {}) };
   const hc = block(rest, HC_BODY);
   const root = block(rest, '.mlv-root');
   const out = {};
@@ -456,24 +471,29 @@ test('the harness table carries the six themes the viewer is checked in, 2026 Da
   }
 });
 
-test('secondary and muted text: a Lab mix in light themes, steps below the text with a floor in dark themes (gated by @supports, with a two-level fallback), the text colour in high contrast', async () => {
+test('secondary and muted text: a Lab mix lifted to L* 42 in light themes, steps below the text with a floor in dark themes (each gated by @supports, with a fallback), the text colour in high contrast', async () => {
   const tokens = await css('tokens.css');
-  const { blocks, rest } = splitSupports(tokens);
+  const { rest, light: lightRule, dark: darkRule } = await tokenBlocks();
   const light = block(rest, LIGHT_ROOT);
-  assert.deepEqual([light['--mlv-text-2'], light['--mlv-text-3']], [LIGHT_SECONDARY, LIGHT_MUTED]);
+  assert.deepEqual([light['--mlv-text-2'], light['--mlv-text-3']], [LIGHT_SECONDARY, LIGHT_MIX], 'light: secondary text halfway to muted text, the plain mix as the fallback');
   for (const selector of [DARK_BODY, DARK_MEDIA]) {
     const decls = block(rest, selector);
     assert.deepEqual([decls['--mlv-text-2'], decls['--mlv-text-3']], [DARK_FALLBACK, DARK_FALLBACK], selector + ': the fallback');
   }
-  // The gate tests the exact expression the declarations use (the secondary one is the larger: it
-  // has every function and operator the muted one has), so an engine that cannot compute it keeps
-  // the fallback instead of an invalid colour.
-  assert.equal(blocks.length, 1);
-  assert.equal(blocks[0].condition, `(color: lab(from #000 ${DARK_SECONDARY_L} a b))`);
-  const inside = rules(blocks[0].body);
+  // Each gate tests the exact expression its declarations use, with literals for the var()s (the
+  // dark secondary one is the larger: it has every function and operator the muted one has), so an
+  // engine that cannot compute it keeps the fallback instead of an invalid colour.
+  assert.equal(lightRule.condition, `(color: lab(from color-mix(in lab, #000 74%, #fff) ${LIGHT_MUTED_L} a b))`);
+  assert.equal(LIGHT_MUTED.replace('var(--mlv-text)', '#000').replace('var(--mlv-surface)', '#fff'), lightRule.condition.slice('(color: '.length, -1));
+  const lightInside = rules(lightRule.body);
+  assert.deepEqual(lightInside.map((r) => r.selector), [LIGHT_ROOT], 'the light branch, and nothing else');
+  assert.deepEqual(lightInside[0].decls, { '--mlv-text-3': LIGHT_MUTED }, 'muted text only: secondary text follows it');
+  assert.equal(darkRule.condition, `(color: lab(from #000 ${DARK_SECONDARY_L} a b))`);
+  const inside = rules(darkRule.body);
   assert.deepEqual(inside.map((r) => r.selector).sort(), [DARK_BODY, DARK_MEDIA].sort(), 'both dark branches, and nothing else');
   for (const { selector, decls } of inside) assert.deepEqual(decls, { '--mlv-text-2': DARK_SECONDARY, '--mlv-text-3': DARK_MUTED }, selector);
-  // The @supports block follows the dark blocks, so it wins the cascade where it applies.
+  // The @supports blocks follow the dark blocks, so the dark rule wins the cascade where it applies
+  // (the light rule's :root is less specific than every dark and high contrast selector on :root).
   assert.ok(tokens.indexOf('@supports') > tokens.indexOf(DARK_BODY.split(',')[0] + ','), 'after the dark blocks');
   assert.equal(block(rest, HC_BODY)['--mlv-text-2'], 'var(--vscode-editor-foreground, #FFFFFF)');
   assert.equal(block(rest, HC_BODY)['--mlv-text-3'], 'var(--vscode-editor-foreground, #FFFFFF)');
@@ -628,10 +648,26 @@ const TWO_LEVEL = {
 
 const pct = (x) => (x * 100).toFixed(1) + '%';
 
-test('secondary and muted text keep a visible distance from the text: muted text 25% or more of the L* distance to the card and secondary text a step from each, or two levels where the theme has no room', async (t) => {
+/*
+ * The hierarchy's thresholds, as shares of the L* distance from the text to the card. Muted text
+ * uses at least MUTED_ROOM of the room the theme has at 4.5:1, so it is as quiet as contrast
+ * allows, give or take; the dark rule's 18 L* step uses 85% in Dark Modern and Dark+. Secondary
+ * text sits at least SECONDARY_SHARE of the way and at least SECONDARY_ROOM of its own room, so it
+ * is a step from the text where the theme has room for one, not a near-copy of it.
+ */
+const MUTED_ROOM = 0.8;
+const SECONDARY_SHARE = 0.125;
+const SECONDARY_ROOM = 0.4;
+
+test('secondary and muted text keep a visible distance from the text: muted text uses the room the theme has at 4.5:1, 25% or more of the L* distance to the card, and secondary text a step from each, or two levels where the theme has no room', async (t) => {
   // Viewer M4 verification, F3: with the 90% and 80% sRGB mixes secondary text sat 9-12% of the L*
   // distance from the text to the card (ΔL* about 6 in the dark themes), muted text 18% in the dark
   // themes, and Light+ drew the three levels as #000000, #181818 and #313131.
+  // Viewer M4 hierarchy verification: a uniform 87% and 74% Lab mix in light themes put secondary
+  // text 13% of the way (Light+ #202020 beside #000000 titles, Light 2026 #383838 from #363636)
+  // where Light+ has room for 44% and Light 2026 for 37% (V1): muted text used 59% and 71% of that
+  // room, and secondary text 30% and 35% of its own. A secondary level 10-12% of the way (an 89%
+  // mix, or the old 90% sRGB mix in Light Modern and Light 2026) passed a 10% step (V2).
   const all = rules(await sheets());
   const two = [];
   for (const { label, kind, vars } of Object.values(await themeVars())) {
@@ -646,9 +682,13 @@ test('secondary and muted text keep a visible distance from the text: muted text
     t.diagnostic(`${label}: text ${toHex(text)} L* ${lt.toFixed(1)}, card L* ${ls.toFixed(1)}; secondary ${toHex(over(text2, surface))} ${pct(s2)} (ΔL* ${Math.abs(lt - lstar(over(text2, surface))).toFixed(1)}), muted ${toHex(over(text3, surface))} ${pct(s3)} (ΔL* ${Math.abs(lt - lstar(over(text3, surface))).toFixed(1)}); room at 4.5:1: muted ${pct(mutedRoom)}, secondary ${pct(secondaryRoom)}`);
     // Secondary text lies between the text and muted text, on the surface's side of the text.
     assert.ok(s2 > 0 && s2 <= s3, `${label}: secondary ${pct(s2)}, muted ${pct(s3)}`);
+    // Muted text uses the room the theme has: a near-black level in a theme with room for a grey
+    // one is not quieter than the text.
+    assert.ok(s3 >= MUTED_ROOM * mutedRoom, `${label}: muted text is ${pct(s3)} of the way to the card, under ${pct(MUTED_ROOM)} of its room (${pct(mutedRoom)})`);
     if (mutedRoom >= 0.25 && secondaryRoom >= 0.1) {
       assert.ok(s3 >= 0.25, `${label}: muted text is ${pct(s3)} of the way to the card, with room for ${pct(mutedRoom)}`);
-      assert.ok(s2 >= 0.1, `${label}: secondary text is ${pct(s2)} of the way, under a step from the text`);
+      assert.ok(s2 >= SECONDARY_SHARE, `${label}: secondary text is ${pct(s2)} of the way, under a step (${pct(SECONDARY_SHARE)}) from the text`);
+      assert.ok(s2 >= SECONDARY_ROOM * secondaryRoom, `${label}: secondary text is ${pct(s2)} of the way, under ${pct(SECONDARY_ROOM)} of its room (${pct(secondaryRoom)})`);
       assert.ok(s3 - s2 >= 0.1, `${label}: secondary ${pct(s2)} and muted ${pct(s3)} are under a step apart`);
     } else {
       two.push(label);
@@ -659,6 +699,31 @@ test('secondary and muted text keep a visible distance from the text: muted text
     }
   }
   assert.deepEqual(two, Object.keys(TWO_LEVEL), 'the two-level themes are the ones TWO_LEVEL names');
+});
+
+test('the light rule keeps the order in any light theme: secondary text halfway from the text to muted text, muted text never darker than the plain mix or lighter than the card, and at L* 42 where the mix is darker', () => {
+  // The rule reads the text and the card surface, so a sweep of both lightnesses (a few hues, and
+  // Solarized Light's #657B83 on #EEE8D5) covers the order in any third-party light theme. Its
+  // contrast depends on that theme's own backgrounds; on the card itself the lift keeps 4.5:1
+  // wherever the plain mix had it, for any card from L* 89 (#DFDFDF) up.
+  const pairs = [['#657B83', '#EEE8D5']];
+  for (let L = 0; L <= 60; L += 1) {
+    for (const [a, b] of [[0, 0], [-6, -3], [4, 8]]) {
+      for (const card of [89, 92, 95.8, 98, 100]) pairs.push([toHex(labToSrgb([L, a, b])), toHex(labToSrgb([card, 0, -1]))]);
+    }
+  }
+  const failures = [];
+  for (const [text, surface] of pairs) {
+    const vars = { '--mlv-text': text, '--mlv-surface': surface, '--mlv-text-3': LIGHT_MUTED };
+    const [t, s2, s3, card, mix] = [hex(text), colour(LIGHT_SECONDARY, vars), colour(LIGHT_MUTED, vars), hex(surface), colour(LIGHT_MIX, vars)];
+    const [l1, l2, l3, lc, lm] = [t, s2, s3, card, mix].map(lstar);
+    const where = `${text} on ${surface} (L* ${l1.toFixed(2)} on ${lc.toFixed(2)})`;
+    if (!(l1 <= l2 + 0.01 && l2 <= l3 + 0.01 && l3 <= lc + 0.01)) failures.push(`${where}: L* ${l2.toFixed(2)}, ${l3.toFixed(2)}`);
+    if (Math.abs(l2 - (l1 + l3) / 2) > 0.3) failures.push(`${where}: secondary L* ${l2.toFixed(2)} is not halfway to ${l3.toFixed(2)}`);
+    if (Math.abs(l3 - Math.max(lm, 42)) > 0.3) failures.push(`${where}: muted L* ${l3.toFixed(2)}, the mix ${lm.toFixed(2)}`);
+    if (contrast(mix, card) >= 4.5 && contrast(s3, card) < 4.5) failures.push(`${where}: the lift takes muted text under 4.5:1 on the card (${contrast(s3, card).toFixed(2)}:1)`);
+  }
+  assert.deepEqual(failures, []);
 });
 
 test('the dark rule keeps the order in any dark theme: never above the text, secondary at or above muted text, two levels under L* 79.5, the text colour under L* 64.5', () => {
@@ -772,27 +837,27 @@ function palette() {
   return paletteModule;
 }
 
-test('the SVG export derives secondary and muted text the same way: the Lab mix in light themes, the steps below the text in dark ones', async () => {
-  const { EXPORT_PALETTES, LIGHT_TEXT_MIX, DARK_TEXT_LEVELS, darkTextLevels, mixLabHex, resolvePalette } = await palette();
+test('the SVG export derives secondary and muted text the same way: the lifted Lab mix in light themes, the steps below the text in dark ones', async () => {
+  const { EXPORT_PALETTES, LIGHT_TEXT_LEVELS, DARK_TEXT_LEVELS, darkTextLevels, lightTextLevels, resolvePalette } = await palette();
   // The export's constants are the stylesheet's.
   const shareOf = (value) => Number(/var\(--mlv-text\) ([\d.]+)%/.exec(value)[1]) / 100;
-  assert.deepEqual([LIGHT_TEXT_MIX.text2, LIGHT_TEXT_MIX.text3], [shareOf(LIGHT_SECONDARY), shareOf(LIGHT_MUTED)]);
+  assert.equal(LIGHT_TEXT_LEVELS.mix, shareOf(LIGHT_MIX));
+  assert.equal(LIGHT_MUTED_L, `max(l, ${LIGHT_TEXT_LEVELS.floor})`);
+  assert.equal(shareOf(LIGHT_SECONDARY), 0.5, 'secondary text halfway to muted text');
   const { floor, step2, step3, split } = DARK_TEXT_LEVELS;
   assert.equal(DARK_SECONDARY_L, `min(l, max(${floor}, l - ${step2} - clamp(0, (${split} - l) * 100, 100)))`);
   assert.equal(DARK_MUTED_L, `min(l, max(${floor}, l - ${step3}))`);
   // Two implementations agree, the export's and this test's (colour-lab.mjs), to a unit per
   // channel: on the export's own tables and on every harness theme's text and card surface.
   const near = (a, b) => [1, 3, 5].every((i) => Math.abs(parseInt(a.slice(i, i + 2), 16) - parseInt(b.slice(i, i + 2), 16)) <= 1);
-  const ours = (value, text, surface) => toHex(colour(value, { '--mlv-text': text, '--mlv-surface': surface }));
+  const ours = (value, text, surface) => toHex(colour(value, { '--mlv-text': text, '--mlv-surface': surface, '--mlv-text-3': LIGHT_MUTED }));
   const cases = [['light', EXPORT_PALETTES.light.text, EXPORT_PALETTES.light.surface, EXPORT_PALETTES.light]];
   cases.push(['dark', EXPORT_PALETTES.dark.text, EXPORT_PALETTES.dark.surface, EXPORT_PALETTES.dark]);
   for (const { label, kind, vars } of Object.values(await themeVars())) {
     if (kind === 'hc') continue;
     const text = toHex(colour('var(--mlv-text)', vars));
     const surface = toHex(over(colour('var(--mlv-surface)', vars), colour('var(--mlv-bg)', vars)));
-    const derived = kind === 'light'
-      ? { text2: mixLabHex(text, surface, LIGHT_TEXT_MIX.text2), text3: mixLabHex(text, surface, LIGHT_TEXT_MIX.text3) }
-      : darkTextLevels(text);
+    const derived = kind === 'light' ? lightTextLevels(text, surface) : darkTextLevels(text);
     cases.push([label, text, surface, derived, kind]);
   }
   for (const [label, text, surface, p, kind = label] of cases) {
@@ -805,12 +870,25 @@ test('the SVG export derives secondary and muted text the same way: the Lab mix 
     const style = { getPropertyValue: (name) => values[name] || '' };
     return { ownerDocument: { defaultView: { getComputedStyle: () => style } } };
   };
-  // A live light root: the computed custom property is the color-mix() with its var() substituted.
-  const light = resolvePalette(rootWith({
-    '--mlv-text': '#3b3b3b', '--mlv-surface': '#f8f8f8',
-    '--mlv-text-2': 'color-mix(in lab, #3b3b3b 87%, #f8f8f8)', '--mlv-text-3': 'color-mix(in lab, #3b3b3b 74%, #f8f8f8)',
+  // A live light root holds the relative colour for muted text and a color-mix() of the text and
+  // that for secondary text, neither of which an SVG can carry: derived from the text and the card.
+  // Light+: #000000, #323232, #636363 (Light Modern's mix is lighter than L* 42: #515151, #676767).
+  const lightRoot = (text, surface) => {
+    const muted = `lab(from color-mix(in lab, ${text} 74%, ${surface}) ${LIGHT_MUTED_L} a b)`;
+    return rootWith({ '--mlv-text': text, '--mlv-surface': surface, '--mlv-text-2': `color-mix(in lab, ${text} 50%, ${muted})`, '--mlv-text-3': muted });
+  };
+  const lightPlus = resolvePalette(lightRoot('#000000', '#f3f3f3'), 'light');
+  assert.deepEqual([lightPlus.text2, lightPlus.text3], ['#323232', '#636363']);
+  const lightModern = resolvePalette(lightRoot('#3b3b3b', '#f8f8f8'), 'light');
+  assert.deepEqual([lightModern.text2, lightModern.text3], ['#515151', '#676767']);
+  // An engine without relative colour syntax holds plain mixes, secondary text a mix with a mix:
+  // read as the colours that engine paints (to a unit per channel; the inner mix is rounded first).
+  const plain = resolvePalette(rootWith({
+    '--mlv-text': '#000000', '--mlv-surface': '#f3f3f3',
+    '--mlv-text-2': 'color-mix(in lab, #000000 50%, color-mix(in lab, #000000 74%, #f3f3f3))', '--mlv-text-3': 'color-mix(in lab, #000000 74%, #f3f3f3)',
   }), 'light');
-  assert.deepEqual([light.text2, light.text3], ['#515151', '#676767']);
+  assert.ok(near(plain.text2, ours(LIGHT_SECONDARY.replace('var(--mlv-text-3)', LIGHT_MIX), '#000000', '#F3F3F3')), plain.text2);
+  assert.equal(plain.text3, ours(LIGHT_MIX, '#000000', '#F3F3F3'));
   // A live dark root holds the relative colour, which an SVG cannot carry: derived from the text.
   const relative = (l, text) => `lab(from ${text} ${l} a b)`;
   const darkModern = resolvePalette(rootWith({

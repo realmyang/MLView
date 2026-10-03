@@ -211,11 +211,16 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
     320-1920 px through the measured panel-to-canvas sizes.
 - Viewer M4 secondary and muted text (`--mlv-text-2`, `--mlv-text-3`),
   derived from the theme's text colour; high contrast keeps its text colour
-  for both. In a light theme, `color-mix(in lab, var(--mlv-text) 87%,
-  var(--mlv-surface))` and the same at 74%: 13% and 26% of the L* distance
-  from the text to the card. In a dark theme, 9 and 18 L* below the text,
-  never under L* 64.5 (the lowest that clears 4.5:1 on every background
-  VS Code's default dark themes paint under them) and never above the text,
+  for both. In a light theme, muted text is `color-mix(in lab,
+  var(--mlv-text) 74%, var(--mlv-surface))` (26% of the L* distance from the
+  text to the card) lifted to L* 42 where that mix is darker, `lab(from
+  <the mix> max(l, 42) a b)` behind `@supports` on the exact expression, and
+  secondary text is `color-mix(in lab, var(--mlv-text) 50%,
+  var(--mlv-text-3))`, halfway to it (Light+: #000000, #323232, #636363; an
+  engine without relative colour syntax keeps the plain mix). In a dark
+  theme, 9 and 18 L* below the text, never under L* 64.5 (the lowest that
+  clears 4.5:1 on every background VS Code's default dark themes paint under
+  them) and never above the text,
   with secondary text joining muted text where the text is under L* 79.5:
   `lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b)` and its
   secondary form, behind `@supports` on the exact expression, with a
@@ -225,24 +230,27 @@ Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol cha
   4.40:1 on Light+'s widget background (#717171) and about 3.8:1 on a hovered
   row in Dark 2026 (#8C8C8C). No per-theme rule; CSS cannot compare two
   run-time colours, so the floor is a fixed lightness, not measured against a
-  third-party theme's backgrounds. Lowest, secondary then muted: Dark Modern
-  6.37:1 and 4.99:1, Dark+ 6.45:1 and 4.99:1, Dark 2026 4.67:1 for both,
-  Light Modern 6.28:1 and 4.62:1, Light+ 12.23:1 and 8.44:1, Light 2026
-  9.41:1 and 6.35:1. A hovered **⋯** menu item's icon, key hint and note take
-  the item's colour, and the key hint's key cap (VS Code paints every
+  third-party theme's backgrounds (nor is the light lift). Lowest, secondary
+  then muted: Dark Modern 6.37:1 and 4.99:1, Dark+ 6.45:1 and 4.99:1, Dark
+  2026 4.67:1 for both, Light Modern 6.28:1 and 4.62:1, Light+ 9.61:1 and
+  4.53:1, Light 2026 8.29:1 and 4.83:1. A hovered **⋯** menu item's icon,
+  key hint and note take the item's colour, and the key hint's key cap (VS Code paints every
   `<kbd>`) drops its fill there. A chip in a hovered or selected Findings row,
   and a group's step count on a hovered group header, drop their fill (the
   row's or header's own `--mlv-surface-2`, translucent in the 2026 themes).
   About's `k=v` tokens (`<code>`) take their paragraph's text colour, not VS
   Code's `textPreformat.foreground`. `export/palette.ts` derives the same
-  (`LIGHT_TEXT_MIX`, `DARK_TEXT_LEVELS`). `test/muted-text.test.mjs` is the
+  (`LIGHT_TEXT_LEVELS`, `DARK_TEXT_LEVELS`). `test/muted-text.test.mjs` is the
   theme x token x background matrix for engines with and without relative
   colour syntax, nested `--mlv-surface-2` boxes included, with a census of
   the stylesheets' backgrounds, the muted-text selectors, the
   `--mlv-surface-2` boxes with their own secondary or muted text, and the
-  `<kbd>` and `<code>` elements, an L* check per theme (muted text 25% or
-  more of the way to the card and secondary text a step from each, or the
-  named two-level case) and a sweep of the dark rule over text lightness;
+  `<kbd>` and `<code>` elements, an L* check per theme (muted text at 80% or
+  more of the room the theme has at 4.5:1 and 25% or more of the way to the
+  card, secondary text 12.5% or more of the way, 40% or more of its room and
+  a step from muted text, or the named two-level case) and sweeps of the
+  light rule over text and card lightness and of the dark rule over text
+  lightness;
   `test/colour-lab.mjs` holds the Lab arithmetic and CSS math the token tests
   share. `tools/screenshots/capture.mjs` records a computed-colour probe per
   screenshot (`facts.inks`, reading rgb(), color(srgb) and lab()), reading
