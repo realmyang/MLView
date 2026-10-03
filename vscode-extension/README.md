@@ -15,6 +15,20 @@ explains why in a status line. A revision the panel has already seen replaced
 (for example one restored from version control) is not shown again until you
 re-run **MLView: Open Generated Diagram**, which always shows the file as it is.
 
+When a new revision names the one the panel is showing as its parent, the
+panel keeps the revision it showed in memory and About opens on **Changes
+since** it: the steps, connections and findings added, removed or changed,
+matched by id. Added and changed items are links, with what changed (label,
+evidence, severity…); removed items are listed as text and never drawn. Added
+and changed steps carry a small "new" or "changed" tag on their card (the
+diagram's layout does not move); connections and findings carry it in the
+Outline, the Findings list and the Selection tab, and the review walk gains
+**Changed in this revision**. A revision that does not follow the displayed
+one gets no comparison, and About says so. Only revisions this panel has shown
+are compared: closing the panel, reloading the window or restarting extensions
+forgets the comparison, nothing is written to disk, and there is no setting.
+The exported SVG draws no tag.
+
 When cited or inspected files change after a revision was published, the
 diagram stays visible as a historical revision and the status line names the
 changed or missing files. The steps, connections, findings and quotes that

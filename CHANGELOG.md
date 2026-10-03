@@ -12,9 +12,10 @@ The viewer's fourth milestone. This section holds, so far, the two smaller
 items deferred from M2: the size of the first view's text (A11Y-7) and muted
 text in Light Modern and Light+. Both were checked by local jsdom tests and in
 headless Chrome with a simulated host (the screenshot harness), not in live VS
-Code, with a screen reader or as a usability check. No contract change, no new
-setting or keybinding, no geometry change (the golden is byte-identical), and
-the version is unchanged.
+Code, with a screen reader or as a usability check. It also holds roadmap step
+16, changes since the previous revision (its own part below, with how it was
+checked). No contract change, no new setting or keybinding, no geometry change
+(the golden is byte-identical), and the version is unchanged.
 
 The first view's text size (A11Y-7):
 - The diagram opens whole only when it fits at 75% zoom or more, so a card
@@ -82,6 +83,91 @@ Muted text in light themes:
   takes them with `--theme`. `webview/test/muted-text.test.mjs` computes the
   contrast from that table and the stylesheet; headless Chrome on the built
   viewer gave the same colours and ratios.
+
+Changes since the previous revision (roadmap step 16, built fresh; the legacy
+diff was deleted in M1):
+- When the assistant publishes a new revision whose `revision.parent` is the
+  revision the panel is showing, About opens on **Changes since <id>**: the
+  steps, connections and findings added, removed or changed, compared by id.
+  Each group's heading counts them ("1 added · 2 changed · 1 removed"). Added
+  and changed items are links that select the item (a changed one lists what
+  changed, such as "label" or "evidence"); removed items are listed as text
+  with their id, and nothing removed is drawn on the diagram. **Review the N
+  added and changed claims** starts the walk on them.
+- What counts as changed. A step: its label, detail, basis, phase (its label),
+  group, kind or evidence. A connection: its ends, label, kind, basis or
+  evidence. A finding: its title, description, severity, basis, What to
+  change, cited steps, cited connections, evidence or counter-evidence. Evidence
+  is compared by what each cited record cites (file, lines, notebook cell and
+  quote), so a quote changed under the same evidence id is a change and an
+  evidence id renamed with the same file, lines and quote is not. Reordered
+  lists are not changes. An item whose id changed shows as one removed and one
+  added, and the section says so. The request, summary, coverage and title are
+  not compared. Step 16's scope did not list a finding's What to change or
+  counter-evidence; they are compared here because the Selection tab shows
+  them.
+- Steps added or changed carry a small "new" or "changed" tag at the card's
+  bottom-right edge (in a group's header for a group): a word on a solid
+  outline, no colour, the same size on screen at every zoom. The card's
+  accessible name adds "new in this revision" or "changed in this revision:
+  label". The tag is an overlay that moves no box or route: the geometry
+  golden is byte-identical, and a test compares the routed geometry with and
+  without a comparison on the vit-cc shape. Connections and findings carry the
+  tag in the Outline, the Findings list and the Selection tab, whose line under
+  the title reads "changed since revision r1: label." The SVG export draws no
+  tag.
+- The review walk gains **Changed in this revision**: the added and changed
+  claims in the diagram's order, offered only when there are some.
+- Only revisions this panel has shown are compared, and the section says so. A
+  new revision whose parent is not the displayed one shows no comparison;
+  About says "No changes are listed: revision r3 does not follow revision r1,
+  which this panel showed before it (its parent is r2)." A revision opened with
+  a parent the panel never showed says so in one line under Provenance.
+  Closing the panel, reloading the window or restarting extensions forgets the
+  comparison; a page VS Code rebuilt (a hidden panel shown again) gets it back
+  from the host. Nothing is written to disk and there is no new setting.
+- Protocol (internal, no contract change): the `workflow` frame gains two
+  optional fields. `previous` is the valid document the panel showed just
+  before, sent only when the new document names it as its parent; `replaced`
+  is that revision's id when the new document does not follow it. The host
+  keeps them in memory per panel (`nextComparison` in
+  `vscode-extension/src/revisionLineage.ts`) and sends them with every
+  `workflow` frame, a new page's included; the bootstrap passes them to
+  `mountWorkflow`. The webview checks them again (`sanitizeComparison`) and
+  compares with a pure `revisionDiff` (`webview/src/revisiondiff.ts`). The
+  wording says added, removed, changed and new, never fixed, wrong, better or
+  worse; a test forbids those words.
+- Tests: `webview/test/revision-changes.test.mjs` (each change kind, a quote
+  changed under the same id, reorderings and renamed evidence ids that are not
+  changes, a renamed step id, malformed frames; About, the links, the tags and
+  their spoken names, the unchanged geometry, the Outline and Findings rows,
+  the walk filter and a remount that resumes it, the case that does not follow,
+  the export and the legend), `vscode-extension/test/revision-changes.test.js`
+  (the host posts `previous` only when the parent matches, again for a new
+  page, through a refresh and a reopen, never for a rejected revision, and a
+  new panel has none), a bootstrap case, and `authoredChangesHandshake` (the
+  real host, its bootstrap and the built viewer). Mutation checks: comparing
+  evidence by id, or in order, fails the webview tests; posting `previous`
+  whatever the parent fails the host tests.
+- Live (VS Code 1.139, macOS, an isolated Extension Development Host driven
+  over the DevTools protocol with focus emulation in every webview frame, on a
+  scratch copy of the public vit-cc workspace): with the diagram open, the
+  skill's helper published a second revision (`upsert` of one step with a new
+  label and of one new finding, `validate`, `publish` with `revision.parent`
+  set to the displayed id). The panel showed About with "Changes since
+  cats-dogs-r1" (Steps 1 changed, Connections none, Findings 1 added), the
+  "changed" tag on that step's card with its spoken name, and **Review the 2
+  added and changed claims** started the walk on "Changed in this revision, 2
+  claims", opening the step's notebook cell beside the diagram; `j` moved to
+  the new finding. **Developer: Reload Webviews** rebuilt the page and the
+  comparison and the walk's filter came back; **Developer: Reload Window**
+  dropped the comparison and Provenance said the panel did not show
+  cats-dogs-r1. That run found the revision id capitalised by the section
+  heading; the id now keeps its case (checked in jsdom only). Not checked live:
+  a revision that does not follow (the helper publishes only a child of the
+  revision in the file; the tests write one directly), a screen reader,
+  Windows or Linux, or usability. The step's owner input (one
+  Refine round and whether the section helps) is still the owner's.
 
 ## Unreleased — viewer M3: review walk and the way back
 

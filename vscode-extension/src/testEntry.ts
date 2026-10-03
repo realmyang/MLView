@@ -18,7 +18,7 @@ export {
   MAX_SOURCE_BYTES,
   MAX_DOCUMENT_BYTES
 } from './workflowDocument';
-export { RevisionLineage, canonicalJson, jsonDepth, MAX_JSON_DEPTH, lenientRevision, semanticJson, BoundedMap, BoundedSet } from './revisionLineage';
+export { RevisionLineage, canonicalJson, jsonDepth, MAX_JSON_DEPTH, lenientRevision, semanticJson, BoundedMap, BoundedSet, nextComparison } from './revisionLineage';
 export { displayText, displayIssue, INVISIBLE_RANGES } from './displayText';
 export { normCase, identity, DependencySet } from './fileIdentity';
 export { buildRefinementPrompt, toPosixRelative, escapeJsonText, REFINE_INTENTS } from './refinePrompt';

@@ -219,6 +219,41 @@
 }
 
 /*
+ * Viewer M4 (step 16): "new" or "changed" since the revision this panel showed before. A word on a
+ * solid outline (the basis tags are dashed or dotted) in the text colour, with no hue: colour
+ * stays for stale evidence alone. The same size on screen at every zoom, half over the card's
+ * bottom edge at the right, opposite the basis tag. An overlay: no box moves.
+ */
+.mlv-rev-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px solid var(--mlv-text-2);
+  border-radius: 3px;
+  background: var(--mlv-bg);
+  color: var(--mlv-text);
+  font-size: 10px;
+  font-weight: var(--mlv-fw-semi);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mlv-node > .mlv-rev-tag {
+  position: absolute;
+  top: 100%;
+  right: 10px;
+  z-index: 5;
+  transform-origin: 100% 50%;
+  transform: translateY(-50%) scale(calc(1 / var(--mlv-z, 1)));
+  pointer-events: none;
+}
+
+.mlv-group__header .mlv-rev-tag {
+  flex: none;
+}
+
+/*
  * Viewer M2: exceptions mode (the toolbar's "N not observed" toggle). Observed claims recede
  * through FILL and STROKE only — never opacity, which would take their text below 4.5:1 — so the
  * inferred and unresolved ones stand out and every title stays readable.
@@ -311,6 +346,12 @@
  */
 .mlv-canvas[data-lod="compact"] .mlv-node > .mlv-basis-tag {
   transform-origin: 0 0;
+  transform: translateY(-1px) scale(calc(1 / var(--mlv-z, 1)));
+}
+
+/* Viewer M4: the "new" / "changed" tag hangs from the same edge, at the right. */
+.mlv-canvas[data-lod="compact"] .mlv-node > .mlv-rev-tag {
+  transform-origin: 100% 0;
   transform: translateY(-1px) scale(calc(1 / var(--mlv-z, 1)));
 }
 

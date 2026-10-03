@@ -36,6 +36,8 @@ import { allElsewhere, staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
 import { walkQuoteText } from '../walk.js';
 import type { WalkOpenStatus } from '../walk.js';
+import { changeOf, changeTagText, fieldList } from '../revisiondiff.js';
+import type { ChangeKind, RevisionDiff } from '../revisiondiff.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { Issue, Loc, MLEdge, MLNode, RelatedLoc, Sel, StaleReason, WorkflowDocument } from '../types.js';
 
@@ -62,6 +64,11 @@ export interface SelectionPaneState {
    * editor for, and what became of it (`applyWalkMark`).
    */
   walk?: WalkMark | null;
+  /**
+   * Viewer M4 (step 16): what changed since the revision this panel showed before; a claim added
+   * or changed there says so under its title.
+   */
+  changes?: RevisionDiff | null;
 }
 
 /** Viewer M3: the review walk's quote in the pane and what the editor beside shows for it. */
@@ -251,6 +258,7 @@ function nodePane(root: HTMLElement, node: MLNode, s: SelectionPaneState, cb: Se
   if (parent) eyebrowPart(eyebrow, 'mlv-insp__parent', 'in ' + (parent.label || parent.id));
 
   add(claim, el('h4', 'mlv-insp__title', node.label || node.qualname));
+  appendChange(claim, s, 'node', node.id);
   appendBasis(claim, node.basis, noun);
   // Viewer M1: the claim itself, in full, before anything else.
   if (node.detail) add(claim, el('p', 'mlv-insp__detail', node.detail));
@@ -293,6 +301,7 @@ function edgePane(root: HTMLElement, edge: MLEdge, s: SelectionPaneState, cb: Se
   ends.appendChild(stepLink(edge.source, source, cb));
   ends.appendChild(document.createTextNode(' → '));
   ends.appendChild(stepLink(edge.target, target, cb));
+  appendChange(claim, s, 'edge', edge.id);
   appendBasis(claim, edge.basis, 'connection');
   // The connection's hover card lists these too; this is the keyboard's and the screen reader's way.
   appendFindings(claim, index.issuesOfEdge(edge.id, s.keep), 'Findings on this connection', s, cb);
@@ -321,6 +330,7 @@ function issuePane(root: HTMLElement, issue: Issue, s: SelectionPaneState, cb: S
   if (chip) eyebrow.appendChild(chip);
 
   add(claim, el('h4', 'mlv-insp__title', issue.title));
+  appendChange(claim, s, 'issue', issue.id);
   appendBasis(claim, issue.basis, 'finding');
   if (issue.message) add(claim, el('p', 'mlv-insp__detail mlv-insp__message', issue.message));
   const suggestion = suggestionBlock(issue, 'h5');
@@ -402,6 +412,22 @@ function appendBasis(parent: HTMLElement, basis: string | undefined, noun: 'step
     p.appendChild(document.createTextNode(' '));
   }
   add(p, el('span', '', sentence));
+}
+
+/**
+ * Viewer M4 (step 16): "[changed] since revision r1: label and evidence." under the title of a
+ * claim added or changed since the revision this panel showed before. The tag is read out with the
+ * words after it; nothing is said when the claim did not change or there is no comparison.
+ */
+function appendChange(parent: HTMLElement, s: SelectionPaneState, kind: ChangeKind, id: string): void {
+  const diff = s.changes;
+  const change = changeOf(diff, kind, id);
+  if (!change || !diff) return;
+  const p = add(parent, el('p', 'mlv-insp__change'));
+  p.setAttribute('data-change', change.status);
+  const tag = add(p, el('span', 'mlv-rev-tag', changeTagText(change)));
+  tag.setAttribute('data-change', change.status);
+  add(p, el('span', '', ' since revision ' + diff.since + (change.status === 'changed' && change.fields.length ? ': ' + fieldList(change.fields) : '') + '.'));
 }
 
 /** A section heading with its count, which names its unit. */

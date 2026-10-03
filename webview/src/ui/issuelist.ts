@@ -14,6 +14,8 @@ import { basisSpoken } from '../render/edges.js';
 import type { GraphIndex } from '../layout/model.js';
 import { allElsewhere, STALE_TEXT } from '../freshness.js';
 import type { Issue, Loc, RelatedLoc, StaleReason } from '../types.js';
+import { changeOf, changeSentence, changeSpoken, changeTagText } from '../revisiondiff.js';
+import type { RevisionDiff } from '../revisiondiff.js';
 
 export interface IssueListCallbacks {
   /**
@@ -35,6 +37,11 @@ export interface IssueListState {
   selectedIssueId: string | null;
   /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
   staleReason?(file: string): StaleReason | undefined;
+  /**
+   * Viewer M4 (step 16): what changed since the revision this panel showed before; a finding added
+   * or changed there carries a "new" or "changed" tag, said in its row's name.
+   */
+  changes?: RevisionDiff | null;
 }
 
 /** The stale reasons among a finding's cited files (supporting and counter-evidence). */
@@ -188,6 +195,15 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   const chip = basisChip(issue);
   if (chip) meta.appendChild(chip);
   if (stale.length) meta.appendChild(staleChip(stale));
+  // Viewer M4: added or changed since the revision this panel showed before.
+  const change = changeOf(s.changes, 'issue', issue.id);
+  if (change && s.changes) {
+    row.setAttribute('aria-label', row.getAttribute('aria-label') + ', ' + changeSpoken(change));
+    const tag = add(meta, el('span', 'mlv-rev-tag mlv-rev-tag--row', changeTagText(change)));
+    tag.setAttribute('data-change', change.status);
+    tag.setAttribute('aria-hidden', 'true');
+    tag.title = changeSentence(change, s.changes.since);
+  }
   on(row, 'click', (ev: MouseEvent) => cb.onSelectIssue(issue.id, ev));
   li.appendChild(row);
 

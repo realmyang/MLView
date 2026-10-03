@@ -211,6 +211,7 @@ function filterTitle(filter: WalkFilter, n: number): string {
   const count = n + (n === 1 ? ' claim' : ' claims');
   if (filter === 'notObserved') return 'Walk the ' + count + ' the author marked inferred or unresolved (the header\'s "not observed" count)';
   if (filter === 'findings') return 'Walk the ' + count + ' that are findings';
+  if (filter === 'revision') return 'Walk the ' + count + ' added or changed since the revision this panel showed before (About lists them)';
   if (filter === 'changed') return 'Walk the ' + count + ' whose quotes cite a file that changed or went missing since publishing';
   return 'Walk all ' + count + ': every step, connection and finding';
 }

@@ -25,10 +25,10 @@ export function onHostMessage(app: App, msg: HostToUi): void {
     // One owner per frame (§1e): the host bootstrap mounts on the first
     // `workflow` and ignores the rest; this listener applies every later one.
     // A frame carrying the very document object already applied is dropped, so
-    // no path can render the same frame twice.
-    workflow: (document) => {
+    // no path can render the same frame twice. Viewer M4: the frame's comparison goes with it.
+    workflow: (document, comparison) => {
       if (document === app.workflowDocument) return;
-      app.setWorkflow(document);
+      app.setWorkflow(document, undefined, comparison);
     },
     workflowStatus: (codes) => onWorkflowStatus(app, codes),
     hostNotice: (message, codes) => app.showHostNotice(message, codes),

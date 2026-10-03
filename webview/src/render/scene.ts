@@ -14,6 +14,7 @@ import { clear } from '../dom.js';
 import { buildBundle } from './bundles.js';
 import { buildEdge } from './edges.js';
 import { buildGroupBox, buildLane, buildNodeCard } from './nodes.js';
+import type { RevisionMark } from './nodes.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './plan.js';
 import type { RoutedEdge } from '../layout/routing.js';
 
@@ -31,6 +32,11 @@ export interface SceneLayers {
 export interface SceneOptions extends ScenePlanOptions {
   wireNode(element: HTMLElement, id: string, isGroup: boolean): void;
   wireEdge(element: SVGElement, route: RoutedEdge): void;
+  /**
+   * Viewer M4 (step 16): a step's "new" or "changed" tag. DOM only, deliberately outside the plan:
+   * it is an overlay on the card that changes no box, and the SVG export does not draw it.
+   */
+  revisionMark?(nodeId: string): RevisionMark | undefined;
 }
 
 export interface SceneResult {
@@ -64,7 +70,8 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
   const nodeEls = new Map<string, HTMLElement>();
   for (const planned of plan.nodes) {
     const visual = planned.visual;
-    const element = planned.expandedGroup ? buildGroupBox(visual) : buildNodeCard(visual, visual.box.collapsed);
+    const mark = opts.revisionMark ? opts.revisionMark(visual.node.id) : undefined;
+    const element = planned.expandedGroup ? buildGroupBox(visual, mark) : buildNodeCard(visual, visual.box.collapsed, mark);
     opts.wireNode(element, visual.node.id, planned.expandedGroup);
     nodeEls.set(visual.node.id, element);
     if (planned.expandedGroup) layers.lanes.appendChild(element);

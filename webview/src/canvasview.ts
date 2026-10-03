@@ -46,6 +46,15 @@ import { HOVER_CLOSE_MS, HOVER_OPEN_MS, PHASE_INDEX_LIST_MIN_H, PHASE_INDEX_LIST
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
 import type { Sel, StaleFile, StaleReason } from './types.js';
+import { changeOf } from './revisiondiff.js';
+import type { RevisionDiff } from './revisiondiff.js';
+import type { RevisionMark } from './render/nodes.js';
+
+/** Viewer M4: a step's card tag, from the comparison with the revision this panel showed before. */
+function revisionMarkOf(diff: RevisionDiff | null, id: string): RevisionMark | undefined {
+  const change = changeOf(diff, 'node', id);
+  return change && diff ? { status: change.status === 'added' ? 'added' : 'changed', fields: change.fields, since: diff.since } : undefined;
+}
 
 export type { CanvasHost, NextSelection };
 export { HOVER_CLOSE_MS, HOVER_OPEN_MS };
@@ -93,6 +102,8 @@ export class CanvasView {
   private labelPlan: LabelPlan | null = null;
   private collapsedSet = new Set<string>();
   private staleFiles = new Map<string, StaleReason>();
+  /** Viewer M4: what changed since the revision this panel showed before (`setRevisionChanges`). */
+  private revisionChanges: RevisionDiff | null = null;
   private nodeEls = new Map<string, HTMLElement>();
   private edgeEls = new Map<string, SVGElement>();
   /** Route id -> where its severity marker is drawn, for the edge hover resolver. */
@@ -501,6 +512,16 @@ export class CanvasView {
     this.staleFiles = new Map(files.map((file) => [file.path, file.reason] as [string, StaleReason]));
   }
 
+  /**
+   * Viewer M4 (step 16): the steps added or changed since the revision this panel showed before
+   * carry a "new" or "changed" tag on their card. The tag is an overlay drawn by the next render
+   * (the App sets this before the document's layout); it moves no box and no route, and the SVG
+   * export, which walks the scene plan, does not draw it.
+   */
+  setRevisionChanges(diff: RevisionDiff | null): void {
+    this.revisionChanges = diff;
+  }
+
   nodeElement(id: string): HTMLElement | undefined {
     return this.nodeEls.get(id);
   }
@@ -579,6 +600,7 @@ export class CanvasView {
         ...inputs,
         wireNode: (element, id, isGroup) => wireNodeEvents(element, id, isGroup, nodePort),
         wireEdge: (element, route) => wireEdgeEvents(element, route, edgePort),
+        revisionMark: (id) => revisionMarkOf(this.revisionChanges, id),
       },
     );
     this.nodeEls = scene.nodeEls;

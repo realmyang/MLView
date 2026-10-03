@@ -22,9 +22,13 @@ import type { Loc, Sel, StaleReason } from './types.js';
 /** A claim is a step (node), a connection (edge) or a finding (issue), named by its authored id. */
 export type Claim = Sel;
 
-/** The walk's filters, in the order the walk bar offers them. */
-export type WalkFilter = 'notObserved' | 'findings' | 'changed' | 'all';
-export const WALK_FILTERS: readonly WalkFilter[] = ['notObserved', 'findings', 'changed', 'all'];
+/**
+ * The walk's filters, in the order the walk bar offers them. `revision` (viewer M4, step 16):
+ * the claims added or changed since the revision this panel showed before; `changed`: the claims
+ * whose quotes cite a changed or missing file.
+ */
+export type WalkFilter = 'notObserved' | 'findings' | 'revision' | 'changed' | 'all';
+export const WALK_FILTERS: readonly WalkFilter[] = ['notObserved', 'findings', 'revision', 'changed', 'all'];
 
 /**
  * The walk bar's words for each filter. All names its unit ("All claims 79"), as the other
@@ -33,6 +37,7 @@ export const WALK_FILTERS: readonly WalkFilter[] = ['notObserved', 'findings', '
 export const FILTER_LABEL: Record<WalkFilter, string> = {
   notObserved: 'Not observed',
   findings: 'Findings',
+  revision: 'Changed in this revision',
   changed: 'Changed files',
   all: 'All claims',
 };
@@ -47,6 +52,7 @@ export function filterCountText(filter: WalkFilter, n: number): string {
 const FILTER_SPOKEN: Record<WalkFilter, string> = {
   notObserved: 'not observed',
   findings: 'findings',
+  revision: 'changed in this revision',
   changed: 'changed files',
   all: '',
 };
@@ -147,30 +153,36 @@ export function changedOffered(reasons: readonly StaleReason[]): boolean {
 }
 
 export type StaleTest = (file: string) => boolean;
+/** Viewer M4: whether a claim was added or changed since the revision this panel showed before. */
+export type ClaimTest = (claim: Claim) => boolean;
+const NONE: ClaimTest = () => false;
 
 /** Whether `claim` belongs to `filter`. */
-export function inFilter(filter: WalkFilter, index: GraphIndex, claim: Claim, isStale: StaleTest): boolean {
+export function inFilter(filter: WalkFilter, index: GraphIndex, claim: Claim, isStale: StaleTest, isRevised: ClaimTest = NONE): boolean {
   if (filter === 'all') return true;
   if (filter === 'findings') return claim.kind === 'issue';
   if (filter === 'notObserved') return isNotObserved(claimBasis(index, claim));
+  if (filter === 'revision') return isRevised(claim);
   return claimLocs(index, claim).some((loc) => !!loc.file && isStale(loc.file));
 }
 
 /** The claims of `filter`, in the walk's order. */
-export function filterClaims(order: readonly Claim[], filter: WalkFilter, index: GraphIndex, isStale: StaleTest): Claim[] {
-  return order.filter((claim) => inFilter(filter, index, claim, isStale));
+export function filterClaims(order: readonly Claim[], filter: WalkFilter, index: GraphIndex, isStale: StaleTest, isRevised: ClaimTest = NONE): Claim[] {
+  return order.filter((claim) => inFilter(filter, index, claim, isStale, isRevised));
 }
 
 /** How many claims each filter holds. */
-export function filterCounts(order: readonly Claim[], index: GraphIndex, isStale: StaleTest): Record<WalkFilter, number> {
-  const counts: Record<WalkFilter, number> = { notObserved: 0, findings: 0, changed: 0, all: 0 };
-  for (const claim of order) for (const filter of WALK_FILTERS) if (inFilter(filter, index, claim, isStale)) counts[filter]++;
+export function filterCounts(order: readonly Claim[], index: GraphIndex, isStale: StaleTest, isRevised: ClaimTest = NONE): Record<WalkFilter, number> {
+  const counts: Record<WalkFilter, number> = { notObserved: 0, findings: 0, revision: 0, changed: 0, all: 0 };
+  for (const claim of order) for (const filter of WALK_FILTERS) if (inFilter(filter, index, claim, isStale, isRevised)) counts[filter]++;
   return counts;
 }
 
 /**
  * The filters the walk bar offers: All always; the others only when they hold a claim (as the
  * header hides "not observed" when nothing is), and Changed files only while it is offered at all.
+ * Changed in this revision (viewer M4) holds a claim only when the panel compares this revision
+ * with the one it showed before and something was added or changed.
  */
 export function offeredFilters(counts: Record<WalkFilter, number>, changed: boolean): WalkFilter[] {
   return WALK_FILTERS.filter((filter) => filter === 'all' || (counts[filter] > 0 && (filter !== 'changed' || changed)));

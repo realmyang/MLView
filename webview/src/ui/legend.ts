@@ -19,7 +19,7 @@ import { basisTagText } from '../render/nodes.js';
 import { PHASE_TONES } from '../layout/model.js';
 
 export interface LegendRow {
-  /** `basis` | `severity` | `edge` | `phase` | `freshness`. */
+  /** `basis` | `severity` | `edge` | `phase` | `freshness` | `revision` (viewer M4). */
   group: string;
   key: string;
   label: string;
@@ -62,6 +62,15 @@ const FRESHNESS_ROWS: LegendRow[] = [
   { group: 'freshness', key: 'stale', label: 'Changed or missing', detail: 'A cited file no longer matches the published revision. Cards, connections, findings and quotes that cite it carry this mark and a border in the warning colour, and their jumps are blocked. It does not say whether the claim is still right. When the notice above says the workspace root is the wrong folder, the mark means the file is unchanged in another folder.' },
 ];
 
+/**
+ * Viewer M4 (step 16): the tags `render/nodes.ts` draws on a step added or changed since the revision
+ * this panel showed before. Words on a solid outline, no colour.
+ */
+const REVISION_ROWS: LegendRow[] = [
+  { group: 'revision', key: 'added', label: 'new', detail: 'Added since the revision this panel showed before, when the new revision names that one as its parent. About lists every step, connection and finding added, removed or changed.' },
+  { group: 'revision', key: 'changed', label: 'changed', detail: 'The same id with a different label, detail, basis, phase, group, kind or cited evidence (file, lines or quote). Connections and findings carry the tag in the Outline, the Findings list and the Selection tab. A tag says only that the authored text changed, not whether the claim holds.' },
+];
+
 /** The legend's content, derived from the drawing tables. */
 export function legendModel(): LegendSection[] {
   return [
@@ -86,6 +95,7 @@ export function legendModel(): LegendSection[] {
     { id: 'edges', title: 'Connections', rows: EDGE_ROWS },
     { id: 'phases', title: 'Phases', rows: PHASE_ROWS },
     { id: 'freshness', title: 'Source freshness', rows: FRESHNESS_ROWS },
+    { id: 'revision', title: 'Changes since the previous revision', rows: REVISION_ROWS },
   ];
 }
 
@@ -156,6 +166,11 @@ function swatchFor(row: LegendRow): Node {
     return edgeSwatch('observed', row.key === 'back');
   }
   if (row.group === 'phase') return row.key === 'index' ? el('span', 'mlv-chip', '4/6') : phaseSwatch();
+  if (row.group === 'revision') {
+    const tag = el('span', 'mlv-rev-tag', row.label);
+    tag.setAttribute('data-change', row.key);
+    return tag;
+  }
   if (row.key === 'stale') {
     const chip = el('span', 'mlv-chip mlv-chip--stale');
     chip.appendChild(uiIcon('warning', 11));

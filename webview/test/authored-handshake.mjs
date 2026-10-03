@@ -133,13 +133,14 @@ function mountPage(wire, beforeScripts) {
   // esbuild's IIFE exports are getter-only, so replace the object before wrapping mountWorkflow.
   window.MLView = { ...window.MLView };
   const mountWorkflow = window.MLView.mountWorkflow;
-  window.MLView.mountWorkflow = (root, document, bridge) => {
-    page.mounts.push({ revision: document.revision.id, theme: bridge.theme, capabilities: { ...bridge.capabilities } });
-    const app = mountWorkflow(root, document, bridge);
+  // Viewer M4: the bootstrap passes the frame's comparison (`previous`, `replaced`) on; so do these.
+  window.MLView.mountWorkflow = (root, document, bridge, comparison) => {
+    page.mounts.push({ revision: document.revision.id, theme: bridge.theme, capabilities: { ...bridge.capabilities }, comparison });
+    const app = mountWorkflow(root, document, bridge, comparison);
     const setWorkflow = app.setWorkflow.bind(app);
-    app.setWorkflow = (next, preserve) => {
+    app.setWorkflow = (next, preserve, nextComparison) => {
       page.renders.push(next.revision.id);
-      return setWorkflow(next, preserve);
+      return setWorkflow(next, preserve, nextComparison);
     };
     page.app = app;
     return app;
@@ -656,6 +657,75 @@ export async function authoredRevealHandshake() {
     await waitFor(() => (vscode.__recorded.contexts.get('mlview.citedFiles') || ['x']).length === 0, 'the list outlived the last panel');
     assert.equal(vscode.__recorded.messages.filter((m) => m[0] === 'warn' || m[0] === 'error').length, 0, 'no notification');
     process.stdout.write('  PASS  Reveal in Diagram → one claim at once, several in a QuickPick → the page selects it with the keyboard on it → a discarded page gets it after ready\n');
+  } finally {
+    wire.controller.dispose();
+    for (const page of wire.pages) page.window.close();
+    rmSync(wire.root, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Viewer M4 (step 16): changes since the previous revision across the real host, its bootstrap and
+ * the built bundle. The host keeps the revision the panel showed and posts it as `previous` with a
+ * child revision; the page lists the changes in About, tags the changed and added cards, and offers
+ * the walk's "Changed in this revision". A page VS Code rebuilt gets the comparison again through
+ * the bootstrap's mount; a revision that does not follow gets `replaced` and no comparison.
+ */
+export async function authoredChangesHandshake() {
+  const wire = await openWire(baseDocument(), { 'source.py': SOURCE });
+  try {
+    let page = mountPage(wire);
+    await waitFor(() => $(page, '[data-node-id="loss"]'), 'the viewer did not mount');
+    assert.equal($(page, '.mlv-about [data-about="changes"]'), null, 'a first revision has no Changes section');
+    assert.equal(wire.hostPosts.find((m) => m.type === 'workflow').previous, undefined);
+
+    // r2: one step relabelled and one finding added, published as a child of r1.
+    const r2 = baseDocument();
+    r2.revision = { id: 'r2', parent: 'r1' };
+    r2.nodes[1].label = 'Apply the optimizer step';
+    r2.findings.push({ id: 'seed', title: 'No seed', message: 'No seed is set.', severity: 'low', nodeIds: ['loss'], edgeIds: [], basis: 'observed', evidence: ['e1'] });
+    writeFileSync(wire.artifact, JSON.stringify(r2));
+    const before = wire.hostPosts.length;
+    vscode.__fireWatcher('change', wire.artifact);
+    await waitFor(() => $(page, '[data-workflow-revision="r2"]'), 'r2 did not render');
+    const frame = wire.hostPosts.slice(before).find((m) => m.type === 'workflow');
+    assert.equal(frame.previous.revision.id, 'r1', 'the host posts the revision the panel showed');
+    assert.equal(frame.replaced, undefined);
+    const section = () => $(page, '.mlv-about [data-about="changes"]');
+    assert.ok(section(), 'About lists the changes');
+    assert.equal(section().querySelector('h4').textContent, 'Changes since r1');
+    assert.equal(section().querySelector('[data-change-group="steps"] .mlv-rail__count').textContent, '1 changed');
+    assert.equal(section().querySelector('[data-change-group="connections"] .mlv-rail__count').textContent, 'none added, removed or changed');
+    assert.equal(section().querySelector('[data-change-group="findings"] .mlv-rail__count').textContent, '1 added');
+    assert.equal($(page, '[data-node-id="update"] > .mlv-rev-tag').textContent, 'changed');
+    assert.match($(page, '[data-node-id="update"]').getAttribute('aria-label'), /changed in this revision: label/);
+    assert.equal($(page, '[data-node-id="loss"] > .mlv-rev-tag'), null);
+
+    // The walk's filter holds the changed step and the added finding.
+    $(page, '.mlv-about__review').click();
+    assert.equal(page.app.walk.filter, 'revision');
+    // Drawn order: the finding homed at "Compute loss" comes before the step after it.
+    assert.deepEqual(plain(page.app.walk.list), [{ kind: 'issue', id: 'seed' }, { kind: 'node', id: 'update' }]);
+    page.app.walk.stop(false);
+
+    // VS Code rebuilt the page: the host's first frame carries the comparison, and the bootstrap
+    // hands it to the mount.
+    page = mountPage(wire);
+    await waitFor(() => $(page, '[data-node-id="update"] > .mlv-rev-tag'), 'the rebuilt page lost the comparison');
+    assert.equal(page.mounts[0].comparison.previous.revision.id, 'r1');
+    assert.ok(section(), 'About lists the changes again');
+
+    // r3 names a parent this panel never showed: no comparison, and About says why.
+    writeFileSync(wire.artifact, JSON.stringify({ ...baseDocument(), revision: { id: 'r3', parent: 'r9' } }));
+    const beforeR3 = wire.hostPosts.length;
+    vscode.__fireWatcher('change', wire.artifact);
+    await waitFor(() => $(page, '[data-workflow-revision="r3"]'), 'r3 did not render');
+    const r3Frame = wire.hostPosts.slice(beforeR3).find((m) => m.type === 'workflow');
+    assert.equal(r3Frame.previous, undefined);
+    assert.equal(r3Frame.replaced, 'r2');
+    assert.match(section().textContent, /No changes are listed: revision r3 does not follow revision r2, which this panel showed before it \(its parent is r9\)\./);
+    assert.equal($(page, '[data-node-id] .mlv-rev-tag'), null, 'no tags');
+    process.stdout.write('  PASS  watched child revision → previous posted → Changes since r1, tags, walk filter → rebuilt page → a revision that does not follow\n');
   } finally {
     wire.controller.dispose();
     for (const page of wire.pages) page.window.close();

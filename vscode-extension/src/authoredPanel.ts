@@ -10,7 +10,7 @@ import type { Logger } from './log';
 import { buildRefinementPrompt, REFINE_INTENTS, toPosixRelative, type RefineIntent, type RefineSelection } from './refinePrompt';
 import { displayIssue, displayText } from './displayText';
 import { RevealInDiagram, type CitationState, type EditorPlace, type RevealPanel } from './revealCommand';
-import { canonicalJson, jsonDepth, lenientRevision, MAX_JSON_DEPTH, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
+import { canonicalJson, jsonDepth, lenientRevision, MAX_JSON_DEPTH, nextComparison, RevisionLineage, semanticJson, type Candidate, type RevisionComparison, type Verdict } from './revisionLineage';
 import { ID_PATTERN, MAX_DOCUMENT_BYTES, MAX_SOURCE_BYTES, quoteMatches, readSourceBytes, trackedFiles, validateWorkflow, validateWorkflowStructure, type StaleFile, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
@@ -669,6 +669,11 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
     private ready = false;
     /** The displayed revision's latest validation. */
     private lastValid: ValidatedWorkflow | undefined;
+    /**
+     * Viewer M4 (step 16): what the displayed revision is compared with (`nextComparison`), posted
+     * with every `workflow` frame of this panel, a new page's included. Kept in memory only.
+     */
+    private comparison: RevisionComparison = {};
     private readonly lineage = new RevisionLineage();
     private dependencies = new DependencySet();
     private readonly disposables: vscode.Disposable[] = [];
@@ -916,6 +921,10 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         let candidateFiles: string[] = [];
         if (verdict === 'adopt' || verdict === 'refresh') {
             this.rejection = undefined;
+            // Viewer M4 (step 16): a new revision is compared with the one it replaces when it
+            // names that one as its parent; a refresh keeps the comparison.
+            if (verdict === 'adopt' && value)
+                this.comparison = nextComparison(this.comparison, this.lastValid?.document, value.document);
             this.lastValid = value;
             // Viewer M3 (step 14): the citation index follows the validated document.
             if (value && this.citations?.document !== value.document)
@@ -947,7 +956,7 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
             }
             if (this.ready) {
                 this.postBanner(true, true);
-                this.post({ v: 1, type: 'workflow', document });
+                this.postWorkflow(document);
                 this.lastPostedFull = candidate.full;
             }
             const staleFiles = this.lastValid.stale;
@@ -961,7 +970,7 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         }
         else if (verdict === 'refresh' && this.lastValid && candidate.kind === 'json' && this.ready && candidate.full !== this.lastPostedFull) {
             // Same semantic content; re-post only when the verification block changed.
-            this.post({ v: 1, type: 'workflow', document: this.lastValid.document });
+            this.postWorkflow(this.lastValid.document);
             this.lastPostedFull = candidate.full;
         }
         this.postStale();
@@ -973,6 +982,21 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
         // Viewer M3 (step 14): a new revision, or a changed or restored cited file, changes the
         // reveal command's list of cited files.
         this.hooks.citationsChanged();
+    }
+    /**
+     * The displayed revision, with what it is compared with (viewer M4, step 16): `previous`, the
+     * document this panel showed just before, only when `document` names it as its parent; or
+     * `replaced`, that revision's id, when `document` does not follow it. The webview lists the
+     * changes in About and tags what was added or changed; a new page gets them again here.
+     */
+    private postWorkflow(document: ValidatedWorkflow['document']): void {
+        const { previous, replaced } = this.comparison;
+        if (previous && previous.revision.id === document.revision.parent)
+            this.post({ v: 1, type: 'workflow', document, previous });
+        else if (replaced && replaced !== document.revision.id && replaced !== document.revision.parent)
+            this.post({ v: 1, type: 'workflow', document, replaced });
+        else
+            this.post({ v: 1, type: 'workflow', document });
     }
     /**
      * The stale cited and inspected files of the displayed revision, each with its reason, so the
@@ -1194,7 +1218,7 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
                 artifact: this.artifact.fsPath
             });
             if (this.lastValid) {
-                this.post({ v: 1, type: 'workflow', document: this.lastValid.document });
+                this.postWorkflow(this.lastValid.document);
                 this.lastPostedFull = this.lineage.displayed?.full;
             }
             // A new page starts with no stale marks.
@@ -1840,7 +1864,7 @@ class AuthoredPanel implements vscode.Disposable, RevealPanel {
      * on the window would come too late: VS Code's forwarder is attached to that window before this
      * page's scripts run, and it stays attached; checked live.)
      */
-    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document){app=window.MLView.mountWorkflow(root,m.document,bridge);document.addEventListener('keydown',function(e){if(e.key==='Escape'&&e.defaultPrevented)e.stopPropagation();});}return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(app||!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
+    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document){app=window.MLView.mountWorkflow(root,m.document,bridge,{previous:m.previous,replaced:m.replaced});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&e.defaultPrevented)e.stopPropagation();});}return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(app||!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
     dispose(): void {
         if (this.disposed)
             return;

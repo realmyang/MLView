@@ -68,8 +68,8 @@ function stubEnvironment() {
     addEventListener(type, listener, options) { windowListeners.push({ type, listener, options }); },
     MLView: {
       bridges: { vscode: () => bridge },
-      mountWorkflow(target, doc, withBridge) {
-        mounts.push({ target, doc, theme: withBridge.theme, capabilities: withBridge.capabilities });
+      mountWorkflow(target, doc, withBridge, comparison) {
+        mounts.push({ target, doc, theme: withBridge.theme, capabilities: withBridge.capabilities, comparison });
         return { setWorkflow() { throw new Error('the bootstrap never drives the mounted app'); } };
       }
     }
@@ -144,6 +144,27 @@ test('after the mount the bootstrap draws no banner and removes a leftover one',
   env.deliver({ v: 1, type: 'stale', files: [{ path: 'source.py', reason: 'changed' }] });
   assert.equal(env.root.children.length, 0, 'the bootstrap ignores the stale frame');
   assert.equal(env.bridge.posted.length, 1, 'only the bootstrap ready is ever posted');
+});
+
+// Viewer M4 (step 16): the first `workflow` frame's comparison (`previous`, `replaced`) goes to the
+// mount, so a page VS Code rebuilt lists the changes again; the mounted app takes the later frames.
+test('bootstrap passes the first workflow frame\'s previous and replaced revision to the mount', async () => {
+  const source = await bootstrapSource();
+  const env = stubEnvironment();
+  vm.runInNewContext(source, { window: env.window, document: env.document, Object });
+  const previous = { revision: { id: 'r1' } };
+  env.deliver({ v: 1, type: 'workflow', document: { revision: { id: 'r2', parent: 'r1' } }, previous });
+  assert.equal(env.mounts.length, 1);
+  assert.equal(env.mounts[0].comparison.previous, previous, 'the very document the host sent');
+  assert.equal(env.mounts[0].comparison.replaced, undefined);
+  const other = stubEnvironment();
+  vm.runInNewContext(source, { window: other.window, document: other.document, Object });
+  other.deliver({ v: 1, type: 'workflow', document: { revision: { id: 'r3', parent: 'r2' } }, replaced: 'r1' });
+  assert.deepEqual(plain(other.mounts[0].comparison), { replaced: 'r1' });
+  const plainFrame = stubEnvironment();
+  vm.runInNewContext(source, { window: plainFrame.window, document: plainFrame.document, Object });
+  plainFrame.deliver({ v: 1, type: 'workflow', document: { revision: { id: 'r1' } } });
+  assert.deepEqual(plain(plainFrame.mounts[0].comparison), {}, 'a frame with neither passes neither');
 });
 
 // Viewer M3: VS Code's webview host forwards every keydown to the workbench from a listener on the

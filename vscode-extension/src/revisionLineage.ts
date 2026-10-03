@@ -9,7 +9,7 @@
  * This module is pure: the panel reads the artifact, validates it, and hands the result here.
  */
 import { displayIssue } from './displayText';
-import { ID_PATTERN, type ValidatedWorkflow, type ValidationIssue } from './workflowDocument';
+import { ID_PATTERN, type ValidatedWorkflow, type ValidationIssue, type WorkflowDocument } from './workflowDocument';
 
 export type Verdict = 'adopt' | 'refresh' | 'invalid' | 'obsolete' | 'same-id-changed' | 'keep';
 export type DiskHead =
@@ -125,6 +125,39 @@ export function semanticJson(value: unknown): string {
     return canonicalJson(copy);
   }
   return canonicalJson(value);
+}
+
+/**
+ * Viewer M4 (roadmap step 16): what a panel compares its displayed revision with, sent with every
+ * `workflow` frame. `previous` is the valid document the panel showed just before, kept only when
+ * the displayed revision names it as its `revision.parent`; `replaced` is the id of the revision
+ * the panel showed before when the displayed one does not follow it. Memory only: nothing is
+ * written anywhere, and a new panel (a window reload, an extension restart) starts with neither.
+ */
+export interface RevisionComparison {
+  previous?: WorkflowDocument;
+  replaced?: string;
+}
+
+/**
+ * The comparison after the panel adopts `next` in place of `before` (the document it showed, or
+ * undefined for its first). Another revision id compares with `before` when `next` names it as its
+ * parent, else records only which revision it replaced. The same revision id again (a reopen, or
+ * the file read again after it went missing) keeps the comparison it had, while `next` still names
+ * that revision as its parent.
+ */
+export function nextComparison(current: RevisionComparison, before: WorkflowDocument | undefined, next: WorkflowDocument): RevisionComparison {
+  if (!before)
+    return {};
+  const parent = next.revision.parent ?? null;
+  if (before.revision.id === next.revision.id) {
+    if (current.previous && current.previous.revision.id === parent)
+      return { previous: current.previous };
+    return current.replaced && current.replaced !== parent ? { replaced: current.replaced } : {};
+  }
+  if (parent === before.revision.id)
+    return { previous: before };
+  return { replaced: before.revision.id };
 }
 
 /** Collections bounded to `limit` entries that evict in insertion order. */

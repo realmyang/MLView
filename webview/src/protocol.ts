@@ -7,11 +7,17 @@
  */
 
 import { sanitizeStaleFiles } from './freshness.js';
+import { sanitizeComparison } from './revisiondiff.js';
+import type { WorkflowComparison } from './revisiondiff.js';
 import type { ActionResult, Capabilities, Filters, HostToUi, StaleFile, ThemeKind, ViewState, WorkflowDocument } from './types.js';
 
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
-  workflow(document: WorkflowDocument): void;
+  /**
+   * `comparison` (viewer M4, step 16): the frame's `previous` or `replaced`, checked against the
+   * document (`sanitizeComparison`); `{}` when it carried neither or they do not fit.
+   */
+  workflow(document: WorkflowDocument, comparison: WorkflowComparison): void;
   /**
    * The codes of a new host status banner (§1a). The host bootstrap draws the banner itself; the
    * App only uses the codes to drop a refusal they show is out of date (LINEAGE2-1). `undefined`
@@ -47,7 +53,7 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       h.init(msg.theme, msg.capabilities);
       return;
     case 'workflow':
-      h.workflow(msg.document);
+      h.workflow(msg.document, sanitizeComparison(msg.document, msg));
       return;
     case 'workflowError': {
       // Before the mount the host bootstrap draws the banner; after it, the App does.

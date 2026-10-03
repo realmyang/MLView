@@ -632,6 +632,61 @@
   font-size: var(--mlv-fs-11);
 }
 
+/*
+ * Viewer M4 (step 16): Changes since <parent>. Each group's counts sit in its heading; each item is
+ * its tag in words, then a link to it (a removed item is text, with its id).
+ */
+/* The revision id in the Changes heading keeps its own case (ids are case-sensitive). */
+.mlv-about__revid {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.mlv-about__subhead {
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-about__changes {
+  list-style: none;
+  margin: var(--mlv-s2) 0 0;
+  padding: 0;
+}
+
+.mlv-about__change {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__change .mlv-rev-tag {
+  vertical-align: 1px;
+}
+
+.mlv-about__changegone {
+  color: var(--mlv-text);
+}
+
+.mlv-about__changeid,
+.mlv-about__changefields {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M4: the "new" / "changed" tag in a row of the Outline, the Findings list or a pane. */
+.mlv-rev-tag--row {
+  flex: none;
+  font-family: var(--mlv-font);
+}
+
+.mlv-insp__change {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__change .mlv-rev-tag {
+  vertical-align: 1px;
+}
+
 .mlv-insp__issue {
   margin-bottom: var(--mlv-s5);
   padding: var(--mlv-s4);

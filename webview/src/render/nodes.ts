@@ -12,6 +12,30 @@ import { stampPhase } from './phase.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
 import { drawsLocRow, titleLines } from '../layout/cardmetrics.js';
+import { changeSentence, changeSpoken, changeTagText } from '../revisiondiff.js';
+
+/**
+ * Viewer M4 (step 16): a step added or changed since the revision this panel showed before, for its
+ * card's tag. `fields` are the changed fields in the viewer's words; `since` is that revision's id.
+ */
+export interface RevisionMark {
+  status: 'added' | 'changed';
+  fields: string[];
+  since: string;
+}
+
+/**
+ * Viewer M4: the "new" or "changed" tag on a card or a group's header. Words, never colour alone;
+ * the same size on screen at every zoom (node.css), at the card's bottom-right edge, where it
+ * covers no title and moves nothing. `aria-hidden`: the card's accessible name says it.
+ */
+export function revisionTag(mark: RevisionMark): HTMLElement {
+  const tag = el('span', 'mlv-rev-tag', changeTagText(mark));
+  tag.setAttribute('data-change', mark.status);
+  tag.setAttribute('aria-hidden', 'true');
+  tag.title = changeSentence(mark, mark.since) + ' About lists every change.';
+  return tag;
+}
 
 /**
  * An authored sublabel is the model's `detail`, up to 8000 characters. The card
@@ -117,7 +141,11 @@ function kindSpoken(n: NodeVisual['node']): string {
   return n.kind.replace(/_/g, ' ');
 }
 
-export function ariaLabelFor(v: NodeVisual): string {
+/**
+ * The card's accessible name. `mark` (viewer M4) adds "new in this revision" or "changed in this
+ * revision: label and evidence"; the SVG export calls this without one, as it draws no tag.
+ */
+export function ariaLabelFor(v: NodeVisual, mark?: RevisionMark): string {
   const n = v.node;
   const bits: string[] = [];
   bits.push(kindSpoken(n) + ' ' + n.label);
@@ -133,6 +161,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + (v.descendants === 1 ? ' nested step' : ' nested steps'));
   if (v.stale) bits.push(staleWords(v));
+  if (mark) bits.push(changeSpoken(mark));
   // Viewer M1: the claim's first sentence, so the name says what the step does. The Selection pane
   // has the whole text.
   const claim = n.detail ? detailSpoken(n.detail) : '';
@@ -192,8 +221,8 @@ export function cardDetailLines(node: MLNode): 1 | 2 {
   return node.detail && node.detail.trim() && drawsLocRow(node) ? 2 : 1;
 }
 
-/** A full node card, positioned absolutely inside the world layer. */
-export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLElement {
+/** A full node card, positioned absolutely inside the world layer. `mark`: viewer M4's tag. */
+export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean, mark?: RevisionMark): HTMLElement {
   const n = v.node;
   const groupLike = collapsedGroup;
   const card = el('div', 'mlv-node');
@@ -210,7 +239,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   if (v.phase !== undefined) stampPhase(card, v.phase);
   const top = highestSeverity(v.counts);
   if (top) card.setAttribute('data-sev', top);
-  card.setAttribute('aria-label', ariaLabelFor(v));
+  card.setAttribute('aria-label', ariaLabelFor(v, mark));
   card.style.left = v.box.x + 'px';
   card.style.top = v.box.y + 'px';
   card.style.width = v.box.w + 'px';
@@ -265,6 +294,8 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // Viewer M2: inferred and unresolved cards carry a tag; observed cards carry nothing.
   const tag = basisTag(n.basis, groupLike ? 'group' : 'step');
   if (tag) card.appendChild(tag);
+  // Viewer M4: added or changed since the revision this panel showed before.
+  if (mark) card.appendChild(revisionTag(mark));
 
   if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
@@ -310,8 +341,8 @@ export function phaseFindingsSpoken(counts: IssueCounts): string {
     '. A finding that cites steps or connections in several phases counts in each of them.';
 }
 
-/** An expanded group: the dashed container plus its header strip. */
-export function buildGroupBox(v: NodeVisual): HTMLElement {
+/** An expanded group: the dashed container plus its header strip. `mark`: viewer M4's tag. */
+export function buildGroupBox(v: NodeVisual, mark?: RevisionMark): HTMLElement {
   const n = v.node;
   const box = el('div', 'mlv-group');
   box.id = nodeDomId(n.id);
@@ -335,7 +366,7 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   header.setAttribute('role', 'button');
   header.setAttribute('tabindex', '-1');
   header.setAttribute('aria-expanded', 'true');
-  header.setAttribute('aria-label', ariaLabelFor(v) + ' Group, expanded. Double-click to collapse.');
+  header.setAttribute('aria-label', ariaLabelFor(v, mark) + ' Group, expanded. Double-click to collapse.');
   const chevBtn = el('button', 'mlv-group__chevron-btn') as HTMLButtonElement;
   chevBtn.type = 'button';
   chevBtn.tabIndex = -1;
@@ -350,6 +381,7 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   // Viewer M2: the basis only when it is not `observed`, as the same tag a card carries.
   const tag = basisTag(n.basis, 'group');
   if (tag) header.appendChild(tag);
+  if (mark) header.appendChild(revisionTag(mark));
   add(header, el('span', 'mlv-group__count', stepsText(v.descendants)));
   const cluster = severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);

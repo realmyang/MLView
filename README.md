@@ -94,6 +94,17 @@ Enter opens again and Escape ends the walk. A quote whose file changed is not
 opened; the walk says why. The walk remembers its place for each revision and
 records nothing else.
 
+When the assistant publishes a refined revision whose parent is the one the
+panel is showing, About opens on **Changes since** that revision: the steps,
+connections and findings added, removed or changed, matched by id. Added and
+changed items are links (a changed one says what changed, such as the label or
+the evidence); removed ones are listed by name and never drawn. Added and
+changed steps carry a small "new" or "changed" tag on their card, connections
+and findings carry it in the Outline, the Findings list and Selection, and the
+walk gains **Changed in this revision**. Only revisions this panel has shown
+are compared: closing the panel or reloading the window forgets the
+comparison. A tag says the authored text changed, not whether the claim holds.
+
 To see the whole workflow at once, press Shift+0 (or **Phase overview** in the
 **⋯** menu). The overview shows each phase as a block of its step titles, with
 inferred and unresolved marks and the F labels of findings. Arrows count the

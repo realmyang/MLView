@@ -18,7 +18,8 @@ VS Code extension. The JavaScript bundle exposes this browser API:
 ```ts
 window.MLView = {
   version: '0.3.0',
-  mountWorkflow(root: HTMLElement, document: WorkflowDocument, bridge: HostBridge): WorkflowViewApp,
+  mountWorkflow(root: HTMLElement, document: WorkflowDocument, bridge: HostBridge,
+                comparison?: { previous?: WorkflowDocument; replaced?: string }): WorkflowViewApp,
   normalizeWorkflow(document: WorkflowDocument): MLGraph,
   bridges: { vscode(): HostBridge }
 }
@@ -55,6 +56,46 @@ Viewer M1 protocol details:
   arms an opener (`src/ui/doubleclick.ts`), and the second click, wherever it
   lands, opens what the first one selected: the first click can rebuild the
   rows, collapse a finding above, or open the bottom sheet under the pointer.
+
+Viewer M4 protocol, changes since the previous revision (roadmap step 16; no
+contract change):
+
+- The `workflow` frame has two optional fields. `previous` is the valid
+  document the panel showed just before, sent only when `document.revision.parent`
+  is its id; `replaced` is the id of the revision the panel showed before when
+  `document` does not follow it. The host keeps them in memory per panel
+  (`nextComparison` in `vscode-extension/src/revisionLineage.ts`: a child
+  compares with the revision it replaced, any other revision records only what
+  it replaced, the same revision again keeps what it had) and sends them with
+  every `workflow` frame, including the first one a new page gets after
+  `ready`. A new panel (a window reload, an extension restart) has neither.
+  Nothing is persisted, by the host or in the webview's saved state.
+- The host bootstrap passes them to `mountWorkflow` as its fourth argument;
+  later frames go to `App.setWorkflow(document, preserve, comparison)`. The
+  viewer checks them again (`sanitizeComparison` in `src/revisiondiff.ts`:
+  `previous` must be a 1.0 document whose id is the parent and not the
+  document's own id; `replaced` a string that is neither) and recomputes the
+  comparison from every frame, so a frame without them shows none.
+- `revisionDiff(prev, next)` is pure. It compares steps, connections and
+  findings by id: added, removed, or changed when one of these differs: a
+  step's label, detail, basis, phase label, parent, kind or evidence; a
+  connection's source, target, label, kind, basis or evidence; a finding's
+  title, message, severity, basis, suggestion, cited steps and connections (as
+  sets), evidence or counter-evidence. Evidence is a sorted multiset of what
+  each cited record cites (file, line, endLine, cell, quote), never its ids.
+  Its `marks` map (`kind:id`) holds the added and changed items.
+- What reads it: About's first section (`Changes since <id>`, or one line for
+  `replaced`; a parent the panel never showed is one line under Provenance),
+  the card tag (`.mlv-rev-tag`, drawn by `render/nodes.ts` from a
+  `revisionMark` option of `renderScene`, outside the scene plan, so the SVG
+  export does not draw it and no box moves), the Selection pane's line under
+  the title, the Outline's step and relationship rows, the Findings list rows,
+  and the walk's `revision` filter ("Changed in this revision", between
+  Findings and Changed files, offered only when it holds a claim). The legend
+  has a "Changes since the previous revision" section.
+- `test/revision-changes.test.mjs` covers the diff, the check, every surface
+  and the unchanged routed geometry; `authoredChangesHandshake` in
+  `test/authored-handshake.mjs` drives the real host.
 
 Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol change):
 

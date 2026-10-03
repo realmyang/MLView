@@ -175,9 +175,10 @@ outgoing connections, then the findings whose first cited step it is;
 findings that cite no step (only connections, or the workflow as a whole) come
 last, in document order. It starts on **Not observed**, the claims marked
 inferred or unresolved, with the same count as the header's **N not
-observed**; **Findings**, **All claims** and, while VS Code reports changed or
-missing cited files, **Changed files** are the other filters, each with its
-count. `j` / `k` or ↓ / ↑ (or the walk bar's up and down buttons) go to the
+observed**; **Findings**, **All claims**, **Changed in this revision** (the
+claims added or changed since the revision this panel showed before, when the
+new one names it as its parent) and, while VS Code reports changed or missing
+cited files, **Changed files** are the other filters, each with its count. `j` / `k` or ↓ / ↑ (or the walk bar's up and down buttons) go to the
 next or previous claim, `[` / `]` to the
 claim's other quotes, Enter opens the current quote again (Alt+Enter moves the
 focus to the editor), `n` / `p` go to the next or previous finding, `u` /
@@ -394,6 +395,17 @@ revision in it:
   published faster than the panel read them.
 - If the artifact file is deleted, the last diagram stays visible and the
   panel starts again with the next revision that appears.
+- When a new revision's `revision.parent` is the revision the panel is
+  showing, as it is for every helper publish from a Refine prompt, the panel
+  keeps the revision it showed in memory and About opens on **Changes since**
+  it: the steps, connections and findings added, removed or changed, matched
+  by id, with "new" and "changed" tags and the walk's **Changed in this
+  revision**. A revision that does not follow the displayed one gets no
+  comparison, and About says so. Only revisions this panel has shown are
+  compared; closing the panel, reloading the window or restarting extensions
+  forgets the comparison, and nothing is written to disk. Keeping stable IDs
+  across revisions keeps the list short: an item whose ID changed shows as
+  removed and added.
 
 A copied Refine prompt always continues from the revision in the file. When
 that differs from the displayed revision, the copy notification says so, and

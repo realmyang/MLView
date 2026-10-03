@@ -163,6 +163,25 @@ No contract change, no new setting and no geometry change. Checked by local
 jsdom tests and headless-Chrome screenshots of a simulated host only, not in
 live VS Code or as a usability check ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M4, step 16 (changes since the previous revision): when a
+new revision names the one the panel is showing as its parent, About opens on
+**Changes since <id>**: the steps, connections and findings added, removed or
+changed, compared by id, each added or changed item a link (with the fields
+that changed) and each removed one listed as text, never drawn. Added and
+changed steps carry a "new" or "changed" tag on their card, an overlay that
+moves no box (the geometry golden is byte-identical); connections and findings
+carry it in the Outline, the Findings list and the Selection tab. The review
+walk gains **Changed in this revision**. Only revisions the panel has shown
+are compared: a revision that does not follow gets one line saying so, and
+closing the panel, reloading the window or restarting extensions forgets the
+comparison (a page VS Code rebuilt gets it back from the host). The `workflow`
+frame gains optional `previous` and `replaced` fields; no contract change, no
+new setting, nothing written to disk. Checked by jsdom and mock `vscode` tests
+and in an isolated VS Code 1.139 Extension Development Host on a scratch copy
+of the public vit-cc workspace, where the skill's helper published a child
+revision while the diagram was open; not with a screen reader, on Windows or
+Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
 button or **Review the claims** in the **⋯** menu goes through the displayed
 revision claim by claim, in the diagram's order (each step, its outgoing
