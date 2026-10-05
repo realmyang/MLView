@@ -33,9 +33,12 @@ import {
   CHANNEL_PAD_L,
   CHANNEL_PAD_R,
   CHANNEL_PAIR_STEP,
+  EXCEPTION_PAD,
+  EXCEPTION_TRACK_STEP,
   edgeWeight,
 } from './constants.js';
 import { cardSize } from './cardmetrics.js';
+import { exceptionTracks, gutterSpan } from './channel.js';
 import { wrapTallRanks, wrapWideRows } from './wrap.js';
 
 export interface LayoutBox {
@@ -81,6 +84,14 @@ export interface LayoutFrame {
   channelStep: number;
   /** Total width reserved to the left of the first lane. */
   channelW: number;
+  /**
+   * Stage 0a: x of the first channel track of the inferred and unresolved cables
+   * that skip a lane, inside the innermost observed trunk, and how many tracks
+   * there are, `exceptionStep` apart.
+   */
+  exceptionX: number;
+  exceptionTracks: number;
+  exceptionStep: number;
 }
 
 interface Placer {
@@ -121,10 +132,19 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
   // VIEW-04 reserves it by the number of distinct lane PAIRS, because every edge
   // of a pair now shares one trunk. Back-edges are excluded: `routeEdges` draws
   // them as loops inside their own lane and they never reach the channel.
+  //
+  // Stage 0a splits them by basis, as `routeEdges` will: a cable (the
+  // connections with the same ends, kind and subkind) is observed only when every
+  // connection it carries is. Observed cables keep their pair's trunk; each
+  // inferred or unresolved one needs a channel track of its own. Counted over the
+  // document's own ends, so a fold, which only merges cables, never needs more.
   const channelPairKeys = new Set<string>();
+  const observedPairKeys = new Set<string>();
+  const exceptionSpans: Array<[number, number]> = [];
   {
     const order = new Map<string, number>();
     index.lanes.forEach((l, i) => order.set(l.id, i));
+    const cables = new Map<string, { pair: string; a: number; b: number; observed: boolean }>();
     for (const e of index.graph.edges || []) {
       if (isBackEdge(e)) continue;
       const s = index.nodeById.get(e.source);
@@ -133,7 +153,17 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
       const a = order.get(s.stage);
       const b = order.get(t.stage);
       if (a === undefined || b === undefined) continue;
-      if (Math.abs(a - b) > 1) channelPairKeys.add(s.stage + '>' + t.stage);
+      if (Math.abs(a - b) <= 1) continue;
+      channelPairKeys.add(s.stage + '>' + t.stage);
+      const key = e.source + '\u0000' + e.target + '\u0000' + e.kind + '\u0000' + (e.subkind || '');
+      const cable = cables.get(key);
+      const observed = !isNotObserved(e);
+      if (cable) cable.observed = cable.observed && observed;
+      else cables.set(key, { pair: s.stage + '>' + t.stage, a, b, observed });
+    }
+    for (const cable of cables.values()) {
+      if (cable.observed) observedPairKeys.add(cable.pair);
+      else exceptionSpans.push(gutterSpan(cable.a, cable.b));
     }
   }
 
@@ -149,7 +179,16 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
     ? Math.max(CHANNEL_MIN_STEP, Math.min(CHANNEL_PAIR_STEP, floor2(room / Math.max(1, channelPairs))))
     : 0;
   const channelSlots = needChannel ? Math.max(1, Math.min(channelPairs, Math.floor(room / channelStep + 1e-6))) : 0;
-  const laneX = CANVAS_MARGIN + channelW;
+  // Stage 0a: the exception tracks go inside the innermost observed trunk, in the
+  // room the reservation above already leaves before the bands (one step and the
+  // right padding: two tracks at the full step); the channel grows only past that.
+  const channelX = CANVAS_MARGIN + CHANNEL_PAD_L;
+  const observedSlots = Math.min(observedPairKeys.size, channelSlots);
+  const exceptionX = observedSlots > 0 ? channelX + (observedSlots - 1) * channelStep + EXCEPTION_TRACK_STEP : channelX;
+  let tracks = 0;
+  for (const track of exceptionTracks(exceptionSpans)) tracks = Math.max(tracks, track + 1);
+  const reserved = tracks > 0 ? Math.max(channelW, exceptionX + (tracks - 1) * EXCEPTION_TRACK_STEP + EXCEPTION_PAD - CANVAS_MARGIN) : channelW;
+  const laneX = CANVAS_MARGIN + reserved;
   let cursorY = CANVAS_MARGIN;
   let maxContentW = LANE_MIN_W;
 
@@ -193,13 +232,21 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
     boxes,
     width,
     height,
-    channelX: CANVAS_MARGIN + CHANNEL_PAD_L,
+    channelX,
     hasChannel: needChannel,
     channelPairs,
     channelSlots,
     channelStep,
-    channelW,
+    channelW: reserved,
+    exceptionX,
+    exceptionTracks: tracks,
+    exceptionStep: EXCEPTION_TRACK_STEP,
   };
+}
+
+/** Stage 0a: a connection drawn dashed (inferred) or dotted (unresolved), never in a trunk. */
+export function isNotObserved(e: MLEdge): boolean {
+  return e.basis === 'inferred' || e.basis === 'unresolved';
 }
 
 function countNodesInLane(index: GraphIndex, laneId: string): number {

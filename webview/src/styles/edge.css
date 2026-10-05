@@ -186,8 +186,8 @@
 }
 
 /* Viewer M2: a trunk is always solid. Dashes mean inferred and dotted means unresolved, and a
- * trunk stands for many connections; the exceptions among them stay drawn as their own cables
- * (the `is-bundled` rule below). */
+ * trunk stands for many connections; since stage 0a of the re-layout the exceptions never join one
+ * (`layout/routing.ts`), and the `is-bundled` rule below still draws any that did. */
 
 .mlv-bundle.has-issue .mlv-bundle__trunk,
 .mlv-bundle.has-issue .mlv-bundle__spur {

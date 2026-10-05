@@ -236,6 +236,64 @@ export function clearOf(r: Rect, covered: Rect, w: number, h: number, gap = 8): 
 }
 
 /**
+ * Stage 0b: the least pan (by |dx| + |dy|) after which every screen rectangle in `parts` lies
+ * wholly inside a `w` x `h` canvas and off `covered`, `gap` px from it as `clearOf` leaves a card;
+ * `{ dx: 0, dy: 0 }` when they already do, null when no pan does. `clearOf` moves one rectangle
+ * off the phase index. A connection's two end cards are moved together: the empty corner of their
+ * union may lie under the index while neither card does, where moving the union as a whole often
+ * has nowhere to go. The least pan is one of the pans that put a part `gap` px beside the index,
+ * or a part against a canvas edge, on each axis, so those are the only ones tried.
+ */
+export function clearOfAll(parts: readonly Rect[], covered: Rect | null, w: number, h: number, gap = 8): { dx: number; dy: number } | null {
+  if (!parts.length) return { dx: 0, dy: 0 };
+  const eps = 0.01;
+  let x0 = -Infinity;
+  let x1 = Infinity;
+  let y0 = -Infinity;
+  let y1 = Infinity;
+  for (const p of parts) {
+    x0 = Math.max(x0, -p.x);
+    x1 = Math.min(x1, w - p.x - p.w);
+    y0 = Math.max(y0, -p.y);
+    y1 = Math.min(y1, h - p.y - p.h);
+  }
+  if (x0 > x1 + eps || y0 > y1 + eps) return null;
+  // Off the index; a part the pan moves off it keeps `gap` px from it.
+  const clear = (dx: number, dy: number, g: number) => {
+    if (!covered) return true;
+    const near = { x: covered.x - g, y: covered.y - g, w: covered.w + 2 * g, h: covered.h + 2 * g };
+    return parts.every((p) => !rectsOverlap({ x: p.x + dx, y: p.y + dy, w: p.w, h: p.h }, near));
+  };
+  const start = { dx: Math.min(Math.max(0, x0), x1), dy: Math.min(Math.max(0, y0), y1) };
+  if (clear(start.dx, start.dy, 0)) return start;
+  const xs = [x0, x1];
+  const ys = [y0, y1];
+  for (const p of parts) {
+    xs.push(covered!.x - gap - (p.x + p.w), covered!.x + covered!.w + gap - p.x);
+    ys.push(covered!.y - gap - (p.y + p.h), covered!.y + covered!.h + gap - p.y);
+  }
+  xs.push(start.dx);
+  ys.push(start.dy);
+  let best: { dx: number; dy: number } | null = null;
+  let cost = Infinity;
+  for (const rawX of xs) {
+    if (rawX < x0 - eps || rawX > x1 + eps) continue;
+    const dx = Math.min(Math.max(rawX, x0), x1);
+    for (const rawY of ys) {
+      if (rawY < y0 - eps || rawY > y1 + eps) continue;
+      const dy = Math.min(Math.max(rawY, y0), y1);
+      if (!clear(dx, dy, gap - eps)) continue;
+      const c = Math.abs(dx) + Math.abs(dy);
+      if (c < cost - 1e-9) {
+        cost = c;
+        best = { dx, dy };
+      }
+    }
+  }
+  return best;
+}
+
+/**
  * A resize this large, in either dimension, refits a viewport the reader has
  * not moved since the last fit (issue 6): the panel opening narrow beside the
  * artifact editor and then being widened, a side bar closing, the header
@@ -494,7 +552,32 @@ export class ViewportController {
     const { w, h } = this.visibleArea();
     const z = this.vp.zoom;
     const shift = clearOf({ x: anchor.x * z + this.vp.x, y: anchor.y * z + this.vp.y, w: anchor.w * z, h: anchor.h * z }, covered, w, h);
-    if (shift) this.panBy(shift.dx, shift.dy);
+    if (!shift) return;
+    this.panBy(shift.dx, shift.dy);
+    this.settle(covered, anchor);
+  }
+
+  /**
+   * Stage 0b: one more pass off the phase index as it is after a move. The pill names the phase in
+   * view, so a move that brings another phase into view can widen it under the card the move had
+   * just cleared of it, as the relayout research of 2026-10-04 suspected. Measured in headless
+   * Chrome: a review walk step at 541 px on vit-cc, the pill going from "3/6 Model construction"
+   * (183 px) to "5/6 Training loop (20 epochs)" (221 px) over the card the step had brought in
+   * beside its left edge. Nothing moves when the index kept its shape, or when `rect` (else every
+   * one of `parts`) is clear of it. Once only: the index this pass leaves is what the reader sees.
+   */
+  private settle(before: Rect, rect: Rect | null, parts?: readonly Rect[], gap = 8): void {
+    const now = this.covered();
+    if (!now || (Math.abs(now.x - before.x) < 0.5 && Math.abs(now.y - before.y) < 0.5 && Math.abs(now.w - before.w) < 0.5 && Math.abs(now.h - before.h) < 0.5)) return;
+    const whole = rect ? this.onScreen(rect) : null;
+    if (whole && !rectsOverlap(whole, now)) return;
+    if (parts && parts.length && parts.every((p) => !rectsOverlap(this.onScreen(p), now))) return;
+    const { w, h } = this.visibleArea();
+    const shift = (whole ? clearOf(whole, now, w, h, gap) : null) || this.partsShift(parts, now, w, h, gap);
+    if (!shift || (!shift.dx && !shift.dy)) return;
+    this.vp.x += shift.dx;
+    this.vp.y += shift.dy;
+    this.apply();
   }
 
   centerOn(rect: Rect, zoom?: number): void {
@@ -508,13 +591,70 @@ export class ViewportController {
     // Viewer M3: a centred target the phase index would cover moves the least distance off it.
     const covered = this.covered();
     if (covered) {
-      const shift = clearOf({ x: rect.x * z + this.vp.x, y: rect.y * z + this.vp.y, w: rect.w * z, h: rect.h * z }, covered, w, h);
+      const shift = clearOf(this.onScreen(rect), covered, w, h);
       if (shift) {
         this.vp.x += shift.dx;
         this.vp.y += shift.dy;
       }
     }
     this.apply();
+    if (covered) this.settle(covered, rect);
+  }
+
+  /** A world rectangle on screen at the current viewport, in canvas pixels. */
+  private onScreen(r: Rect): Rect {
+    const z = this.vp.zoom;
+    return { x: r.x * z + this.vp.x, y: r.y * z + this.vp.y, w: r.w * z, h: r.h * z };
+  }
+
+  /** Stage 0b: the least pan that brings every one of `parts` onto the canvas and off `covered` (`clearOfAll`), or null. */
+  private partsShift(parts: readonly Rect[] | undefined, covered: Rect, w: number, h: number, gap = 8): { dx: number; dy: number } | null {
+    if (!parts || !parts.length) return null;
+    return clearOfAll(parts.map((p) => this.onScreen(p)), covered, w, h, gap);
+  }
+
+  /**
+   * Stage 0b, a tall frame and the phase index. `frameRect` and `centerOn` move a connection's
+   * union off the index as a whole, and a union that fits the canvas but not the room above the
+   * index or beside it has nowhere to go, so a card stayed under it (the relayout research of
+   * 2026-10-04 found it as R3's `c94` at 541 px). A frame that fills the canvas's height leaves
+   * 24 px above and below it, the pill takes 48 at the foot with its gap, and the whole union moved
+   * up lands its top exactly on the canvas's edge, which rounding then refused: on today's lanes,
+   * a 1036 x 742 union at zoom 0.46 on the yolov5-cc2 shape with seed 1, and one on a public
+   * development document, in jsdom. From `from` (the current zoom, or less when `rect` does not
+   * fit at it) down to `floor`, the first zoom at which `rect` fits with `margin` and some pan puts
+   * every one of `parts` on the canvas and clear of the index wins, with the least pan from
+   * `rect`'s centred place. The zooms tried are the ones that fit `rect` wholly above or beside the
+   * index (both leave room whenever `margin` covers the index's 12 px corner margin and the 8 px
+   * gap, as the callers' 48 and 32 do), and steps of 5 % between. With no index, every one of
+   * `parts` on the canvas is enough. False, with nothing moved, when no zoom works.
+   */
+  frameClear(rect: Rect, parts: readonly Rect[], opts: { from?: number; floor?: number; margin?: number } = {}): boolean {
+    const covered = this.covered();
+    if (!parts.length) return false;
+    const { w, h } = this.visibleArea();
+    const margin = opts.margin === undefined ? 48 : opts.margin;
+    const floor = opts.floor === undefined ? FRAME_MIN_ZOOM : opts.floor;
+    const fit = (aw: number, ah: number) => Math.min((aw - margin) / Math.max(1, rect.w), (ah - margin) / Math.max(1, rect.h));
+    const top = Math.min(opts.from === undefined ? this.vp.zoom : opts.from, fit(w, h));
+    if (!(top >= floor - 1e-9)) return false;
+    const zooms = covered ? [top, fit(w, h - covered.h), fit(w - covered.w, h)] : [top];
+    for (let z = top * 0.95; z > floor; z *= 0.95) zooms.push(z);
+    zooms.push(floor);
+    const tried = zooms.filter((z) => z <= top + 1e-9 && z >= floor - 1e-9).sort((a, b) => b - a);
+    for (const z of tried) {
+      const x = w / 2 - (rect.x + rect.w / 2) * z;
+      const y = h / 2 - (rect.y + rect.h / 2) * z;
+      const shift = clearOfAll(parts.map((p) => ({ x: p.x * z + x, y: p.y * z + y, w: p.w * z, h: p.h * z })), covered, w, h);
+      if (!shift) continue;
+      this.animToken++;
+      this.fitted = false;
+      this.vp = { x: x + shift.dx, y: y + shift.dy, zoom: clamp(z, MIN_ZOOM, MAX_ZOOM) };
+      this.apply();
+      if (covered) this.settle(covered, null, parts);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -537,14 +677,17 @@ export class ViewportController {
     let dy = shift(rect.y * z + this.vp.y, rect.h * z, h);
     // Viewer M3: and off the part of the canvas the phase index covers, the least distance again.
     const covered = this.covered();
+    const gap = Math.min(margin, 8);
     if (covered) {
-      const off = clearOf({ x: rect.x * z + this.vp.x + dx, y: rect.y * z + this.vp.y + dy, w: rect.w * z, h: rect.h * z }, covered, w, h, Math.min(margin, 8));
+      const off = clearOf({ x: rect.x * z + this.vp.x + dx, y: rect.y * z + this.vp.y + dy, w: rect.w * z, h: rect.h * z }, covered, w, h, gap);
       if (off) {
         dx += off.dx;
         dy += off.dy;
       }
     }
-    if (dx || dy) this.panBy(dx, dy);
+    if (!dx && !dy) return;
+    this.panBy(dx, dy);
+    if (covered) this.settle(covered, rect, undefined, gap);
   }
 
   zoomToBox(rect: Rect, padding = 80): void {
@@ -556,15 +699,17 @@ export class ViewportController {
   /**
    * True when the rect is fully inside the visible area (by default the current one). Viewer M3: and
    * not under the phase index, so a card the index covers counts as out of view and is revealed.
+   * Stage 0b: `covered` is the index's rectangle (by default where it is now), so an area the canvas
+   * had before a resize is judged with the index where it was then; the index sits in the canvas's
+   * lower corner and moves with it.
    */
-  isVisible(rect: Rect, area: { w: number; h: number } = this.visibleArea()): boolean {
+  isVisible(rect: Rect, area: { w: number; h: number } = this.visibleArea(), covered: Rect | null = this.covered()): boolean {
     const { w, h } = area;
     const x = rect.x * this.vp.zoom + this.vp.x;
     const y = rect.y * this.vp.zoom + this.vp.y;
     const sw = rect.w * this.vp.zoom;
     const sh = rect.h * this.vp.zoom;
     if (!(x >= 0 && y >= 0 && x + sw <= w && y + sh <= h)) return false;
-    const covered = this.covered();
     return !covered || !rectsOverlap({ x, y, w: sw, h: sh }, covered);
   }
 

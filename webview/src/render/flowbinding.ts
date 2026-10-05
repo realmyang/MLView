@@ -263,7 +263,8 @@ export class FlowBinding {
     const hit = g.querySelector('.mlv-edge__hit') as unknown as HTMLElement | null;
     if (!hit || typeof hit.focus !== 'function') return false;
     try {
-      hit.focus();
+      // Stage 0b: a hit path's box spans its whole route; focusing it must not scroll the canvas.
+      hit.focus({ preventScroll: true });
     } catch (_e) {
       return false;
     }

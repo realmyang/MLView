@@ -1018,3 +1018,179 @@ test('M3 review A11Y-M3-8: "All claims" names its unit; a blocked open is announ
     ctx.app.destroy();
   }
 });
+
+/* ── Stage 0c (walk W1): back to reading size after a finding ────────── */
+
+// A finding frames its cited cards, zooming out as far as 0.45, and the walk kept any zoom at full
+// detail (0.62 or more), so the claims after it stayed below READABLE_MIN_ZOOM (0.75). Since stage
+// 0c a step or a connection after such a frame zooms back about the canvas centre to
+// READABLE_ZOOM (0.9), or as far as the claim still fits, before the usual least pan. The canvas
+// is stubbed at a size taken from the laid-out boxes, so the finding frames at 0.68 whatever the
+// layout's spacing: its cited cards are one column of three phases (load over fwd), and the
+// wide connection spans a phase's three columns (fwd to save).
+
+/** Three phases of side-by-side steps; the ids in `uncertain` are inferred (the Not observed walk). */
+function w1Doc(uncertain = []) {
+  const basis = (id) => (uncertain.includes(id) ? 'inferred' : 'observed');
+  const step = (id, label, phase, i) => ({ id, label, phase, basis: basis(id), evidence: ['e' + i] });
+  const edge = (id, source, target) => ({ id, source, target, label: id, basis: basis(id), evidence: ['e1'] });
+  return {
+    workflowVersion: '1.0', title: 'Walk W1', producer: { kind: 'host-llm', host: 'codex', model: 'm' }, revision: { id: 'w1' },
+    request: { question: 'q', scope: 's' },
+    phases: [{ id: 'data', label: 'Data' }, { id: 'model', label: 'Model' }, { id: 'train', label: 'Train' }],
+    nodes: [
+      step('load', 'Load data', 'data', 1), step('aug', 'Augment', 'data', 2), step('batch', 'Batch', 'data', 3),
+      step('model', 'Build model', 'model', 4), step('opt', 'Optimizer', 'model', 5),
+      step('fwd', 'Forward', 'train', 6), step('loss', 'Loss', 'train', 7), step('save', 'Save checkpoint', 'train', 8),
+    ],
+    edges: [
+      edge('c1', 'load', 'aug'), edge('c2', 'aug', 'batch'), edge('c3', 'batch', 'fwd'), edge('c4', 'model', 'fwd'), edge('c5', 'opt', 'loss'),
+      edge('c6', 'fwd', 'loss'), edge('c7', 'loss', 'save'), edge('c-wide', 'fwd', 'save'), edge('c-tall', 'aug', 'save'),
+    ],
+    findings: [{ id: 'f-tall', title: 'Seed not set', message: 'm', severity: 'high', nodeIds: ['load', 'fwd'], basis: basis('f-tall'), evidence: ['e1'] }],
+    evidence: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ id: 'e' + i, file: 'train.py', line: i * 3, endLine: i * 3 + 1, quote: 'x()' })),
+    coverage: { status: 'scoped', summary: 's', inspectedFiles: ['train.py'], limitations: [] },
+  };
+}
+
+const boxOf = (ctx, id) => ctx.app.view.frameData.boxes.get(id);
+function unionOf(a, b) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+const zoomOf = (ctx) => ctx.app.getState().viewport.zoom;
+
+/**
+ * Mount `w1Doc(uncertain)` with the canvas stubbed so that the finding's cited cards fit at 0.68
+ * at most (a finding's frame keeps a 48 px margin) and the wide connection at 0.80 (a step's
+ * reading zoom keeps 42 px on a canvas this short). The first view is phase 1 at 0.9.
+ */
+async function mountW1(uncertain, width) {
+  const ctx = await mount(w1Doc(uncertain), { width });
+  const finding = unionOf(boxOf(ctx, 'load'), boxOf(ctx, 'fwd'));
+  const wide = unionOf(boxOf(ctx, 'fwd'), boxOf(ctx, 'save'));
+  const h = Math.ceil(finding.h * 0.68 + 48);
+  const w = Math.ceil(wide.w * 0.8 + 42);
+  ctx.canvas.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, width: w, height: h, right: w, bottom: h });
+  ctx.window.dispatchEvent(new ctx.window.Event('resize'));
+  ctx.app.view.fit();
+  assert.equal(zoomOf(ctx), 0.9, 'precondition: phase 1 opens at READABLE_ZOOM');
+  return { ...ctx, size: { w, h } };
+}
+
+/** Why the card `id` is not wholly on the stubbed canvas and clear of the phase index, or null. */
+function offCanvas(ctx, id) {
+  const b = boxOf(ctx, id);
+  const vp = ctx.app.getState().viewport;
+  const s = { x: b.x * vp.zoom + vp.x, y: b.y * vp.zoom + vp.y, w: b.w * vp.zoom, h: b.h * vp.zoom };
+  const { w, h } = ctx.size;
+  if (!(s.x >= -0.5 && s.y >= -0.5 && s.x + s.w <= w + 0.5 && s.y + s.h <= h + 0.5)) return `${id} is not wholly on the ${w}x${h} canvas`;
+  const c = ctx.app.view.viewport.covered();
+  if (c && s.x < c.x + c.w && c.x < s.x + s.w && s.y < c.y + c.h && c.y < s.y + s.h) return `${id} is under the phase index`;
+  return null;
+}
+
+/** The world point at the canvas centre. */
+function centreOf(ctx) {
+  const vp = ctx.app.getState().viewport;
+  return { x: (ctx.size.w / 2 - vp.x) / vp.zoom, y: (ctx.size.h / 2 - vp.y) / vp.zoom };
+}
+
+for (const width of [541, 1440]) {
+  test(`stage 0c (W1), ${width} px: after a finding's frame zoomed out below 0.75, the next step comes back to 0.9 about the canvas centre and is shown whole, clear of the phase index`, async () => {
+    const ctx = await mountW1([], width);
+    try {
+      assert.equal(ctx.app.walk.start('all'), true);
+      walkTo(ctx, 'f-tall', 'j');
+      const framed = zoomOf(ctx);
+      assert.ok(framed >= 0.62 && framed < 0.75, `precondition: the finding framed between 0.62 and 0.75 (${framed})`);
+      const before = centreOf(ctx);
+      press(ctx, 'j');
+      eq(ctx.app.walk.current(), { kind: 'node', id: 'aug' });
+      assert.equal(zoomOf(ctx), 0.9, 'back at READABLE_ZOOM');
+      assert.equal(offCanvas(ctx, 'aug'), null);
+      // Zoomed about the canvas centre, then panned the least distance: the picture moved less
+      // than centring the card would have moved it.
+      const after = centreOf(ctx);
+      const card = boxOf(ctx, 'aug');
+      const moved = Math.hypot(after.x - before.x, after.y - before.y);
+      const toCard = Math.hypot(card.x + card.w / 2 - before.x, card.y + card.h / 2 - before.y);
+      assert.ok(moved < toCard - 20, `not centred on the card (moved ${moved.toFixed(0)}, centring ${toCard.toFixed(0)})`);
+      // The walk stays at reading size from there.
+      press(ctx, 'j');
+      assert.equal(zoomOf(ctx), 0.9);
+    } finally {
+      ctx.app.destroy();
+    }
+  });
+}
+
+test('stage 0c (W1): a connection after such a finding comes back only as far as both its cards fit (0.80 here, not 0.9), both whole and clear of the phase index', async () => {
+  const ctx = await mountW1(['f-tall', 'c-wide'], 541);
+  try {
+    assert.equal(ctx.app.walk.start('notObserved'), true);
+    eq(ctx.app.walk.list.map(key), ['issue:f-tall', 'edge:c-wide']);
+    const framed = zoomOf(ctx);
+    assert.ok(framed >= 0.62 && framed < 0.75, `precondition: the finding framed between 0.62 and 0.75 (${framed})`);
+    const wide = unionOf(boxOf(ctx, 'fwd'), boxOf(ctx, 'save'));
+    assert.ok(wide.w * 0.9 > ctx.size.w, 'precondition: at 0.9 the two cards do not fit side by side');
+    press(ctx, 'j');
+    const zoom = zoomOf(ctx);
+    assert.ok(zoom >= 0.75 && zoom < 0.9, `readable, short of 0.9 (${zoom})`);
+    assert.equal(offCanvas(ctx, 'fwd'), null);
+    assert.equal(offCanvas(ctx, 'save'), null);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('stage 0c (W1): a connection that comes back only part of the way, still under 0.75, leaves the next claim to come back to 0.9', async () => {
+  const ctx = await mountW1(['f-tall', 'c-tall', 'loss'], 541);
+  try {
+    // The phase index is hidden (the ⋯ menu): on a canvas this small no pan at that zoom keeps both
+    // cards clear of the pill, and the walk zooms out for the index only down to 0.75 (stage 0b).
+    ctx.app.setPhaseIndexShown(false);
+    assert.equal(ctx.app.view.viewport.covered(), null, 'precondition: no phase index');
+    assert.equal(ctx.app.walk.start('notObserved'), true);
+    eq(ctx.app.walk.list.map(key), ['issue:f-tall', 'edge:c-tall', 'node:loss']);
+    const framed = zoomOf(ctx);
+    press(ctx, 'j');
+    const part = zoomOf(ctx);
+    // aug over save is as tall as load over fwd: it fits a little better than the finding's frame
+    // (a step keeps a smaller margin), not at 0.75.
+    assert.ok(part > framed && part < 0.75, `part of the way (${framed} -> ${part})`);
+    assert.equal(offCanvas(ctx, 'aug'), null);
+    assert.equal(offCanvas(ctx, 'save'), null);
+    press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'loss' });
+    assert.equal(zoomOf(ctx), 0.9);
+    assert.equal(offCanvas(ctx, 'loss'), null);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('stage 0c (W1): a zoom the reader chose is kept, by the steps and by a finding that fits at it', async () => {
+  const ctx = await mountW1([], 1440);
+  try {
+    assert.equal(ctx.app.walk.start('all'), true);
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'load' });
+    press(ctx, '-');
+    press(ctx, '-');
+    const chosen = zoomOf(ctx);
+    assert.ok(chosen >= 0.62 && chosen < 0.75, `precondition: the reader zoomed out to between 0.62 and 0.75 (${chosen})`);
+    press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'edge', id: 'c1' });
+    assert.equal(zoomOf(ctx), chosen, 'a step keeps it');
+    press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'issue', id: 'f-tall' });
+    assert.equal(zoomOf(ctx), chosen, 'the finding fits at it, so its frame keeps it');
+    press(ctx, 'j');
+    eq(ctx.app.walk.current(), { kind: 'node', id: 'aug' });
+    assert.equal(zoomOf(ctx), chosen, 'still the reader\'s zoom after the finding');
+    assert.equal(offCanvas(ctx, 'aug'), null);
+  } finally {
+    ctx.app.destroy();
+  }
+});

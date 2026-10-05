@@ -30,7 +30,7 @@ import { renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { markerPoint, nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
-import { FRAME_MIN_ZOOM, LOD_FULL_ZOOM, READABLE_ZOOM, ViewportController, phasePlan } from './render/canvas.js';
+import { FRAME_MIN_ZOOM, LOD_FULL_ZOOM, READABLE_MIN_ZOOM, READABLE_ZOOM, ViewportController, phasePlan } from './render/canvas.js';
 import { PhaseIndex } from './render/phaseindex.js';
 import type { PhaseRow } from './render/phaseindex.js';
 import { overviewInput } from './render/phaseoverview.js';
@@ -125,6 +125,14 @@ export class CanvasView {
   private edgeHover: EdgeHover;
   /** The visible area as of the last viewport change, so a resize knows what was in view (VL-1). */
   private lastArea: { w: number; h: number } | null = null;
+  /** The part of that area the phase index covered then (`ViewportController.covered`), or null. */
+  private lastCovered: { x: number; y: number; w: number; h: number } | null = null;
+  /**
+   * Stage 0c (walk W1): the zoom the viewer itself chose for a finding's frame or a walk step, as
+   * long as nothing has changed the zoom since (`noteFramedZoom`), else null. The walk returns to
+   * reading size from this zoom only, never from one the reader chose (`walkTarget`).
+   */
+  private framedZoom: number | null = null;
 
   constructor(shell: Shell, host: CanvasHost) {
     this.host = host;
@@ -179,6 +187,7 @@ export class CanvasView {
       const size = this.viewport.size();
       this.phaseIndex.setInView(vp, size.w, size.h);
       this.lastArea = this.viewport.visibleArea();
+      this.lastCovered = this.viewport.covered();
       this.host.onViewportChange(vp);
     });
     this.viewport.setCovered(() => this.indexCovered());
@@ -503,9 +512,18 @@ export class CanvasView {
     this.arrowLane = null;
   }
 
+  /**
+   * Stage 0b: without `preventScroll`, focusing an element that is not wholly on the canvas (a
+   * group's header above it, a connection's hit path, whose box spans its whole route) makes the
+   * browser scroll the canvas, although it clips (`overflow: hidden`). The world and the phase
+   * index then move together on screen while the viewport still places them unscrolled, so every
+   * later reveal is off by that scroll. In headless Chrome, a Reveal in Diagram of every step and
+   * connection of the three shakedown documents at 541, 900 and 1440 px left the canvas scrolled
+   * after 469 of the 843 reveals, by up to 1827 px (2026-10-04). Only the viewport moves the view.
+   */
   private focusSafely(target: HTMLElement): void {
     try {
-      target.focus();
+      target.focus({ preventScroll: true });
     } catch (_e) {
       /* a detached element cannot take focus */
     }
@@ -655,17 +673,42 @@ export class CanvasView {
    * because the readable fit for 715 px anchors on phase 1. A target the reader had already moved
    * out of view is left where it is, and nothing here runs except on a change of size or layout,
    * so a reader panning away is never pulled back.
+   *
+   * Stage 0b: "was in view" is judged on the old canvas and the phase index where it was then
+   * (`lastCovered`). The index sits in the canvas's lower corner and moves with it, so judged by
+   * where it is now, a card the new size cut off at the foot looked as if it had been under the
+   * index already, and was left there. In headless Chrome under reduced motion the opening sheet's
+   * height lands a frame after a reveal centred the card on the taller canvas (every element has a
+   * 0.01 ms transition): the first Reveal in Diagram at 541 px left its card under the index on
+   * vit-cc, dino-copilot and yolov5-cc2. A card the reader left under the index was out of view,
+   * so it stays there.
+   *
+   * A connection is in view when both its cards are (`endBoxes`), the empty corner of their union
+   * aside, as `frameEdge` frames it. A frame sized for the taller canvas may not fit the shorter one
+   * at the same zoom, and then no pan shows both cards: kept by a pan alone, a first Reveal of a
+   * connection at 541 px under that late sheet left a card off the canvas or under the index for 9
+   * of the 93 connections of the three shakedown documents whose cards fit at 0.45 (jsdom). Such a
+   * connection is framed again on the new canvas (`frameClear`), zooming out no further than
+   * FRAME_MIN_ZOOM, or than the zoom it had when that was lower.
    */
   handleResize(): void {
     const kept = this.host.keptTarget();
     const target = kept ? this.targetRect(kept) : null;
+    const ends = kept && kept.kind === 'edge' ? this.endBoxes(kept.id) : null;
+    const parts = ends || (target ? [target] : []);
     const before = this.lastArea;
-    const wasVisible = !!(target && before && this.viewport.isVisible(target, before));
+    const wasVisible = !!(target && before && parts.every((r) => this.viewport.isVisible(r, before, this.lastCovered)));
     if (target && wasVisible) {
       // Keep the picture (no refit) and take the new size as the one a fit would compare against.
       this.viewport.acceptResize();
       this.viewport.apply();
-      if (!this.viewport.isVisible(target)) this.viewport.revealRect(target);
+      const shown = () => parts.every((r) => this.viewport.isVisible(r));
+      if (!shown()) this.viewport.revealRect(target);
+      if (ends && !shown()) {
+        const zoom = this.viewport.vp.zoom;
+        this.viewport.frameClear(target, ends, { floor: Math.min(zoom, FRAME_MIN_ZOOM) });
+        this.noteFramedZoom(zoom);
+      }
     } else {
       this.viewport.onResize();
     }
@@ -683,6 +726,7 @@ export class CanvasView {
     this.viewport.acceptResize();
     this.handleResize();
     this.lastArea = this.viewport.visibleArea();
+    this.lastCovered = this.viewport.covered();
   }
 
   /**
@@ -887,7 +931,8 @@ export class CanvasView {
     }
     if (!next) return;
     try {
-      (next as HTMLElement).focus();
+      // Stage 0b: never scroll the canvas (`focusSafely`).
+      (next as HTMLElement).focus({ preventScroll: true });
     } catch (_e) {
       /* a detached scene cannot take focus */
     }
@@ -925,7 +970,9 @@ export class CanvasView {
     };
     const all = unionOf(rects);
     const target = !steps.length || !ends.length || this.viewport.fitsAt(all, FRAME_MIN_ZOOM) ? all : unionOf(steps);
+    const before = this.viewport.vp.zoom;
     this.viewport.frameRect(target, rects[0], READABLE_ZOOM);
+    this.noteFramedZoom(before);
     if (issue.nodeIds[0]) this.pulseNode(this.index.visibleRepresentative(issue.nodeIds[0], this.collapsedSet));
   }
 
@@ -934,27 +981,22 @@ export class CanvasView {
    * cited cards are framed (`ViewportController.frameRect`). At full detail the zoom is kept when
    * they fit; otherwise it is the largest that fits them, between FRAME_MIN_ZOOM and READABLE_ZOOM;
    * ends too far apart even at that floor centre on the source card, where the connection starts.
-   * The source card is kept clear of the phase index. When keeping it clear pushed the target card
-   * out of view, the frame zooms out (never below FRAME_MIN_ZOOM) until both ends fit above the
-   * index or beside it.
+   * The source card is kept clear of the phase index. Stage 0b: when either card is still under the
+   * index or off the canvas, the frame zooms out from there (never below FRAME_MIN_ZOOM) to the
+   * first zoom at which both cards fit on the canvas and clear of the index
+   * (`ViewportController.frameClear`). Before, it asked for the whole union above the index or
+   * beside it, so a tall union that fit the canvas but neither of those stayed where it was, the
+   * target under the index.
    */
   frameEdge(id: string): void {
     if (!this.index || !this.frameData) return;
-    const edge = this.index.edgeById.get(id);
     const union = this.targetRect({ kind: 'edge', id });
-    if (!edge || !union) return;
-    const box = (nodeId: string) => this.frameData!.boxes.get(this.index!.visibleRepresentative(nodeId, this.collapsedSet));
-    const source = box(edge.source);
-    const target = box(edge.target);
-    this.viewport.frameRect(union, source || union, READABLE_ZOOM);
-    const covered = this.viewport.covered();
-    if (!target || !covered || this.viewport.isVisible(target)) return;
-    const margin = 48;
-    const { w, h } = this.viewport.visibleArea();
-    const above = Math.min((w - margin) / Math.max(1, union.w), (h - covered.h - margin) / Math.max(1, union.h));
-    const beside = Math.min((w - covered.w - margin) / Math.max(1, union.w), (h - margin) / Math.max(1, union.h));
-    const zoom = Math.min(this.viewport.vp.zoom, Math.max(above, beside));
-    if (zoom >= FRAME_MIN_ZOOM) this.viewport.centerOn(union, zoom);
+    const ends = this.endBoxes(id);
+    if (!union || !ends) return;
+    const [source, target] = ends;
+    this.viewport.frameRect(union, source, READABLE_ZOOM);
+    if (this.viewport.isVisible(source) && this.viewport.isVisible(target)) return;
+    this.viewport.frameClear(union, ends);
   }
 
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */
@@ -970,6 +1012,15 @@ export class CanvasView {
    * step or the connection's two ends (`revealNode`, `revealEdge`); at reading size, pan the least
    * distance that shows it whole (`revealRect`), so stepping through neighbours does not swing the
    * picture to centre every card. The visible area is the canvas above the bottom sheet.
+   *
+   * Stage 0b, a connection and the phase index: when the least pan leaves one of its end cards
+   * under the index, and their union fits the canvas at this zoom, it is framed as a Reveal frames
+   * it (`frameClear`: centred, then the least pan that clears both cards, zooming out no further
+   * than READABLE_MIN_ZOOM when no pan does). Panning alone left an end card under the index on 10
+   * steps of 9 of the 78 "All claims" walks of the 26 repo-held and public development documents
+   * at 541, 900 and 1440 px (jsdom, the index at its widest; the 1 step left, from a walk already
+   * at 0.68, went with stage 0c's return to reading size, `walkTarget`). A union that does not fit
+   * the canvas at all is still only panned.
    */
   revealTarget(target: { kind: 'node' | 'edge'; id: string }): void {
     const rect = this.targetRect(target);
@@ -979,7 +1030,58 @@ export class CanvasView {
       else this.revealEdge(target.id);
       return;
     }
-    if (!this.viewport.isVisible(rect)) this.viewport.revealRect(rect);
+    if (this.viewport.isVisible(rect)) return;
+    this.viewport.revealRect(rect);
+    const ends = target.kind === 'edge' ? this.endBoxes(target.id) : null;
+    if (!ends || (this.viewport.isVisible(ends[0]) && this.viewport.isVisible(ends[1]))) return;
+    if (this.viewport.fitsAt(rect, this.viewport.vp.zoom, 0)) this.viewport.frameClear(rect, ends, { floor: READABLE_MIN_ZOOM, margin: 32 });
+  }
+
+  /**
+   * A step of the review walk onto a step or a connection (`revealTarget`). Stage 0c, walk W1 (the
+   * relayout plan of 2026-10-04): a finding's frame can zoom out as far as FRAME_MIN_ZOOM to show
+   * its cited cards, and the walk kept any zoom at full detail, so a frame that left it between
+   * LOD_FULL_ZOOM and READABLE_MIN_ZOOM left every later claim there until the reader zoomed in:
+   * 397 steps and connections, of 4,494 claims, in the 78 "All claims" walks of the 26 repo-held
+   * and public development documents at 541, 900 and 1440 px (jsdom), and none now. When the zoom
+   * lies in that band and the viewer chose it (a finding's frame, or a walk step onto a claim too
+   * large for reading size: `framedZoom`), the step first zooms back about the canvas centre to
+   * READABLE_ZOOM, or only as far as the claim still fits (`readableZoomFor`), so a connection's
+   * two cards stay whole, then pans the least distance as before. A zoom the reader set is kept.
+   * Below LOD_FULL_ZOOM `revealTarget` already zooms in.
+   */
+  walkTarget(target: { kind: 'node' | 'edge'; id: string }): void {
+    const before = this.viewport.vp.zoom;
+    const rect = this.targetRect(target);
+    if (rect && before === this.framedZoom && before >= LOD_FULL_ZOOM && before < READABLE_MIN_ZOOM) {
+      const zoom = Math.max(before, this.readableZoomFor(rect));
+      if (zoom > before) {
+        const { w, h } = this.viewport.visibleArea();
+        this.viewport.zoomAt(zoom / before, w / 2, h / 2);
+      }
+    }
+    this.revealTarget(target);
+    this.noteFramedZoom(before);
+  }
+
+  /**
+   * Stage 0c: after a finding's frame or a walk step that started at zoom `before`. A zoom the move
+   * changed is the viewer's choice; one it kept stays the viewer's only when it was before.
+   */
+  private noteFramedZoom(before: number): void {
+    const after = this.viewport.vp.zoom;
+    if (after !== before) this.framedZoom = after;
+    else if (this.framedZoom !== before) this.framedZoom = null;
+  }
+
+  /** The laid-out boxes of a connection's two drawn ends (a collapsed group's card for a hidden end), source first. */
+  private endBoxes(id: string): [LayoutBox, LayoutBox] | null {
+    if (!this.index || !this.frameData) return null;
+    const edge = this.index.edgeById.get(id);
+    if (!edge) return null;
+    const a = this.frameData.boxes.get(this.index.visibleRepresentative(edge.source, this.collapsedSet));
+    const b = this.frameData.boxes.get(this.index.visibleRepresentative(edge.target, this.collapsedSet));
+    return a && b ? [a, b] : null;
   }
 
   /** The laid-out rect of a node's visible card, or of both ends of a connection. */

@@ -273,6 +273,44 @@ the file. Each fix has a test that fails without it; checked by jsdom and mock
 `vscode` tests and headless Chrome with a simulated host, not in live VS Code,
 with a screen reader or as a usability check ([changelog](../CHANGELOG.md)).
 
+Unreleased canvas re-layout, Stage 0 (the phase-lanes diagram stays the only
+layout): inferred and unresolved connections no longer join the shared trunks
+between phases; each one that skips a phase runs on its own channel track and
+its other segments move off the lines they would share where there is room.
+Measured with the new `webview/tools/layout-metrics.mjs`, those with half or
+more of their line hidden went from 49 of 56 to none on the repository's
+documents and from 22 of 61 to none on the 17 public development documents.
+Where a gutter is full a segment can still lie on another line: those drawn on
+another line for more than 8 px went from 99 to 26 of 133 over the
+repository's, development and three local shakedown documents (18 of the 26
+on a synthetic stress fixture). Observed connections keep their trunks but
+re-splay by a few pixels where an uncertain one left their gutter or channel
+slot. In return there are about 10% more crossings (vit-cc 119 to 140, mostly
+on its dashed lines), a few more labels crossed by an unrelated line, a
+channel up to 144 px wider on the stress fixture (23 px at most on the
+development documents; these tracks are not capped), and slower relayouts on
+large synthetic documents (in jsdom about 20 to 90 ms on that fixture and 420
+to 1,000-1,300 ms at 1,000 steps; 1-13 ms more on real documents), growing
+with the number of uncertain connections. The geometry golden was re-recorded
+once for this, on purpose. Reveal in Diagram and the review walk keep the cards
+they bring into view on the diagram and clear of the phase index: focusing no
+longer scrolls the diagram, the first reveal at 541 px no longer lands under
+the pill (a revealed connection keeps both cards in view there, zooming out if
+it must), a connection whose two cards fit at 45% is framed so both clear it
+(zooming out to 45% for a reveal, 75% for a walk step; one too far apart for
+that still centres on its source card), and a card is cleared again when the
+pill widens. After a finding zoomed out to 62-75%, the walk's next step or
+connection returns to 90% (or as far as it fits) instead of keeping that zoom;
+a zoom the reader chose is kept. In a jsdom sweep of 78 walks, steps and
+connections shown at 62-75% fell from 397 to none, for up to 11% more panning.
+The layout-metrics tool is a non-gating development tool with an
+informational baseline; nothing in the VSIX includes it. No contract change,
+no new setting. Checked by local jsdom tests (mutation-checked) and, for the
+reveal fixes, headless Chrome with a simulated host; not in live VS Code, with
+a screen reader or as a usability check, and the measures are geometric
+proxies, not readability ([changelog](../CHANGELOG.md),
+[details](../webview/README.md#layout-metrics-dev-tool-not-a-gate)).
+
 Unreleased viewer M3, step 11 (the review walk): `r`, the header's **Review**
 button or **Review the claims** in the **⋯** menu goes through the displayed
 revision claim by claim, in the diagram's order (each step, its outgoing

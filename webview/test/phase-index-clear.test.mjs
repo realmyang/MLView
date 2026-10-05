@@ -1,0 +1,475 @@
+// Stage 0b of the relayout plan (2026-10-04): Reveal in Diagram and the review walk keep the cards
+// they bring into view clear of the phase index (the panel of rows, or the pill below 1000 px).
+//
+// - `clearOfAll` (render/canvas.ts) moves a connection's two end cards off the index together; the
+//   empty corner of their union may stay under it. Pure, compiled from the sources here.
+// - `ViewportController.frameClear` frames a union at the first zoom, from the current one down to
+//   a floor, at which both end cards fit on the canvas and clear of the index. A Reveal in Diagram
+//   of a connection uses it (`frameEdge`), and so does a step of the walk onto a connection whose
+//   union fits the canvas but not the room the index leaves, down to READABLE_MIN_ZOOM.
+// - After a move the index can change shape (the pill names the phase in view), so the target is
+//   cleared once more of the index as it is then: by `revealRect`, `centerOn`, `frameRect`'s anchor
+//   step and `frameClear`, each checked on its own with an index that follows the applied transform.
+// - Focusing a card or a connection never scrolls the canvas, and a canvas that shrinks after a
+//   reveal (the sheet's height landing a frame later) keeps the revealed card, or both cards of a
+//   revealed connection, in view. A card the reader left under the index stays there on a resize.
+//
+// The fixtures are SYNTHETIC: documents of the shapes of the two public shakedown artifacts
+// (helpers.mjs), a small hand-made document, and hand-placed rectangles. jsdom lays nothing out: the
+// panel and canvas boxes are stubbed as in reveal.test.mjs, and the index is its jsdom fallback (the
+// pill or the panel at its widest) or a rectangle a test sets. The Chrome measurements cited in the
+// sources were taken in headless Chrome through the screenshot harness's simulated host. None of
+// this is a live VS Code check, a usability check or a review of what the claims say.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { build } from 'esbuild';
+import { loadBundle, recordingBridge, shapedWorkflow, VIT_SHAPE, WEBVIEW_ROOT, YOLO_SHAPE } from './helpers.mjs';
+
+const CSS = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+const plain = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+
+let sourcePromise = null;
+/** The pure geometry as one ES module (nothing touches the DOM on import). */
+function source() {
+  if (!sourcePromise) {
+    sourcePromise = build({
+      stdin: {
+        contents: "export { clearOf, clearOfAll, rectsOverlap } from './render/canvas.ts';",
+        resolveDir: join(WEBVIEW_ROOT, 'src'),
+        loader: 'ts',
+        sourcefile: 'phase-index-clear-entry.ts',
+      },
+      bundle: true,
+      format: 'esm',
+      platform: 'neutral',
+      write: false,
+      logLevel: 'silent',
+    }).then((result) => import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64')));
+  }
+  return sourcePromise;
+}
+
+const RAIL_W = 360;
+const SHEET_SHARE = 0.47;
+
+/**
+ * Mount `document` in a panel `width` px wide whose body is `bodyH` px, as reveal.test.mjs does.
+ * `ctx.hold()` keeps the canvas at its present size until `ctx.release()`: the order headless Chrome
+ * showed under reduced motion, where the sheet's new height lands a frame after the reveal that
+ * opened it. `ctx.resize(w)` makes the panel `w` px wide.
+ */
+async function mount(document, opts = {}) {
+  const ctx = await loadBundle();
+  const style = ctx.document.createElement('style');
+  style.textContent = CSS;
+  ctx.document.head.appendChild(style);
+  ctx.document.body.classList.add('vscode-reduce-motion');
+  const root = ctx.document.getElementById('mlview-root');
+  let width = opts.width || 1440;
+  const bodyH = opts.bodyH || 842;
+  root.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, width, height: bodyH + 58, right: width, bottom: bodyH + 58 });
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, document, bridge);
+  const canvas = ctx.document.querySelector('.mlv-canvas');
+  const rail = ctx.document.querySelector('.mlv-rail');
+  let held = null;
+  const measure = () => {
+    const docked = rail.getAttribute('data-mode') !== 'sheet';
+    const w = docked ? width - (rail.hidden ? 0 : RAIL_W) : width;
+    const sheet = docked ? 0 : rail.getAttribute('data-expanded') === 'true' ? Math.round(bodyH * SHEET_SHARE) : 32;
+    return { w, h: bodyH - sheet };
+  };
+  const box = () => held || measure();
+  canvas.getBoundingClientRect = () => {
+    const { w, h } = box();
+    return { x: 0, y: 0, top: 0, left: 0, width: w, height: h, right: w, bottom: h };
+  };
+  ctx.window.dispatchEvent(new ctx.window.Event('resize'));
+  app.view.fit();
+  canvas.focus();
+  // The canvas keeps the size it has now until `release`, which reports the new one as a resize.
+  const hold = () => {
+    held = measure();
+  };
+  const release = () => {
+    held = null;
+    ctx.window.dispatchEvent(new ctx.window.Event('resize'));
+  };
+  // The panel becomes `w` px wide, reported as a resize.
+  const resize = (w) => {
+    width = w;
+    ctx.window.dispatchEvent(new ctx.window.Event('resize'));
+  };
+  return { ...ctx, root, bridge, app, canvas, rail, box, hold, release, resize };
+}
+
+const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const boxOf = (ctx, id) => ctx.app.view.frameData.boxes.get(ctx.app.index.visibleRepresentative(id, ctx.app.view.collapsed));
+function onScreen(ctx, b) {
+  const vp = ctx.app.getState().viewport;
+  return { x: b.x * vp.zoom + vp.x, y: b.y * vp.zoom + vp.y, w: b.w * vp.zoom, h: b.h * vp.zoom };
+}
+/** Why the card `id` is not wholly on the canvas and clear of the phase index, or null. */
+function offScreen(ctx, id) {
+  const s = onScreen(ctx, boxOf(ctx, id));
+  const { w, h } = ctx.box();
+  if (!(s.x >= -0.5 && s.y >= -0.5 && s.x + s.w <= w + 0.5 && s.y + s.h <= h + 0.5)) return `${id}: card ${s.x.toFixed(0)},${s.y.toFixed(0)} ${s.w.toFixed(0)}x${s.h.toFixed(0)} outside the canvas ${w}x${h}`;
+  const covered = ctx.app.view.viewport.covered();
+  if (covered && overlaps(s, covered)) return `${id}: card under the phase index`;
+  return null;
+}
+function unionOf(a, b) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+const reveal = (ctx, kind, id) => ctx.bridge.send({ v: 1, type: 'reveal', kind, id });
+const press = (ctx, key, target = ctx.document.activeElement || ctx.canvas) => {
+  const event = new ctx.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  return event;
+};
+
+/* ── clearOfAll ──────────────────────────────────────────────────────── */
+
+test('clearOfAll: the least pan that puts every card on the canvas and clear of the index, the empty corner of their union aside', async () => {
+  const { clearOf, clearOfAll, rectsOverlap } = await source();
+  const pill = { x: 300, y: 352, w: 229, h: 28 };
+  // Clear and on the canvas: no move.
+  assert.deepEqual(plain(clearOfAll([{ x: 10, y: 10, w: 100, h: 50 }, { x: 200, y: 100, w: 100, h: 50 }], pill, 541, 392)), { dx: 0, dy: 0 });
+  // One card: the move clearOf makes, when it keeps the card on the canvas.
+  const card = { x: 360, y: 300, w: 150, h: 70 };
+  assert.deepEqual(plain(clearOfAll([card], pill, 541, 392)), plain(clearOf(card, pill, 541, 392)));
+  // A tall end (an expanded group's frame) runs down beside the index, and the other end sits on it.
+  // Their union cannot move off the index on the canvas; the two cards can: 12 px up, which leaves
+  // the target 8 px above the index.
+  const group = { x: 30, y: 16, w: 150, h: 360 };
+  const target = { x: 360, y: 266, w: 150, h: 90 };
+  assert.equal(clearOf({ x: 30, y: 16, w: 480, h: 360 }, pill, 541, 392), null, 'precondition: the union has nowhere to go');
+  const shift = clearOfAll([group, target], pill, 541, 392);
+  assert.deepEqual(plain(shift), { dx: 0, dy: -12 });
+  for (const p of [group, target]) {
+    const moved = { ...p, x: p.x + shift.dx, y: p.y + shift.dy };
+    assert.ok(moved.y >= 0 && moved.y + moved.h <= 392 && !rectsOverlap(moved, pill), 'on the canvas and off the index');
+  }
+  // No pan does: the cards span the canvas's height and one is under the index.
+  assert.equal(clearOfAll([{ x: 30, y: 0, w: 150, h: 80 }, { x: 360, y: 300, w: 150, h: 90 }], pill, 541, 392), null);
+  // Nor here: 22 px up would put the top card against the canvas's edge and leave the other 4 px
+  // above the index, and a card a pan moves off the index keeps `gap` (8 px) from it, as clearOf's do.
+  assert.equal(clearOfAll([{ x: 40, y: 22, w: 145, h: 77 }, { x: 357, y: 293, w: 145, h: 77 }], pill, 541, 392), null);
+  // Cards partly off the canvas are brought onto it (the index aside, the least pan).
+  assert.deepEqual(plain(clearOfAll([{ x: -20, y: 10, w: 100, h: 50 }], pill, 541, 392)), { dx: 20, dy: 0 });
+  // No index: only onto the canvas; nothing to place: no move.
+  assert.deepEqual(plain(clearOfAll([{ x: 10, y: 380, w: 100, h: 50 }], null, 541, 392)), { dx: 0, dy: -38 });
+  assert.deepEqual(plain(clearOfAll([], pill, 541, 392)), { dx: 0, dy: 0 });
+});
+
+/* ── the viewport: frameClear, the index after a move ────────────────── */
+
+/**
+ * A mounted viewer whose canvas is `w` x `h` and whose phase index covers what `covered(applied)`
+ * returns. `applied` is the viewport as drawn, read from the world's transform: the real index
+ * changes only once a move is applied (the pill's text follows the viewport's change callback), so
+ * an index read from `vp`, which a move sets before it applies it, would be cleared by the move's
+ * own pass off the index and test nothing after it.
+ */
+async function bareViewport(w, h, covered) {
+  const ctx = await mount(shapedWorkflow(YOLO_SHAPE), { width: 1440, bodyH: 842 });
+  ctx.canvas.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, width: w, height: h, right: w, bottom: h });
+  const vpc = ctx.app.view.viewport;
+  const applied = () => {
+    const m = /translate\(([-\d.e]+)px,\s*([-\d.e]+)px\)\s*scale\(([-\d.e]+)\)/.exec(vpc.world.style.transform);
+    assert.ok(m, `a transform is applied (${vpc.world.style.transform})`);
+    return { x: Number(m[1]), y: Number(m[2]), zoom: Number(m[3]) };
+  };
+  vpc.setCovered(() => covered(applied()));
+  const screen = (r) => ({ x: r.x * vpc.vp.zoom + vpc.vp.x, y: r.y * vpc.vp.zoom + vpc.vp.y, w: r.w * vpc.vp.zoom, h: r.h * vpc.vp.zoom });
+  const clear = (r, index) => {
+    const s = screen(r);
+    return s.x >= -0.01 && s.y >= -0.01 && s.x + s.w <= w + 0.01 && s.y + s.h <= h + 0.01 && !overlaps(s, index);
+  };
+  return { ...ctx, vpc, screen, clear };
+}
+
+test('frameClear: the first zoom, from the current one down to the floor, at which both end cards fit on the canvas and clear of the index', async () => {
+  const pill = { x: 300, y: 352, w: 229, h: 28 };
+  const ctx = await bareViewport(541, 392, () => pill);
+  try {
+    const { vpc } = ctx;
+    // The tall end (a group's frame) beside the index, the other end on it: 12 px up, same zoom.
+    const group = { x: 0, y: 0, w: 150, h: 360 };
+    const target = { x: 330, y: 250, w: 150, h: 90 };
+    const union = { x: 0, y: 0, w: 480, h: 360 };
+    vpc.set({ x: 0, y: 0, zoom: 1 });
+    assert.equal(vpc.frameClear(union, [group, target], { margin: 16 }), true);
+    assert.deepEqual(plain(vpc.vp), { x: 30.5, y: 4, zoom: 1 }, 'centred, then the least pan off the index');
+    assert.ok(ctx.clear(group, pill) && ctx.clear(target, pill));
+    // Corner to corner: no pan clears the target at 1, the first 5 % step down does.
+    const top = { x: 0, y: 0, w: 150, h: 80 };
+    const corner = { x: 330, y: 280, w: 150, h: 80 };
+    vpc.set({ x: 0, y: 0, zoom: 1 });
+    assert.equal(vpc.frameClear(union, [top, corner], { margin: 16 }), true);
+    assert.equal(vpc.vp.zoom, 0.95);
+    assert.ok(ctx.clear(top, pill) && ctx.clear(corner, pill));
+    // Above the floor there is none: nothing moves.
+    vpc.set({ x: 7, y: 9, zoom: 1 });
+    assert.equal(vpc.frameClear(union, [top, corner], { margin: 16, floor: 0.99 }), false);
+    assert.deepEqual(plain(vpc.vp), { x: 7, y: 9, zoom: 1 });
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+// Each pass is checked on its own: with any one of them removed, its case leaves the card under the
+// index the move brought in.
+test('after a move the target is cleared once more of the index as it is then (the pill widens with the phase it names): revealRect and centerOn', async () => {
+  // revealRect: a card comes in from below beside the narrow pill; the move widens it over the card.
+  const narrow = { x: 400, y: 352, w: 129, h: 28 };
+  const wide = { x: 300, y: 352, w: 229, h: 28 };
+  let ctx = await bareViewport(541, 392, (vp) => (vp.y < 400 ? wide : narrow));
+  try {
+    const card = { x: 0, y: 0, w: 194, h: 97 };
+    ctx.vpc.set({ x: 200, y: 500, zoom: 1 });
+    ctx.vpc.revealRect(card);
+    assert.ok(ctx.clear(card, wide), `the card ${JSON.stringify(ctx.screen(card))} is clear of the widened pill`);
+  } finally {
+    ctx.app.destroy();
+  }
+  // centerOn: the index the move brings in covers the centre.
+  const corner = { x: 0, y: 0, w: 1, h: 1 };
+  const middle = { x: 200, y: 150, w: 141, h: 92 };
+  ctx = await bareViewport(541, 392, (vp) => (vp.x < 1000 ? middle : corner));
+  try {
+    const card = { x: 0, y: 0, w: 100, h: 50 };
+    ctx.vpc.set({ x: 5000, y: 0, zoom: 1 });
+    ctx.vpc.centerOn(card);
+    assert.ok(ctx.clear(card, middle), `the card ${JSON.stringify(ctx.screen(card))} is clear of the index it moved under`);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test("after a move the target is cleared once more of the index as it is then: frameRect's anchor step and frameClear", async () => {
+  // frameRect: the union fills the canvas's height, so centring cannot move it off the index; the
+  // anchor's own pass off it (keepClear) moves it up, and that move brings in a taller index.
+  const low = { x: 300, y: 340, w: 229, h: 40 };
+  const tall = { x: 300, y: 300, w: 229, h: 80 };
+  let ctx = await bareViewport(541, 392, (vp) => (vp.y < -4 ? tall : low));
+  try {
+    const union = { x: 0, y: 0, w: 480, h: 344 };
+    const anchor = { x: 330, y: 250, w: 150, h: 90 };
+    ctx.vpc.set({ x: 0, y: 0, zoom: 1 });
+    ctx.vpc.frameRect(union, anchor, 0.9);
+    assert.equal(ctx.vpc.vp.zoom, 1, 'the union fits at 1: centred and kept');
+    assert.ok(ctx.clear(anchor, tall), `the anchor ${JSON.stringify(ctx.screen(anchor))} is clear of the taller index`);
+  } finally {
+    ctx.app.destroy();
+  }
+  // frameClear: both cards clear of the pill where the frame centres them; the frame brings in the
+  // taller index over the lower card.
+  const pill = { x: 300, y: 352, w: 229, h: 28 };
+  ctx = await bareViewport(541, 392, (vp) => (vp.y > 0 ? tall : pill));
+  try {
+    const top = { x: 0, y: 0, w: 150, h: 80 };
+    const corner = { x: 330, y: 200, w: 150, h: 80 };
+    ctx.vpc.set({ x: 0, y: 0, zoom: 1 });
+    assert.equal(ctx.vpc.frameClear({ x: 0, y: 0, w: 480, h: 280 }, [top, corner], { margin: 16 }), true);
+    assert.equal(ctx.vpc.vp.zoom, 1);
+    assert.ok(ctx.clear(top, tall) && ctx.clear(corner, tall), `the cards ${JSON.stringify([ctx.screen(top), ctx.screen(corner)])} are clear of the taller index`);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+/* ── Reveal in Diagram and the walk, at 541 px ───────────────────────── */
+
+test('Reveal in Diagram of a connection whose ends are too far apart for the room above or beside the index: both cards clear of it (the yolov5-cc2 shape, seed 1, 541x798)', async () => {
+  const document = shapedWorkflow({ ...YOLO_SHAPE, seed: 1 });
+  const ctx = await mount(document, { width: 541, bodyH: 740 });
+  try {
+    reveal(ctx, 'edge', 'c93');
+    const edge = document.edges.find((e) => e.id === 'c93');
+    const union = unionOf(boxOf(ctx, edge.source), boxOf(ctx, edge.target));
+    const covered = ctx.app.view.viewport.covered();
+    const { w, h } = ctx.box();
+    // Precondition: the frame fits at the floor, but not wholly above the index, nor beside it, at
+    // the floor (the rule before stage 0b then left the frame as it was).
+    assert.ok(ctx.app.view.viewport.fitsAt(union, 0.45), 'fits the canvas at 0.45');
+    assert.ok((h - covered.h - 48) / union.h < 0.45, 'too tall for the room above the index');
+    assert.ok((w - covered.w - 48) / union.w < 0.45, 'too wide for the room beside it');
+    assert.equal(offScreen(ctx, edge.source), null);
+    assert.equal(offScreen(ctx, edge.target), null);
+    assert.ok(ctx.app.getState().viewport.zoom >= 0.45);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('a walk step onto a connection that fits the canvas, but whose cards no pan clears of the index, is framed down to 0.75 with both cards clear (the yolov5-cc2 shape, 541x798)', async () => {
+  const { clearOfAll } = await source();
+  const document = shapedWorkflow(YOLO_SHAPE);
+  const ctx = await mount(document, { width: 541, bodyH: 740 });
+  try {
+    assert.equal(ctx.app.walk.start('all'), true);
+    for (let i = 0; i < 400 && ctx.app.walk.current().id !== 'c82'; i++) ctx.app.walk.step(1);
+    assert.equal(ctx.app.walk.current().id, 'c82');
+    const edge = document.edges.find((e) => e.id === 'c82');
+    const ends = [boxOf(ctx, edge.source), boxOf(ctx, edge.target)];
+    const union = unionOf(ends[0], ends[1]);
+    const covered = ctx.app.view.viewport.covered();
+    const { w, h } = ctx.box();
+    // Precondition: at reading size the union fits the canvas, yet no pan clears both cards of the index.
+    assert.ok(union.w * 0.9 <= w && union.h * 0.9 <= h, 'fits the canvas at 0.9');
+    assert.equal(clearOfAll(ends.map((b) => ({ x: b.x * 0.9, y: b.y * 0.9, w: b.w * 0.9, h: b.h * 0.9 })), covered, w, h), null, 'no pan at 0.9 clears both');
+    assert.equal(offScreen(ctx, edge.source), null);
+    assert.equal(offScreen(ctx, edge.target), null);
+    const zoom = ctx.app.getState().viewport.zoom;
+    assert.ok(zoom >= 0.75 && zoom < 0.9, `zoomed out a little, never under 0.75 (${zoom})`);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('the card a reveal centred stays in view, clear of the index, when the opening sheet shrinks the canvas a frame later', async () => {
+  const document = shapedWorkflow(YOLO_SHAPE);
+  const ctx = await mount(document, { width: 541, bodyH: 740 });
+  try {
+    assert.equal(ctx.rail.getAttribute('data-mode'), 'sheet');
+    ctx.app.collapseSheet(false);
+    assert.equal(ctx.box().h, 708, 'precondition: the sheet is collapsed');
+    ctx.hold();
+    reveal(ctx, 'node', 'n30');
+    assert.equal(ctx.rail.getAttribute('data-expanded'), 'true', 'the reveal opened the sheet');
+    assert.equal(offScreen(ctx, 'n30'), null, 'centred on the canvas it still had');
+    ctx.release();
+    assert.equal(ctx.box().h, 392, 'the canvas is now above the open sheet');
+    assert.equal(offScreen(ctx, 'n30'), null);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('both cards of a connection a reveal framed stay in view, clear of the index, when the opening sheet shrinks the canvas a frame later (the vit-cc shape, c4)', async () => {
+  const document = shapedWorkflow(VIT_SHAPE);
+  const ctx = await mount(document, { width: 541, bodyH: 740 });
+  try {
+    ctx.app.collapseSheet(false);
+    ctx.hold();
+    reveal(ctx, 'edge', 'c4');
+    assert.equal(ctx.rail.getAttribute('data-expanded'), 'true', 'the reveal opened the sheet');
+    const edge = document.edges.find((e) => e.id === 'c4');
+    assert.equal(offScreen(ctx, edge.source), null, 'framed on the canvas it still had');
+    assert.equal(offScreen(ctx, edge.target), null, 'framed on the canvas it still had');
+    const framed = ctx.app.getState().viewport.zoom;
+    ctx.release();
+    const { w, h } = ctx.box();
+    assert.equal(h, 392, 'the canvas is now above the open sheet');
+    // Precondition: at the frame's zoom the two cards do not fit the shorter canvas, so no pan shows
+    // both; at 0.45 they do.
+    const union = unionOf(boxOf(ctx, edge.source), boxOf(ctx, edge.target));
+    assert.ok(union.h * framed > h, `the cards span ${Math.round(union.h * framed)} px at ${framed}, taller than ${h}`);
+    assert.ok(Math.min((w - 48) / union.w, (h - 48) / union.h) >= 0.45, 'they fit at 0.45');
+    assert.equal(offScreen(ctx, edge.source), null);
+    assert.equal(offScreen(ctx, edge.target), null);
+    const zoom = ctx.app.getState().viewport.zoom;
+    assert.ok(zoom < framed && zoom >= 0.45, `zoomed out, never under 0.45 (${zoom})`);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('with the phase index hidden, both cards of a revealed connection stay on the canvas when the opening sheet shrinks it a frame later (the vit-cc shape, c4)', async () => {
+  const document = shapedWorkflow(VIT_SHAPE);
+  const ctx = await mount(document, { width: 541, bodyH: 740 });
+  try {
+    ctx.app.view.setPhaseIndex({ folded: false, hidden: true });
+    assert.equal(ctx.app.view.viewport.covered(), null, 'precondition: no index');
+    ctx.app.collapseSheet(false);
+    ctx.hold();
+    reveal(ctx, 'edge', 'c4');
+    const edge = document.edges.find((e) => e.id === 'c4');
+    const framed = ctx.app.getState().viewport.zoom;
+    ctx.release();
+    assert.equal(ctx.box().h, 392);
+    assert.equal(offScreen(ctx, edge.source), null);
+    assert.equal(offScreen(ctx, edge.target), null);
+    assert.ok(ctx.app.getState().viewport.zoom < framed);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('a revealed connection whose cards are clear of the index, the empty corner of their union under it, stays in view when the window narrows (the yolov5-cc2 shape, c72, 1440 px)', async () => {
+  const document = shapedWorkflow(YOLO_SHAPE);
+  const ctx = await mount(document, { width: 1440, bodyH: 842 });
+  try {
+    reveal(ctx, 'edge', 'c72');
+    const edge = document.edges.find((e) => e.id === 'c72');
+    assert.equal(offScreen(ctx, edge.source), null);
+    assert.equal(offScreen(ctx, edge.target), null);
+    const union = ctx.app.view.targetRect({ kind: 'edge', id: 'c72' });
+    const vp = ctx.app.getState().viewport;
+    const screen = { x: union.x * vp.zoom + vp.x, y: union.y * vp.zoom + vp.y, w: union.w * vp.zoom, h: union.h * vp.zoom };
+    assert.ok(overlaps(screen, ctx.app.view.viewport.covered()), 'precondition: the union is partly under the index');
+    // Judged by the union, the connection was out of view and the resize left its target card cut
+    // off at the canvas's right edge; judged by its two cards, it was in view and stays so.
+    ctx.resize(1400);
+    assert.equal(offScreen(ctx, edge.source), null, 'after the resize');
+    assert.equal(offScreen(ctx, edge.target), null, 'after the resize');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('a card the reader left under the phase index stays where it is when the window resizes (1440 px, the panel of rows)', async () => {
+  const document = shapedWorkflow(YOLO_SHAPE);
+  const ctx = await mount(document, { width: 1440, bodyH: 842 });
+  try {
+    assert.notEqual(ctx.rail.getAttribute('data-mode'), 'sheet', 'precondition: the rail is docked');
+    const id = 'n30';
+    ctx.app.select({ kind: 'node', id }, { tab: 'inspector' });
+    ctx.window.dispatchEvent(new ctx.window.Event('resize'));
+    const vpc = ctx.app.view.viewport;
+    const covered = vpc.covered();
+    const box = boxOf(ctx, id);
+    const zoom = vpc.vp.zoom;
+    vpc.set({ x: covered.x + covered.w / 2 - (box.x + box.w / 2) * zoom, y: covered.y + covered.h / 2 - (box.y + box.h / 2) * zoom });
+    assert.match(offScreen(ctx, id) || '', /under the phase index/, 'precondition: the reader left the card under the index');
+    const before = plain(ctx.app.getState().viewport);
+    ctx.resize(1420);
+    assert.deepEqual(plain(ctx.app.getState().viewport), before, 'nothing moved');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('focusing a card, a group\'s header or a connection never scrolls the canvas (preventScroll)', async () => {
+  const document = shapedWorkflow(YOLO_SHAPE);
+  const ctx = await mount(document, { width: 541, bodyH: 740 });
+  try {
+    const calls = [];
+    for (const proto of [ctx.window.HTMLElement.prototype, ctx.window.SVGElement.prototype]) {
+      const original = proto.focus;
+      proto.focus = function focus(options) {
+        if (this !== ctx.canvas && ctx.canvas.contains(this)) calls.push({ element: this, options });
+        return original.call(this, options);
+      };
+    }
+    const group = document.nodes.find((n) => n.kind === 'group').id;
+    reveal(ctx, 'node', 'n30');
+    reveal(ctx, 'node', group);
+    reveal(ctx, 'edge', 'c82');
+    reveal(ctx, 'node', 'n30');
+    press(ctx, 'ArrowRight');
+    press(ctx, 'e');
+    ctx.app.view.refresh(ctx.app.selection);
+    const kinds = new Set(calls.map((c) => (c.element.classList.contains('mlv-edge__hit') ? 'connection' : c.element.classList.contains('mlv-group__header') ? 'group' : c.element.hasAttribute('data-node-id') ? 'card' : 'other')));
+    for (const kind of ['card', 'group', 'connection']) assert.ok(kinds.has(kind), `a ${kind} took the focus`);
+    const scrolling = calls.filter((c) => !(c.options && c.options.preventScroll === true));
+    assert.deepEqual(scrolling.map((c) => c.element.className.baseVal ?? c.element.className), []);
+  } finally {
+    ctx.app.destroy();
+  }
+});

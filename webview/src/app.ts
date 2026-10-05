@@ -580,9 +580,11 @@ export class App implements MLViewApp {
    * opens), it is selected and shown in the Selection tab (a collapsed bottom sheet opens), and it
    * is brought into view above the sheet: a finding frames every step it cites; a step or a
    * connection is zoomed to reading size when the diagram is below it, else panned the least
-   * distance that shows it whole. The keyboard stays on the diagram: a card or connection that
-   * held the focus hands it to the canvas, so the walk's keys keep answering there. The hover card
-   * goes and stays away until the pointer moves (`CanvasView.holdHover`).
+   * distance that shows it whole (stage 0c: from a zoom below READABLE_MIN_ZOOM that a finding's
+   * frame or the walk chose, back to reading size first, `CanvasView.walkTarget`). The keyboard
+   * stays on the diagram: a card or connection that held the focus hands it to the canvas, so the
+   * walk's keys keep answering there. The hover card goes and stays away until the pointer moves
+   * (`CanvasView.holdHover`).
    */
   showWalkClaim(claim: Sel): void {
     const index = this.index;
@@ -604,7 +606,7 @@ export class App implements MLViewApp {
     else expandEnds(claim.id);
     this.select(claim, { tab: 'inspector', showClaim: true });
     if (claim.kind === 'issue') this.view.frameIssue(claim.id);
-    else this.view.revealTarget({ kind: claim.kind, id: claim.id });
+    else this.view.walkTarget({ kind: claim.kind, id: claim.id });
     const canvas = this.view.canvasEl;
     const active = canvas.ownerDocument ? (canvas.ownerDocument.activeElement as HTMLElement | null) : null;
     if (active && active !== canvas && canvas.contains(active)) {

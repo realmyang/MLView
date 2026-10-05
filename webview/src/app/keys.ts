@@ -147,7 +147,8 @@ function moveSelection(app: App, key: string): void {
     const box = app.view.frame ? app.view.frame.boxes.get(first) : undefined;
     app.select({ kind: 'node', id: first }, { center: !!box && !app.view.viewport.isVisible(box) });
     const element = app.view.nodeElement(first);
-    if (element) element.focus();
+    // Stage 0b: never scroll the canvas (`CanvasView.focusSafely`).
+    if (element) element.focus({ preventScroll: true });
     return;
   }
   // Viewer M3 (live check, W5): from a connection or a finding too, not only from a step.
@@ -155,5 +156,5 @@ function moveSelection(app: App, key: string): void {
   if (!next) return;
   app.select({ kind: 'node', id: next.id }, { center: !next.visible });
   const element = app.view.nodeElement(next.id);
-  if (element) element.focus();
+  if (element) element.focus({ preventScroll: true });
 }

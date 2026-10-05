@@ -11,7 +11,19 @@
 // longer gives every card a `basis=<basis>` chip row (each expanded card lost
 // 26 px, which also changes how ranks wrap) and edge labels no longer end in
 // " · <basis>". Collapsed groups keep their count chip row, so only the labels
-// moved in the collapsed picture. Any other change here is a regression.
+// moved in the collapsed picture.
+//
+// Re-recorded once more, deliberately, in stage 0a of the canvas re-layout
+// (2026-10-04, requirement R7): an inferred or unresolved connection no longer
+// joins a trunk. Each one that skips a lane takes a channel track of its own,
+// 8 px apart and inside the innermost observed trunk, and `layout/separate.ts`
+// moves its other runs off the strokes they shared. Half of this fixture's
+// connections are inferred and most skip lanes, so in both pictures the channel
+// widens by 144 px (27 tracks; the reservation does not depend on folds) and
+// every box moves right by that much. The inferred routes take new paths, the
+// observed routes that shared a trunk or a channel slot with them re-splay or
+// change slot, the other observed routes move right with the boxes, and labels
+// follow their routes. Any other change here is a regression.
 //
 // Numbers are rounded to 0.1 before hashing. Layout uses no DOM text
 // measurement, so jsdom reproduces the browser geometry. If CI on another Node
@@ -23,8 +35,8 @@ import { createHash } from 'node:crypto';
 import { loadBundle, recordingBridge, rendererRegressionWorkflow, routedGeometry } from './helpers.mjs';
 
 const GOLDEN = {
-  expanded: '6f29f6b84c02cef2dd2761ba1ab9511be6dd425b6eac49d0dd2584c01f90eb44',
-  collapsed: 'bfb42d2c0bfc77aa2f7e6a35006a9b94ddd32b092a20c0739db946df0bf8c4a6',
+  expanded: '7c2b86f2b323f3db12b97c066c179e272f36ce27ad5586cd47cd73aa5efb7440',
+  collapsed: '7d855c35bbb6baf57dd869170e46197ce937938d84193ca4e8da57f7a7f50920',
 };
 
 const digest = (geometry) => createHash('sha256').update(JSON.stringify(geometry)).digest('hex');

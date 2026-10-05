@@ -120,10 +120,14 @@ export function buildBundles(routes: RoutedEdge[]): EdgeBundle[] {
   return out;
 }
 
-/** A route can only join a trunk if both of its shoulders survived `dedupe`. */
+/**
+ * A route can only join a trunk if both of its shoulders survived `dedupe`, and
+ * never when it is inferred or unresolved (stage 0a, requirement R7: `routeEdges`
+ * already gives such a route no trunk; this keeps a hand-built one out too).
+ */
 function usable(route: RoutedEdge): boolean {
   const ref = route.trunk;
-  if (!ref) return false;
+  if (!ref || route.notObserved) return false;
   if (ref.joinFrom < 1 || ref.joinTo <= ref.joinFrom) return false;
   return ref.joinTo + 1 <= route.points.length - 1;
 }

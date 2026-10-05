@@ -612,7 +612,8 @@ change, no new setting; the golden is byte-identical):
   index's `coveredRect` (measured, or its stylesheet sizes in jsdom).
   `isVisible` counts a target under it as out of view, and `centerOn`,
   `revealRect` and `frameRect` (for its anchor) pan the least distance off
-  it (`clearOf`). `animateTo(target, VIEW_ANIMATION_MS)` (240 ms, instant
+  it (`clearOf`), and since relayout stage 0b once more after the move when
+  the index changed shape. `animateTo(target, VIEW_ANIMATION_MS)` (240 ms, instant
   under `motionMode() === 'reduced'`) moves the canvas-centre point in a
   straight line with the zoom on a log scale; any other move cancels it.
   `phasePlan(frame, k, w, h)` is the view of phase k at reading size: the
@@ -651,10 +652,11 @@ viewer's part is one inbound frame:
   follows the selection (`followSelection`) without opening anything.
 - `CanvasView.frameEdge(id)` frames the union of the connection's route and
   its two ends at reading size with the source as anchor, so the anchor is
-  panned clear of the phase index. If the target end is then out of view, it
-  zooms out to the larger of the fits above and beside the index, when that
-  zoom is at least `FRAME_MIN_ZOOM` (0.45); otherwise the reading-size frame
-  stays.
+  panned clear of the phase index. If an end card is then under the index or
+  out of view, it zooms out, never below `FRAME_MIN_ZOOM` (0.45), to the first
+  zoom at which both cards fit clear of the index (`frameClear`, since
+  relayout stage 0b, below; before, to the larger of the fits wholly above and
+  wholly beside the index); otherwise the reading-size frame stays.
 - Focus: `CanvasView.focusTarget(target)` focuses the step's card (a group's
   header), the connection's `.mlv-edge__hit`, or the canvas for a finding or a
   bundled connection with no element of its own. The host moves the panel's
@@ -677,6 +679,128 @@ viewer's part is one inbound frame:
   yolov5-cc2 shapes; a group, whose box can be larger than the canvas, is
   checked as selected only. `authoredRevealHandshake` in
   `test/authored-handshake.mjs` drives the real host with the built viewer.
+
+Relayout stage 0a: inferred and unresolved connections on tracks of their own
+(requirement R7 of the relayout plan of 2026-10-04; no contract change, no new
+setting; the geometry golden was re-recorded once, on purpose, with the reason
+in its header):
+
+- `routeEdges` (`src/layout/routing.ts`) marks a route that carries any
+  inferred or unresolved connection `notObserved` (the least certain basis
+  decides, as it decides the dashes) and gives it no `trunk`; `usable` in
+  `src/layout/bundles.ts` refuses such a route too. A dash pattern drawn on or
+  beside a solid stroke reads as that stroke, and on `main` before this change
+  35 of the 56 uncertain cables of the repo-held documents were drawn inside a
+  trunk.
+- `planChannel` (`src/layout/channel.ts`, reserved in `layout.ts`) gives each
+  uncertain cable that skips a lane a left-channel track of its own,
+  `EXCEPTION_TRACK_STEP` (8 px) apart, starting 8 px inside the innermost
+  observed trunk. The tracks are counted from the document's own connections,
+  so folding a group never changes them, and the channel widens only when the
+  last track would come closer than `EXCEPTION_PAD` (10 px) to the bands.
+- `separateExceptions` (`src/layout/separate.ts`) then slides each uncertain
+  run sideways, a first or last run moving its port along the card face, by at
+  most `EXCEPTION_MAX_SHIFT` (40 px) in 2 px steps. It aims for
+  `EXCEPTION_CLEAR` (8 px) from every parallel stroke, counts length within
+  `EXCEPTION_HIDDEN` (4 px) of one as hidden, and refuses a move that passes
+  through more cards, lies along more of a header or of a card, group or lane
+  border, or leaves the frame. This pass never moves observed routes, trunks
+  or spurs, and a document with no uncertain connection draws as before. A run
+  with no allowed place clear of the others keeps the cheapest allowed one, so
+  in a full gutter some still lie on another stroke (the tool's `drawnOn`).
+- Observed routes keep their trunks, but the gutter splay and the channel
+  slots no longer count the uncertain members, so where one shared their
+  gutter or slot they re-splay by a few px or take another slot (7 of the 38
+  observed routes of vit-cc, 8 of 103 of yolov5-cc2), and the whole picture
+  shifts right where the channel widens.
+- `test/exception-tracks.test.mjs` covers, on the renderer-regression fixture
+  (expanded and folded), the two synthetic shapes, the sample and a benchmark:
+  no uncertain cable in a trunk, less than half of each hidden, and none
+  crossing a card, a border or a header beyond what the router drew; and on
+  hand-made documents the own tracks, their spacing, the channel's widening
+  and a reservation folding does not change.
+- `tools/layout-metrics.mjs` against `main`'s bundle: uncertain cables with
+  half or more of their stroke hidden 49 of 56 → 0 (repo-held documents) and
+  22 of 61 → 0 (the 17 public development documents), none in a trunk; drawn
+  on another stroke for more than 8 px 49 → 22 of 56 (18 on the
+  renderer-regression fixture) and 37 → 3 of 61. The costs: crossings up
+  about 10% on both sets (at rest they fell on the repo-held ones; vit-cc 119
+  → 140, mostly on its three dashed cables), at-rest labels crossed by an
+  unrelated cable 124 → 154 and 59 → 62 (a moved run can pass through a label
+  slot beside a port column), the renderer-regression fixture's channel
+  144 px wider (27 tracks, not capped by `CHANNEL_MAX_W`; the development
+  documents widen by 23 px at most), and routing time that grows with the
+  number of uncertain cables.
+
+Relayout stage 0b: Reveal and the walk keep their cards clear of the phase
+index (no contract change, no new setting, no geometry change; the golden is
+byte-identical):
+
+- Focus never scrolls the canvas. `CanvasView.focusSafely` and `refresh`, the
+  arrow keys (`src/app/keys.ts`) and `FlowBinding.focusEdge` pass
+  `{ preventScroll: true }`. Without it headless Chrome scrolled the clipped
+  canvas to show a focused group header or connection hit path (whose box
+  spans its route), and every later reveal was off by that scroll (left
+  scrolled after 469 of 843 reveals in a sweep of the three shakedown
+  documents at three widths, by up to 1827 px).
+- `CanvasView.handleResize` judges whether the kept target was in view on the
+  old canvas with the index where it was then (`lastCovered`, recorded with
+  `lastArea`; `isVisible` takes the index's rectangle), because the index
+  moves with the canvas's foot. Under reduced motion every element has a
+  0.01 ms transition, so the opening sheet's height lands a frame after the
+  reveal that opened it, and the first reveal at 541 px was left under the
+  index. A card the reader left under the index stays there. A connection is
+  judged by its two cards, and when no pan keeps both on the shorter canvas
+  it is framed again (`frameClear`, never below `FRAME_MIN_ZOOM`).
+- `clearOfAll(parts, covered, w, h, gap)` (`src/render/canvas.ts`) is the
+  least pan that puts every part on the canvas and off the index, a part it
+  moves off it `gap` px away. `ViewportController.frameClear(rect, parts,
+  {from, floor, margin})` centres `rect` at the first zoom, from the current
+  one down to `floor`, at which such a pan exists. `frameEdge` uses it down
+  to `FRAME_MIN_ZOOM`; a review walk step onto a connection uses it down to
+  `READABLE_MIN_ZOOM` (0.75) when the least pan left an end card under the
+  index and their union fits the canvas. A union that does not fit the canvas
+  is only panned, as before.
+- `centerOn`, `revealRect`, `frameRect`'s anchor and `frameClear` clear their
+  target once more after the move when the index changed shape: the pill
+  names the phase in view, and a longer name widened it over a card a walk
+  step had just placed beside it.
+- `test/phase-index-clear.test.mjs` covers `clearOfAll`, `frameClear`, each
+  of the four second passes on its own (with an index that follows the
+  applied transform), a Reveal and a walk step at 541x798 on the yolov5-cc2
+  shape, the late sheet for a step and for a connection (also with the index
+  hidden), a resize after a reveal, a card left under the index, and the
+  focus calls. `tools/layout-metrics.mjs` replays the
+  walk rule; its index is one fixed rectangle, so the second pass never runs
+  there.
+
+Relayout stage 0c: the review walk returns to reading size after a finding
+(walk W1; no contract change, no new setting, no geometry change; the golden
+is byte-identical):
+
+- A finding's frame can zoom out as far as `FRAME_MIN_ZOOM` (0.45) to show
+  its cited cards, and the walk kept any zoom at full detail, so a frame that
+  left it between `LOD_FULL_ZOOM` (0.62) and `READABLE_MIN_ZOOM` (0.75) left
+  every later claim there until the reader zoomed in.
+- `App.showWalkClaim` now steps through `CanvasView.walkTarget`: when the zoom
+  lies in that band and the viewer chose it, it first zooms about the canvas
+  centre to `READABLE_ZOOM` (0.9), or only as far as the claim still fits
+  (`readableZoomFor`, so a connection's two cards stay whole), then reveals as
+  before (`revealTarget`: the least pan, and stage 0b's frame for the index).
+- `framedZoom` is the zoom the viewer chose: set by `frameIssue` and by a walk
+  step when it changes the zoom, kept while nothing else changes it
+  (`noteFramedZoom`). A zoom the reader set with the wheel, the keys or a fit
+  is never overridden, and a finding that fits at the reader's zoom keeps it.
+- In a jsdom sweep of the "All claims" walks of the 26 repo-held and public
+  development documents at 541, 900 and 1440 px, steps and connections shown
+  between 0.62 and 0.75 fell from 397 to 0 of 4,494 claims; the findings
+  themselves still zoom out. The cost is panning: replayed walk travel over
+  All claims at 541 px rises 11% on the repo-held documents (all of it on the
+  synthetic benchmark-120) and 3% on the development documents.
+- `test/walk.test.mjs` covers the return at 541 and 1440 px (about the canvas
+  centre, not centred on the card), a connection that comes back only as far
+  as both cards fit, a return finished by the next claim, and a reader's zoom
+  kept. `tools/layout-metrics.mjs` replays the rule as `W1`, its default.
 
 Viewer M1 cleanup (no contract change):
 
@@ -764,3 +888,52 @@ packaged into the VSIX. `test/screenshot-pipe.test.mjs` checks its pipe
 framing and Chrome lookup without Chrome. The host is simulated, so the
 pictures are a rendering check: they are not live VS Code validation,
 usability evidence or a semantic review.
+
+## Layout metrics (dev tool, not a gate)
+
+`node tools/layout-metrics.mjs` (from `webview/`) mounts documents in the built
+`dist/mlview.js` in jsdom, reads the drawn scene back from the scene plan and
+prints geometric measures of the layout: crossings (every cable, and as drawn
+at rest), routes through cards, cable length lying on an unrelated cable,
+inferred or unresolved connections with half or more of their stroke hidden,
+those drawn inside a trunk bundle and those drawn on another stroke (within
+1 px for more than 8 px), always-on labels hidden, at-rest labels
+crossed by an unrelated cable, and per panel width (541, 900 and 1440 px) the
+whole cards in the first view, the uncertain connections framable at 45% and
+the review walk's camera travel over All claims and over Not observed.
+
+```sh
+node tools/layout-metrics.mjs                     # repo-held documents
+node tools/layout-metrics.mjs --dev               # + the 17 public development documents
+node tools/layout-metrics.mjs ~/corpus/a.mlview.json --no-repo --json
+node tools/layout-metrics.mjs --uncertain         # each uncertain cable, and what hides it
+node tools/layout-metrics.mjs --baseline          # the summary numbers that moved
+node tools/layout-metrics.mjs --write-baseline    # re-record the baseline
+```
+
+- Documents: the sample, the four development fixtures in
+  `evals/workflow/development/artifacts/`, the synthetic shapes of
+  `test/helpers.mjs` (the geometry golden's fixture, `VIT_SHAPE`,
+  `YOLO_SHAPE`) and the 120-step benchmark chain; `--dev` adds the 17 distinct
+  public development documents. Paths on the command line are measured too, so
+  a local corpus can be measured without copying it into the repository.
+- `tools/layout-metrics.baseline.json` holds the summary of every repo-held
+  document and names the bundle it was measured on. It is informational: no
+  test compares its values and the tool exits 0 whatever moved. A change that
+  moves the layout on purpose re-records it with `--write-baseline` and says
+  so in its PR; `--write-baseline` refuses documents from outside the
+  repository.
+- The walk is a replay of the viewer's camera policy as a pure function (`W1`,
+  the viewer's since relayout stage 0c: back to 90%, or as far as the claim
+  fits, on the step after a finding left the zoom between 62% and 75%;
+  `--policy W0` replays the walk before it), on canvas sizes measured in
+  headless Chrome (`PANELS`; re-measure them after a change to the chrome's
+  heights). It does not model a step that expands a folded group. `--bundle`
+  measures another build, for before and after numbers.
+- `test/layout-metrics.test.mjs` checks that the tool runs and that each
+  measure counts what it says on hand-made scenes; it pins no measured value.
+  Nothing in `src/` imports the tool, so it is in neither the bundle nor the
+  VSIX.
+
+Every number is a geometric proxy from jsdom, not readability, a live VS Code
+check or a semantic review.

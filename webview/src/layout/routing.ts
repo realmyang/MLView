@@ -16,11 +16,13 @@
 
 import type { MLEdge } from '../types.js';
 import { GraphIndex } from './model.js';
-import { LayoutBox, LayoutFrame, isBackEdge } from './layout.js';
+import { LayoutBox, LayoutFrame, isBackEdge, isNotObserved } from './layout.js';
 import { CORNER_R, ROUTE_CLEARANCE } from './constants.js';
 import { CrossBucket, LanePair, memberSplay, planChannel } from './channel.js';
+import { buildBundles } from './bundles.js';
 import { midpointOf, orthPath } from './orth.js';
 import type { Point } from './orth.js';
+import { Rect, separateExceptions } from './separate.js';
 
 /**
  * The polyline primitives live in `layout/orth.ts` now, because VIEW-04's
@@ -33,7 +35,8 @@ export { midpointOf, orthPath } from './orth.js';
 /**
  * VIEW-04 — this route's share of a cross-lane trunk.
  *
- * Stamped on every route that leaves its lane. `head` and `tail` are the SAME
+ * Stamped on every observed route that leaves its lane (stage 0a: an inferred
+ * or unresolved one never joins a trunk). `head` and `tail` are the SAME
  * two points for every member of a pair — they are the trunk's ends — and
  * `joinFrom` / `joinTo` index this route's own `points` at the two places it
  * meets that trunk. `layout/bundles.ts` needs nothing else to draw one trunk
@@ -79,6 +82,12 @@ export interface RoutedEdge {
   count: number;
   /** VIEW-04: the trunk this route shares with the rest of its lane pair. */
   trunk?: TrunkRef;
+  /**
+   * Stage 0a: a connection the route carries is inferred or unresolved, so it is
+   * drawn dashed or dotted (the least certain basis, `routeBasis`). Such a route
+   * has no trunk and runs on a track of its own (`layout/separate.ts`).
+   */
+  notObserved?: boolean;
 }
 
 /* ── obstacle environment ────────────────────────────────────────────── */
@@ -162,6 +171,43 @@ function pathCrosses(env: RouteEnv, points: Point[], s: string, t: string): bool
     }
   }
   return false;
+}
+
+/**
+ * Stage 0a: how many times a polyline passes through a card it must avoid, the
+ * router's own test (`segHitsBox`, `blocks`) over a grid of the boxes, because
+ * `layout/separate.ts` asks it for every offset it keeps.
+ */
+function hitCounter(env: RouteEnv): (points: Point[], s: string, t: string) => number {
+  const cell = 128;
+  const cells = new Map<number, LayoutBox[]>();
+  const each = (b: SegBounds, visit: (key: number) => void): void => {
+    for (let gx = Math.floor(b.x0 / cell); gx <= Math.floor(b.x1 / cell); gx++) {
+      for (let gy = Math.floor(b.y0 / cell); gy <= Math.floor(b.y1 / cell); gy++) visit(gx * 1048576 + gy);
+    }
+  };
+  for (const box of env.all) {
+    each({ x0: box.x, x1: box.x + box.w, y0: box.y, y1: box.y + box.h }, (key) => {
+      const list = cells.get(key);
+      if (list) list.push(box);
+      else cells.set(key, [box]);
+    });
+  }
+  return (points, s, t) => {
+    let n = 0;
+    for (let i = 1; i < points.length; i++) {
+      const seg = segBounds(points[i - 1], points[i]);
+      const seen = new Set<LayoutBox>();
+      each(seg, (key) => {
+        for (const box of cells.get(key) || []) {
+          if (seen.has(box)) continue;
+          seen.add(box);
+          if (segHitsBox(seg, box) && blocks(env, box, s, t)) n++;
+        }
+      });
+    }
+    return n;
+  };
 }
 
 /**
@@ -284,7 +330,7 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
     if (sBox.laneId === tBox.laneId) continue;
     if (index.ancestors(bucket.s).indexOf(bucket.t) >= 0) continue;
     if (index.ancestors(bucket.t).indexOf(bucket.s) >= 0) continue;
-    crossBuckets.push({ key, sBox, tBox });
+    crossBuckets.push({ key, sBox, tBox, own: bucket.edges.some(isNotObserved) });
   }
   const channel = planChannel(frame, crossBuckets);
 
@@ -300,6 +346,8 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
     const tBox = frame.boxes.get(bucket.t)!;
     const back = isBackEdge(first);
     const crossLane = sBox.laneId !== tBox.laneId;
+    // Stage 0a: the least certain basis decides, as it decides the dashes (`routeBasis`).
+    const notObserved = bucket.edges.some(isNotObserved);
 
     const sInsideT = index.ancestors(bucket.s).indexOf(bucket.t) >= 0;
     const tInsideS = index.ancestors(bucket.t).indexOf(bucket.s) >= 0;
@@ -318,7 +366,7 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
       const idx = channel.indexOf.get(key) || 0;
       const routed = routeCrossLane(env, sBox, tBox, pair, idx);
       points = routed.points;
-      if (routed.joinFrom >= 0 && routed.joinTo > routed.joinFrom) {
+      if (!notObserved && routed.joinFrom >= 0 && routed.joinTo > routed.joinFrom) {
         trunk = {
           key: pair.key,
           sourceLane: pair.sourceLane,
@@ -356,9 +404,51 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
       back,
       count: bucket.edges.length,
       trunk,
+      ...(notObserved ? { notObserved: true } : {}),
     });
   }
+  separate(env, out);
   return out;
+}
+
+/**
+ * Stage 0a: move the inferred and unresolved routes off the strokes every other
+ * route, trunk and spur draws (`layout/separate.ts`). Observed routes are not
+ * touched, so the trunks built from them here are the ones the scene plan builds.
+ */
+function separate(env: RouteEnv, routes: RoutedEdge[]): void {
+  const moving = routes.filter((r) => r.notObserved);
+  if (moving.length === 0) return;
+  const fixed: Point[][] = [];
+  for (const route of routes) if (!route.notObserved) fixed.push(route.points);
+  for (const bundle of buildBundles(routes)) {
+    fixed.push(bundle.trunk);
+    for (const spur of bundle.spurs) fixed.push(spur.points);
+  }
+  const headers: Rect[] = env.frame.lanes.map((lane) => ({ x: lane.x, y: lane.y, w: lane.w, h: lane.headerH }));
+  for (const box of env.all) if (box.headerH > 0) headers.push({ x: box.x, y: box.y, w: box.w, h: box.headerH });
+  const outlines: Rect[] = env.frame.lanes.map((lane) => ({ x: lane.x, y: lane.y, w: lane.w, h: lane.h }));
+  for (const box of env.all) outlines.push({ x: box.x, y: box.y, w: box.w, h: box.h });
+  const moved = separateExceptions(
+    {
+      boxes: env.frame.boxes,
+      hits: hitCounter(env),
+      headers,
+      outlines,
+      width: env.frame.width,
+      height: env.frame.height,
+    },
+    fixed,
+    moving,
+  );
+  moving.forEach((route, i) => {
+    if (moved[i] === route.points) return;
+    route.points = moved[i];
+    route.d = orthPath(route.points, CORNER_R);
+    const midInfo = midpointOf(route.points);
+    route.mid = midInfo.point;
+    route.midAngle = midInfo.angle;
+  });
 }
 
 function bump(map: Map<string, number>, key: string): number {

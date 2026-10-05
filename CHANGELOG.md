@@ -6,6 +6,132 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — Canvas re-layout Stage 0
+
+The first stage of the canvas re-layout plan (a research record of
+2026-10-04, kept outside the repository). It improves today's phase-lanes
+diagram and the review walk whatever is decided later about a second layout,
+and adds a tool that measures the layout. No contract change, no new setting
+or keybinding, and the version is unchanged. The geometry golden was
+re-recorded once, on purpose, for the first part; the reason is written in the
+test's header. Each change came with tests that fail without it, except a
+second guard against trunks and two tuning weights in stage 0a. The checks are
+local jsdom tests, plus headless Chrome with a simulated host for
+the reveal fixes; nothing here was checked in live VS Code, with a screen
+reader or as a usability check. The numbers below are geometric measures of
+boxes and lines, not readability.
+
+Inferred and unresolved connections are no longer hidden (stage 0a):
+- These connections are drawn dashed or dotted, and a dashed line drawn on or
+  right beside a solid one reads as the solid one. They no longer join the
+  shared trunks that bundle connections between phases. Each one that skips a
+  phase gets its own track in the left channel, 8 px from its neighbours, and
+  its other segments are moved sideways (at most 40 px) off the lines they
+  would share, where such a place exists; no move takes a line into a card or
+  a header, or along a border.
+- Observed connections keep their trunks, but where an inferred or unresolved
+  connection shared their gutter or channel slot they re-splay by a few
+  pixels or take another slot (for example 7 of the 38 observed connections
+  on vit-cc, by about 3 px, and 8 of 103 on yolov5-cc2), and where the
+  channel widens the whole diagram shifts right. A diagram with no inferred or
+  unresolved connection does not change.
+- Measured with the new layout-metrics tool against the previous build:
+  connections of this kind with half or more of their line hidden went from
+  49 of 56 to none on the documents held in the repository, from 22 of 61 to
+  none on the 17 public development documents, and from 9 of 16 to none on
+  three public shakedown documents measured locally. None is drawn inside a
+  trunk any more.
+- Where a gutter between phases is full, a segment can still lie on another
+  line. Those drawn on another line (within 1 px) for more than 8 px, by the
+  same tool, went from 99 to 26 of 133: 22 of 56 on the repository's
+  documents (18 of them on the synthetic stress fixture), 3 of 61 on the
+  development documents and 1 of 16 on the shakedown documents (yolov5-cc2's
+  `e-transfer-model`, 262 px on an observed connection). The re-recorded
+  geometry golden includes them.
+- The costs:
+  - More line crossings: 3,424 to 3,781 on the repository's documents and 979
+    to 1,084 on the development documents (about 10%); on the shakedown
+    documents vit-cc 119 to 140, dino-copilot 19 to 23 and yolov5-cc2 1,145 to
+    1,168. Most of the extra ones are on the dashed lines themselves (on
+    vit-cc its three cross 41 lines, 14 before). Crossings at rest fell on the
+    repository's documents.
+  - More labels crossed by an unrelated line: 124 to 154 on the repository's
+    documents, 59 to 62 on the development documents, 51 to 55 on the
+    shakedown documents. A moved dashed segment can run through the place a
+    label takes beside a card's ports: on yolov5-cc2 four labels are newly
+    crossed, and the labels of two opposite connections between the same two
+    cards now sit 3 px apart.
+  - A wider channel where many such connections skip phases: 144 px on the
+    synthetic stress fixture (half its connections are inferred), 23 px at
+    most on the development documents, none on the shakedown documents. The
+    channel's tracks for these connections are not capped.
+  - A relayout takes longer: in jsdom 1-13 ms more on real documents
+    (yolov5-cc2 41 to 54 ms), but about 20 to 90 ms on the stress fixture and
+    about 420 to 1,000-1,300 ms on the 1,000-step synthetic benchmark. The
+    cost grows with the number of such connections: routing alone, in Node,
+    takes 1.5 to 53 ms on a synthetic 59-step document with every connection
+    inferred, and 14 to 400 ms on a 600-step chain with every connection
+    inferred.
+
+Reveal in Diagram and the walk keep their cards clear of the phase index
+(stage 0b):
+- Focusing a card, a group header or a connection no longer scrolls the
+  diagram. In headless Chrome it did after 469 of 843 reveals on the three
+  shakedown documents at three widths, by up to 1,827 px, and every later
+  reveal was off by that much.
+- At 541 px under reduced motion, the first reveal no longer leaves its card
+  under the phase pill when the opening bottom panel shrinks the diagram a
+  frame later. A revealed connection keeps both its cards in view then,
+  zooming out (never below 45%) when the shorter diagram no longer holds
+  them at the same size. In jsdom, every one of the 93 connections of the
+  three shakedown documents whose cards fit at 45% was left with a card off
+  the diagram or under the index before, and none is now (checked in jsdom
+  only). A card you left under the index still stays there when the window
+  resizes.
+- Revealing a connection whose two cards fit at 45% zooms out further when it
+  must, never below 45%, until both are on the diagram and clear of the phase
+  index. Before, a tall connection that fit the diagram could leave its
+  target card under the pill. A connection whose cards are too far apart for
+  that still centres on its source card, so at 541 px many far-apart
+  connections still leave a card off the diagram (a later stage).
+- The pill names the phase in view, so a move can widen it over the card just
+  placed beside it; the card is now moved clear once more after such a move.
+- A walk step onto a connection whose cards the usual pan leaves under the
+  index now frames both cards, zooming out to 75% at most. A connection too
+  big for the diagram is still only panned.
+
+The walk returns to reading size after a finding (stage 0c):
+- A finding frames every card it cites and may zoom out to 45% to do it. The
+  walk kept any zoom from 62% up, so after a finding that zoomed to 62-75%,
+  every later step and connection was shown at that size until you zoomed in.
+  Now the next step or connection first zooms back to 90% about the centre of
+  the diagram, or only as far as it still fits whole, and then pans as before.
+  A zoom you chose yourself (the wheel, the keys, a fit) is kept, also
+  through a finding that fits at it.
+- In jsdom, over the All claims walks of the 26 documents held in the
+  repository or published as development documents, at 541, 900 and 1440 px:
+  steps and connections shown at 62-75% fell from 397 to none, of 4,494 claims.
+  The findings themselves still zoom out. The cost is panning: the replayed
+  walk over All claims at 541 px travels 11% further on the repository's
+  documents (all of it on a synthetic benchmark) and 3% further on the
+  development documents.
+- The step left over from stage 0b, where a walk already at 68% left a card
+  under the index (one public development document at 1440 px), no longer
+  occurs.
+
+A layout-metrics tool (stage 0d):
+- `webview/tools/layout-metrics.mjs` mounts documents in the built viewer in
+  jsdom and reports crossings, routes through cards, line length shared with
+  unrelated connections, hidden inferred or unresolved connections, hidden or
+  crossed labels, whole cards in the first view and the replayed review
+  walk's travel at 541, 900 and 1440 px. When it was added it reproduced the
+  research's numbers on the 20 real documents it was compared on.
+- It is a development tool, not a gate: nothing in the viewer or the VSIX
+  includes it, and no test compares its numbers. The baseline it keeps for
+  the repository's documents is informational and was re-recorded at each
+  stage. Its walk is a replay of the viewer's camera rule on canvas sizes
+  measured in headless Chrome, not the viewer itself.
+
 ## Unreleased — viewer M4: open from the Explorer, changes since the previous revision
 
 The viewer's fourth milestone. This section holds, so far, the two smaller

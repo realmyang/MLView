@@ -25,6 +25,10 @@
  *     trunk's shoulder at most, so a run can never leave the corridor it was
  *     reserved in, however many edges the pair carries.
  *
+ * Stage 0a (requirement R7) keeps the inferred and unresolved cables out of all
+ * three: each is a pair of its own, at the gutter's middle, and one that skips a
+ * lane runs on its own channel track inside the trunks (`exceptionTracks`).
+ *
  * Pure geometry over the LayoutFrame and the routing buckets: no DOM, no
  * measurement, and every collection walked in document order, so it is exactly
  * as deterministic as the layout it consumes.
@@ -39,6 +43,8 @@ export interface CrossBucket {
   key: string;
   sBox: LayoutBox;
   tBox: LayoutBox;
+  /** Stage 0a: an inferred or unresolved cable. It is a pair of its own and joins no trunk. */
+  own?: boolean;
 }
 
 export interface LanePair {
@@ -59,6 +65,8 @@ export interface LanePair {
   exitY: number;
   /** Slot inside the channel, 0 = outermost (leftmost). Skipping pairs only. */
   slot: number;
+  /** Stage 0a: the pair of one inferred or unresolved cable; `trunkX` is its own track. */
+  own: boolean;
 }
 
 export interface ChannelPlan {
@@ -118,6 +126,37 @@ function compareTrunks(a: LanePair, b: LanePair, bary: Map<string, number>): num
 }
 
 /**
+ * Stage 0a — the channel tracks of the inferred and unresolved cables that skip a
+ * lane, one track index per span, in input order.
+ *
+ * A span is `[first gutter, last gutter]` by lane index: the cable enters the
+ * channel in one gutter, leaves it in the other and runs between them. Two cables
+ * share a track only when their spans have no gutter in common, so the count is
+ * the most spans that meet at one gutter. Greedy by first gutter (longest span
+ * first on a tie, so it takes the outer track) is optimal for intervals, which is
+ * what lets `layoutGraph` reserve the tracks from the document's connections: a
+ * fold merges cables and never adds a span, so it never needs another track.
+ */
+export function exceptionTracks(spans: Array<[number, number]>): number[] {
+  const order = spans.map((_, i) => i);
+  order.sort((a, b) => spans[a][0] - spans[b][0] || spans[b][1] - spans[a][1] || a - b);
+  const lastOf: number[] = [];
+  const out: number[] = new Array(spans.length).fill(0);
+  for (const i of order) {
+    let track = 0;
+    while (track < lastOf.length && lastOf[track] >= spans[i][0]) track++;
+    lastOf[track] = spans[i][1];
+    out[i] = track;
+  }
+  return out;
+}
+
+/** The gutters a hop from lane `si` to lane `ti` runs between, as an `exceptionTracks` span. */
+export function gutterSpan(si: number, ti: number): [number, number] {
+  return [Math.min(si, ti), Math.max(si, ti) - 1];
+}
+
+/**
  * Group the cross-lane buckets into lane pairs and give each pair its trunk.
  *
  * `buckets` arrives in document order, which is what makes the barycentre sort
@@ -131,7 +170,8 @@ export function planChannel(frame: LayoutFrame, buckets: CrossBucket[]): Channel
   const order: string[] = [];
 
   for (const bucket of buckets) {
-    const key = bucket.sBox.laneId + '>' + bucket.tBox.laneId;
+    // Stage 0a: an inferred or unresolved cable is grouped with nothing.
+    const key = bucket.sBox.laneId + '>' + bucket.tBox.laneId + (bucket.own ? ' ' + bucket.key : '');
     const list = grouped.get(key);
     if (list) list.push(bucket);
     else {
@@ -142,6 +182,7 @@ export function planChannel(frame: LayoutFrame, buckets: CrossBucket[]): Channel
 
   const bary = new Map<string, number>();
   const skipping: LanePair[] = [];
+  const ownSkipping: LanePair[] = [];
 
   for (const key of order) {
     const list = grouped.get(key)!;
@@ -166,6 +207,7 @@ export function planChannel(frame: LayoutFrame, buckets: CrossBucket[]): Channel
       entryY,
       exitY,
       slot: 0,
+      own: !!first.own,
     };
     pairs.set(key, pair);
     let sum = 0;
@@ -175,7 +217,7 @@ export function planChannel(frame: LayoutFrame, buckets: CrossBucket[]): Channel
       pairOf.set(bucket.key, pair);
       indexOf.set(bucket.key, i);
     });
-    if (!adjacent) skipping.push(pair);
+    if (!adjacent) (pair.own ? ownSkipping : skipping).push(pair);
   }
 
   // Slot the skipping trunks across the reserved channel. `channelSlots` is what
@@ -189,6 +231,18 @@ export function planChannel(frame: LayoutFrame, buckets: CrossBucket[]): Channel
   skipping.forEach((pair, i) => {
     pair.slot = i;
     pair.trunkX = round(frame.channelX + Math.min(i, slots - 1) * frame.channelStep);
+  });
+
+  // Stage 0a: the inferred and unresolved cables take the tracks `layoutGraph`
+  // reserved inside the trunks. More tracks than reserved cannot happen (see
+  // `exceptionTracks`); if it did, the extra cables would share the last one and
+  // `layout/separate.ts` would still move what it can.
+  const tracks = exceptionTracks(
+    ownSkipping.map((pair) => gutterSpan(frame.laneIndex.get(pair.sourceLane) ?? 0, frame.laneIndex.get(pair.targetLane) ?? 0)),
+  );
+  ownSkipping.forEach((pair, i) => {
+    pair.slot = tracks[i];
+    pair.trunkX = round(frame.exceptionX + Math.min(tracks[i], Math.max(0, frame.exceptionTracks - 1)) * frame.exceptionStep);
   });
 
   return { pairs, pairOf, indexOf };

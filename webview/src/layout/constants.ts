@@ -137,6 +137,12 @@ export const CHANNEL_PAIR_STEP = GUTTER_LANE_STEP;
  * four pairs the STEP shrinks instead of the world growing, down to
  * `CHANNEL_MIN_STEP`, and past that the trunks share slots. 112 px is twice the
  * old reservation and costs the shipped demo 3.4 % of its width.
+ *
+ * Stage 0a: this caps the observed trunks only. The tracks of inferred and
+ * unresolved cables that skip a lane (`EXCEPTION_TRACK_STEP` apart, below) are
+ * not capped, so many of them widen the channel past it: the renderer-regression
+ * fixture (27 tracks) reserves 144 px more than before, and YOLO_SHAPE with every
+ * connection inferred 402 px in all. Whether to cap them is open.
  */
 export const CHANNEL_MAX_W = 112;
 /** Two trunks closer than this read as one, so slots wrap instead. */
@@ -155,3 +161,18 @@ export const BUNDLE_MEMBER_STEP = 6;
  * individual strokes instead, which is also what a one-member group gets.
  */
 export const BUNDLE_MIN_TRUNK = 28;
+
+/**
+ * Stage 0a (requirement R7): an inferred or unresolved cable is never in a trunk and runs on a
+ * track of its own. In the left channel each one that skips a lane takes a slot
+ * `EXCEPTION_TRACK_STEP` px inside the innermost observed trunk, and the channel widens only when
+ * those slots would come closer than `EXCEPTION_PAD` px to the bands. `layout/separate.ts` moves its
+ * other runs off shared ones: it aims for `EXCEPTION_CLEAR` px from any parallel stroke and counts
+ * `EXCEPTION_HIDDEN` px as drawn on it, the distance at which a dash pattern reads as the solid line
+ * beside it. A run moves at most `EXCEPTION_MAX_SHIFT` px.
+ */
+export const EXCEPTION_TRACK_STEP = 8;
+export const EXCEPTION_PAD = 10;
+export const EXCEPTION_CLEAR = 8;
+export const EXCEPTION_HIDDEN = 4;
+export const EXCEPTION_MAX_SHIFT = 40;
