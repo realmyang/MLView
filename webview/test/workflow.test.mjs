@@ -1,0 +1,440 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadBundle, recordingBridge } from './helpers.mjs';
+
+/** A posted request without its generated `requestId`, which is checked separately. */
+function withoutRequestId(message) {
+  const { requestId, ...rest } = JSON.parse(JSON.stringify(message));
+  assert.match(requestId, /^[A-Za-z0-9_-]{1,64}$/, 'every result-bearing request carries a valid requestId');
+  return rest;
+}
+
+function workflow(revision = 'r1') {
+  return {
+    workflowVersion: '1.0', title: 'Training and review',
+    producer: { kind: 'host-llm', host: 'codex', model: 'gpt-test' }, revision: { id: revision },
+    request: { question: 'How is this model trained?', scope: 'src/', entrypoints: ['src/train.py'] },
+    phases: [{ id: 'load', label: 'Load' }, { id: 'loop', label: 'Repeated training' }, { id: 'review', label: 'Human review' }],
+    nodes: [
+      { id: 'dataset', label: 'Read records', phase: 'load', basis: 'observed', evidence: ['ev-load'] },
+      { id: 'epoch', label: 'Epoch', phase: 'loop', kind: 'group', basis: 'inferred', evidence: [] },
+      { id: 'step', label: 'Update weights', phase: 'loop', parent: 'epoch', basis: 'observed', evidence: ['ev-step', 'ev-loss'] },
+      { id: 'gate', label: 'Approval gate', phase: 'review', basis: 'unresolved', evidence: [] },
+    ],
+    edges: [
+      { id: 'flow', source: 'dataset', target: 'step', label: 'batches', basis: 'observed', evidence: ['ev-load'] },
+      { id: 'cycle', source: 'step', target: 'epoch', label: 'next epoch', kind: 'control', basis: 'inferred', evidence: ['ev-step', 'ev-load'] },
+      { id: 'review', source: 'step', target: 'gate', label: 'candidate', basis: 'unresolved', evidence: [] },
+    ],
+    findings: [{ id: 'loss-risk', title: 'Loss is aggregated late', message: 'The update uses a delayed aggregate.', severity: 'medium', nodeIds: ['step'], edgeIds: ['cycle'], basis: 'inferred', evidence: ['ev-step', 'ev-loss'], counterEvidence: ['ev-load'], suggestion: 'Verify the intended reduction.' }],
+    evidence: [
+      { id: 'ev-load', file: 'src/data.py', line: 10, endLine: 14, quote: 'load()' },
+      { id: 'ev-step', file: 'src/train.py', line: 42, endLine: 47, quote: 'optimizer.step()', cell: 0 },
+      { id: 'ev-loss', file: 'src/train.py', line: 35, endLine: 36, quote: 'loss.mean()' },
+    ],
+    coverage: { status: 'partial', summary: 'Core training path inspected', inspectedFiles: ['src/train.py', 'src/data.py'], limitations: ['Approval implementation was not found.'] },
+  };
+}
+
+test('normalizes authored phases, hierarchy, cycles, evidence and findings; a finding\'s code is its authored id', async () => {
+  const { MLView } = await loadBundle();
+  const graph = MLView.normalizeWorkflow(workflow());
+  assert.equal(graph.schemaVersion, 'workflow-view/1');
+  assert.deepEqual(Array.from(graph.stages, (s) => s.id), ['load', 'loop', 'review']);
+  assert.equal(graph.nodes.find((n) => n.id === 'step').parent, 'epoch');
+  const gate = graph.nodes.find((n) => n.id === 'gate');
+  assert.equal(gate.basis, 'unresolved');
+  assert.equal(graph.edges.find((e) => e.id === 'cycle').target, 'epoch');
+  // The label is the authored text; the basis is its own field.
+  const cycle = graph.edges.find((e) => e.id === 'cycle');
+  assert.equal(cycle.label, 'next epoch');
+  assert.equal(cycle.basis, 'inferred');
+  assert.equal(graph.issues[0].code, 'loss-risk');
+  assert.equal(graph.issues[0].relatedLocs.length, 3);
+  assert.deepEqual(Array.from(graph.issues[0].relatedLocs, (loc) => loc.role), ['Supporting evidence', 'Supporting evidence', 'Counter-evidence']);
+  assert.equal(graph.issues[0].loc.evidenceId, 'ev-step');
+  assert.equal(graph.issues[0].basis, 'inferred');
+  assert.equal(graph.nodes.find((n) => n.id === 'epoch').loc.absFile, '');
+  assert.deepEqual(Array.from(graph.nodes.find((n) => n.id === 'step').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-loss']);
+  assert.deepEqual(Array.from(graph.edges.find((e) => e.id === 'cycle').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-load']);
+});
+
+test('mountWorkflow identifies authored provenance and accepts revision updates and inbound documents', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), bridge);
+  assert.ok(root.classList.contains('mlv-root--workflow'));
+  // The one-row header names the title and host · revision, and the chip's tooltip adds the model.
+  // The About tab, which a new revision opens on, holds the provenance, the coverage status and
+  // what the model traced.
+  assert.equal(root.querySelector('.mlv-header__title').textContent, 'Training and review');
+  assert.equal(root.querySelector('.mlv-header__prov').textContent, 'codex · r1');
+  assert.match(root.querySelector('.mlv-header__prov').title, /by codex \(gpt-test\)/);
+  const about = root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-about');
+  assert.ok(about, 'a new revision opens on About');
+  assert.match(about.querySelector('[data-about="provenance"]').textContent, /codex · gpt-test · revision r1/);
+  assert.equal(about.querySelector('[data-about="coverage"] [data-status]').getAttribute('data-status'), 'partial');
+  assert.match(about.querySelector('[data-about="traced"]').textContent, /Core training path inspected/);
+  // A revision published without hashes says so in muted words in the status bar.
+  assert.equal(root.querySelector('[data-freshness="unverified"]').textContent, 'Freshness not checked');
+  // "Findings (1)": the tab counts the revision's findings, and its accessible name says the unit.
+  const findingsTab = root.querySelector('[role="tab"][aria-controls$="-panel-issues"]');
+  assert.equal(findingsTab.textContent, 'Findings (1)');
+  assert.equal(findingsTab.getAttribute('aria-label'), 'Findings, 1 finding');
+  const search = root.querySelector('.mlv-search input[type="search"]');
+  assert.equal(search.placeholder, 'Search steps and findings');
+  assert.equal(root.querySelector(`label[for="${search.id}"]`).textContent, 'Search steps, findings, IDs, or cited text');
+  assert.equal(root.querySelector('[data-node-id="step"]') !== null, true);
+  app.setWorkflow(workflow('r2'));
+  assert.equal(root.getAttribute('data-workflow-revision'), 'r2');
+  assert.equal(root.querySelector('.mlv-header__prov').textContent, 'codex · r2');
+  bridge.send({ v: 1, type: 'workflow', document: workflow('r3') });
+  assert.equal(root.getAttribute('data-workflow-revision'), 'r3');
+  app.destroy();
+});
+
+test('rail tabs support wrapped arrow navigation plus Home and End without consuming Tab', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
+  const tabs = [...root.querySelectorAll('[role="tab"]')];
+  // About · Findings (n) · Selection · Outline.
+  assert.deepEqual(tabs.map((tab) => tab.textContent), ['About', 'Findings (1)', 'Selection', 'Outline']);
+
+  tabs[0].focus();
+  tabs[0].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[1]);
+  assert.equal(tabs[1].getAttribute('aria-selected'), 'true');
+
+  tabs[1].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[3]);
+  tabs[3].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[0], 'ArrowRight wraps to the first tab');
+  tabs[0].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[3], 'ArrowLeft wraps to the last tab');
+  tabs[3].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[0]);
+
+  const tabEvent = new ctx.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  tabs[0].dispatchEvent(tabEvent);
+  assert.equal(tabEvent.defaultPrevented, false);
+  assert.equal(ctx.document.activeElement, tabs[0], 'the browser remains responsible for Tab movement');
+  app.destroy();
+});
+
+test('SVG export carries authored producer, model, revision, and title provenance', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow('export-rev'), bridge);
+  ctx.document.querySelector('.mlv-btn--more').click();
+  ctx.document.querySelector('[data-export-action="svg"]').click();
+  const frame = bridge.posted.findLast((item) => item.type === 'exportFile' && item.kind === 'svg');
+  assert.ok(frame);
+  const svg = Buffer.from(frame.base64, 'base64').toString('utf8');
+  assert.match(svg, /MLView — Training and review/);
+  assert.match(svg, /authored by codex · model gpt-test · revision export-rev/);
+  assert.doesNotMatch(svg, /NaN|confidence="100|100%/);
+});
+
+test('refinement posts the current stable selection and short intent', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow('revision-7'), bridge);
+  app.select({ kind: 'edge', id: 'cycle' }, { tab: 'inspector' });
+  ctx.document.querySelector('.mlv-workflow__refine').click();
+  assert.equal(ctx.document.querySelector('.mlv-workflow__selection').textContent, 'Connection: next epoch');
+  assert.equal(ctx.document.querySelector('.mlv-workflow__composer').getAttribute('data-selection-id'), 'cycle');
+  ctx.document.querySelector('.mlv-workflow__intent').value = 'trace';
+  ctx.document.querySelector('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.deepEqual(withoutRequestId(bridge.posted.at(-1)), {
+    v: 1, type: 'refineWorkflow', revisionId: 'revision-7', selection: { kind: 'edge', id: 'cycle' }, intent: 'trace',
+  });
+  // The request's scope and configuration are in About.
+  app.setRailTab('about');
+  assert.match(ctx.document.querySelector('.mlv-about [data-about="scope"]').textContent, /Entrypoints: src\/train.py/);
+  assert.match(ctx.document.querySelector('.mlv-about [data-about="config"]').textContent, /Configuration: not specified/);
+});
+
+test('source-less concepts do not fabricate file jumps and epistemic basis stays visible', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow(), bridge);
+  app.select({ kind: 'node', id: 'epoch' }, { open: true, tab: 'inspector' });
+  assert.equal(bridge.posted.some((item) => item.type === 'openLocation'), false);
+  assert.equal(ctx.document.querySelector('.mlv-insp__actions').textContent.includes('Open'), false);
+  assert.match(ctx.document.querySelector('[data-node-id="epoch"]').textContent, /inferred/);
+  app.focusIssue('loss-risk');
+  assert.equal(ctx.document.querySelector('[data-issue-id="loss-risk"] [data-basis="inferred"]') !== null, true);
+  const basis = ctx.document.querySelector('[data-issue-id="loss-risk"] [data-basis="inferred"]');
+  // The finding's basis tag is read out, and its title gives its meaning on hover.
+  assert.equal(basis.textContent, 'inferred');
+  assert.equal(basis.getAttribute('aria-hidden'), null);
+  assert.match(basis.getAttribute('title'), /^Inferred, not observed: reasoned from the cited code/);
+  app.setRailTab('issues');
+  assert.ok(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'));
+  app.setFilters({ severities: ['high'] });
+  assert.equal(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'), null,
+    'authored basis does not bypass ordinary severity filtering');
+  app.setFilters({ severities: ['medium'] });
+  assert.ok(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'),
+    'authored finding remains available after filters are restored');
+  assert.match(ctx.document.querySelector('[data-edge-id="cycle"] [role="button"]').getAttribute('aria-label'), /inferred/);
+  app.destroy();
+});
+
+test('ten authored phases keep array order, duplicate labels and cycles, all drawn', async () => {
+  const doc = workflow();
+  doc.phases = Array.from({ length: 10 }, (_, i) => ({ id: 'phase-' + i, label: i === 2 || i === 7 ? 'Repeat' : 'Phase ' + i }));
+  doc.nodes = doc.phases.map((phase, i) => ({ id: 'node-' + i, label: 'Node ' + i, phase: phase.id, parent: i === 4 ? 'node-3' : undefined, basis: i % 3 === 0 ? 'observed' : i % 3 === 1 ? 'inferred' : 'unresolved', evidence: i === 0 ? ['ev-load'] : [] }));
+  doc.edges = doc.nodes.map((node, i) => ({ id: 'edge-' + i, source: node.id, target: doc.nodes[(i + 1) % doc.nodes.length].id, label: 'flow ' + i, basis: i % 2 ? 'inferred' : 'observed', evidence: [] }));
+  doc.findings = [];
+  const ctx = await loadBundle();
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), doc, recordingBridge(ctx.window, 'vscode'));
+  assert.deepEqual(Array.from(app.graph.stages, (stage) => stage.id), doc.phases.map((phase) => phase.id));
+  assert.equal(app.graph.stages.filter((stage) => stage.label === 'Repeat').length, 2);
+  assert.equal(app.index.edgeById.get('edge-9').target, 'node-0');
+  // Every phase is a lane on the canvas.
+  assert.deepEqual(Array.from(ctx.document.querySelectorAll('.mlv-lane[data-lane-id]'), (lane) => lane.getAttribute('data-lane-id')), doc.phases.map((phase) => phase.id));
+  app.destroy();
+});
+
+test('authored source navigation carries the evidence id and notebook cell', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), bridge);
+  app.focusNode('step');
+  app.openLocation(app.locOf({ kind: 'node', id: 'step' }));
+  const message = bridge.posted.findLast((item) => item.type === 'openLocation');
+  assert.equal(message.evidenceId, 'ev-step');
+  assert.equal(message.cell, 0);
+  assert.equal(message.line, 42);
+  app.destroy();
+});
+
+test('node and edge inspectors expose every authored evidence anchor and post its identity', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), bridge);
+
+  app.select({ kind: 'node', id: 'step' }, { tab: 'inspector' });
+  let anchors = Array.from(root.querySelectorAll('.mlv-rail__panel:not([hidden]) .mlv-insp__source-evidence [data-evidence-id]'));
+  assert.deepEqual(anchors.map((item) => item.getAttribute('data-evidence-id')), ['ev-step', 'ev-loss']);
+  anchors[1].click();
+  let opened = bridge.posted.findLast((item) => item.type === 'openLocation');
+  assert.equal(opened.evidenceId, 'ev-loss');
+  assert.equal(opened.line, 35);
+
+  app.select({ kind: 'edge', id: 'cycle' }, { tab: 'inspector' });
+  anchors = Array.from(root.querySelectorAll('.mlv-rail__panel:not([hidden]) .mlv-insp__source-evidence [data-evidence-id]'));
+  assert.deepEqual(anchors.map((item) => item.getAttribute('data-evidence-id')), ['ev-step', 'ev-load']);
+  // An inferred connection's basis is its tag word and one sentence.
+  assert.match(root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-insp__basis[data-basis="inferred"]').textContent, /^inferred Reasoned from the cited code/);
+  anchors[0].click();
+  opened = bridge.posted.findLast((item) => item.type === 'openLocation');
+  assert.equal(opened.evidenceId, 'ev-step');
+  assert.equal(opened.cell, 0);
+  assert.match(root.querySelector('.mlv-rail__panel:not([hidden])').textContent, /optimizer\.step\(\).*load\(\)/s,
+    'edge inspector shows every evidence quote');
+  app.destroy();
+});
+
+test('authored legend separates basis, severity impact, and source freshness', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
+  // The legend is an item of the header's ... menu (and the L key).
+  root.querySelector('.mlv-btn--more').click();
+  root.querySelector('[data-more-item="legend"]').click();
+  assert.equal(root.querySelector('[data-more-item="legend"]').getAttribute('aria-checked'), 'true');
+  const legend = root.querySelector('.mlv-legend').textContent;
+  assert.match(legend, /Claim basis/);
+  assert.match(legend, /Unresolved.*does not mean the step is absent/);
+  assert.match(legend, /Severity does not express certainty/);
+  assert.match(legend, /Source freshness/);
+  app.destroy();
+});
+
+test('outline enumerates textual relationships by direction and preserves basis', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
+  app.focusNode('step');
+  app.setRailTab('outline');
+  let panel = root.querySelector('.mlv-rail__panel:not([hidden])');
+  assert.match(panel.querySelector('.mlv-relations__context').textContent, /Update weights/);
+  // An observed step carries no basis mark; the exceptions say so in words.
+  assert.equal(panel.querySelector('[data-outline-id="dataset"] .mlv-outline__stage'), null);
+  assert.equal(panel.querySelector('[data-outline-id="epoch"] .mlv-outline__stage').textContent, 'inferred');
+  assert.equal(panel.querySelector('[data-outline-id="gate"] .mlv-outline__stage').textContent, '? unresolved');
+  assert.doesNotMatch(panel.querySelector('[data-outline-id="dataset"]').textContent, /unknown/i);
+  assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['cycle', 'review']);
+  // The accessible name says the basis once, after the connection's label.
+  assert.match(panel.querySelector('[data-relation-id="cycle"]').getAttribute('aria-label'), /^Outgoing: Update weights to Epoch; next epoch; inferred, not observed$/);
+  assert.equal(panel.querySelector('[data-relation-id="cycle"] .mlv-relations__detail').textContent, 'next epoch · inferred');
+
+  panel.querySelector('[data-relation-view="incoming"]').click();
+  assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['flow']);
+  assert.match(panel.querySelector('[data-relation-id="flow"]').textContent, /Read records → Update weights/);
+  panel.querySelector('[data-relation-id="flow"]').click();
+  app.setRailTab('outline');
+  panel = root.querySelector('.mlv-rail__panel:not([hidden])');
+  assert.equal(panel.querySelector('[data-relation-view="incoming"]').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['flow']);
+
+  panel.querySelector('[data-relation-view="all"]').click();
+  assert.equal(panel.querySelectorAll('[data-relation-id]').length, 3);
+  panel.querySelector('[data-relation-view="unresolved"]').click();
+  assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['review']);
+  panel.querySelector('[data-relation-view="all"]').click();
+  panel.querySelector('[data-relation-id="review"]').click();
+  assert.deepEqual(JSON.parse(JSON.stringify(app.getState().selection)), { kind: 'edge', id: 'review' });
+  assert.match(root.querySelector('.mlv-rail__panel:not([hidden])').textContent, /Update weights → Approval gate/);
+  app.destroy();
+});
+
+test('finding inspector keeps claim, supporting evidence, counter-evidence, and what to change together', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
+  app.focusNode('step');
+  // Under "Findings on this step" a finding shows its claim and What to change; its
+  // quotes are in its own pane, which its title opens.
+  const issue = root.querySelector('.mlv-insp__issue[data-issue-id="loss-risk"]');
+  assert.match(issue.textContent, /The update uses a delayed aggregate/);
+  // The suggestion is labelled "What to change" (visibility is checked in
+  // inspector-content.test.mjs; textContent alone cannot see a display:none rule).
+  assert.match(issue.textContent, /What to change.*Verify the intended reduction/);
+  issue.querySelector('.mlv-insp__issue-title').click();
+  const pane = root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-sel[data-kind="finding"]');
+  assert.ok(pane, 'the title selects the finding');
+  assert.match(pane.textContent, /Medium finding.*F1.*loss-risk.*Loss is aggregated late.*The update uses a delayed aggregate.*What to change.*Verify the intended reduction/s);
+  assert.deepEqual(Array.from(pane.querySelectorAll('.mlv-quote__role'), (role) => role.textContent), ['Supporting evidence', 'Supporting evidence', 'Counter-evidence']);
+  assert.deepEqual(Array.from(pane.querySelectorAll('[data-evidence-id]'), (row) => row.getAttribute('data-evidence-id')), ['ev-step', 'ev-loss', 'ev-load']);
+  assert.match(pane.textContent, /optimizer\.step\(\).*loss\.mean\(\).*load\(\)/s);
+  // The limitations are listed once, in About; the pane links to them.
+  const inspector = root.querySelector('.mlv-rail__panel:not([hidden])');
+  assert.match(inspector.textContent, /1 document-wide limitation applies to every claim\. Read it in About/);
+  // The basis is said once: the eyebrow's chip, then the sentence without a second tag.
+  assert.equal((pane.textContent.match(/inferred/g) || []).length, 1);
+  assert.doesNotMatch(inspector.textContent, /Approval implementation was not found/);
+  app.destroy();
+});
+
+test('evidence navigation explains boundaries and source-less authored items', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), bridge);
+  app.focusNode('step');
+  const previous = root.querySelector('.mlv-insp__evidence-nav button:first-child');
+  const next = root.querySelector('.mlv-insp__evidence-nav button:last-child');
+  assert.equal(previous.disabled, true);
+  assert.match(previous.title, /first evidence item/);
+  assert.equal(next.disabled, false);
+  root.querySelector('.mlv-insp__source-evidence [data-evidence-id="ev-loss"]').click();
+  assert.equal(next.disabled, true, 'opening an anchor moves the adjacent-evidence cursor');
+  assert.equal(previous.disabled, false);
+  previous.click();
+  assert.equal(bridge.posted.findLast((item) => item.type === 'openLocation').evidenceId, 'ev-step');
+  next.click();
+  assert.equal(bridge.posted.findLast((item) => item.type === 'openLocation').evidenceId, 'ev-loss');
+  assert.equal(next.disabled, true);
+  assert.match(next.title, /last evidence item/);
+
+  app.focusNode('epoch');
+  assert.match(root.querySelector('.mlv-insp__no-evidence').textContent, /No source evidence was authored.*remains uncertain/);
+  app.destroy();
+});
+
+test('finding-only selection has a complete inspector and direct challenge action', async () => {
+  const doc = workflow('finding-only-revision');
+  doc.findings.push({
+    id: 'workspace-risk', title: 'Environment remains unknown', message: 'The runtime environment was not available.',
+    severity: 'low', nodeIds: [], basis: 'unresolved', evidence: [], suggestion: 'Inspect the launch environment.',
+  });
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, doc, bridge);
+  app.focusIssue('workspace-risk');
+  app.setRailTab('inspector');
+  const panel = root.querySelector('.mlv-rail__panel:not([hidden])');
+  assert.match(panel.textContent, /Environment remains unknown.*runtime environment was not available.*Inspect the launch environment/s);
+  panel.querySelector('.mlv-insp__challenge').click();
+  assert.equal(bridge.posted.some((item) => item.type === 'refineWorkflow'), false,
+    'challenge prepares the prompt for review before copying');
+  assert.equal(root.querySelector('.mlv-workflow__selection').textContent, 'Finding: F2 · Environment remains unknown');
+  root.querySelector('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.deepEqual(withoutRequestId(bridge.posted.at(-1)), {
+    v: 1, type: 'refineWorkflow', revisionId: 'finding-only-revision',
+    selection: { kind: 'issue', id: 'workspace-risk' }, intent: 'challenge',
+  });
+  app.destroy();
+});
+
+test('challenge replaces an older composer selection with the current claim', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), bridge);
+  app.focusNode('epoch');
+  root.querySelector('.mlv-workflow__refine').click();
+  app.select({ kind: 'edge', id: 'cycle' }, { tab: 'inspector' });
+  root.querySelector('.mlv-rail__panel:not([hidden]) .mlv-insp__challenge').click();
+  assert.equal(root.querySelector('.mlv-workflow__selection').textContent, 'Connection: next epoch');
+  root.querySelector('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.deepEqual(JSON.parse(JSON.stringify(bridge.posted.at(-1).selection)), { kind: 'edge', id: 'cycle' });
+  app.destroy();
+});
+
+test('the shortcut sheet names the search, the order of findings and the four panel tabs', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
+  app.toggleShortcuts(true);
+  const sheet = root.querySelector('.mlv-sheet').textContent;
+  assert.match(sheet, /Search steps, findings, IDs, or cited text/);
+  assert.match(sheet, /Next \/ previous finding \(document order\)/);
+  assert.match(sheet, /About \/ Findings \/ Selection \/ Outline/);
+  app.destroy();
+});
+
+test('rejects a document that lacks the authored contract discriminant', async () => {
+  const { MLView } = await loadBundle();
+  assert.throws(() => MLView.normalizeWorkflow({ workflowVersion: '0.9' }), /workflowVersion must be 1.0/);
+});
+
+test('the bundle\'s global holds version, mountWorkflow, normalizeWorkflow and bridges.vscode, and nothing else', async () => {
+  const { MLView } = await loadBundle();
+  assert.equal(typeof MLView.mountWorkflow, 'function');
+  assert.equal(typeof MLView.bridges.vscode, 'function');
+  assert.deepEqual(Object.keys(MLView).sort(), ['bridges', 'mountWorkflow', 'normalizeWorkflow', 'version']);
+  assert.deepEqual(Object.keys(MLView.bridges), ['vscode']);
+});
+
+test('a message of a type the viewer does not know changes nothing and is logged as unknown', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow(), bridge);
+  bridge.send({ v: 1, type: 'graph', graph: { schemaVersion: '1.0', nodes: [], edges: [], issues: [] } });
+  assert.equal(app.graph.schemaVersion, 'workflow-view/1');
+  assert.ok(bridge.posted.some((message) => message.type === 'log' && /unknown message type: graph/.test(message.message)));
+  app.destroy();
+});
+
+test('authored selection survives a revision update, and an old scope is ignored', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow(), bridge);
+  app.focusNode('step');
+  const before = app.getState();
+  assert.equal('scope' in before, false, 'the viewer writes no scope');
+  app.setWorkflow(workflow('r-next'), { scope: { spec: 'stage:loop', depth: 0 }, selection: before.selection, viewport: before.viewport });
+  assert.deepEqual(JSON.parse(JSON.stringify(app.getState().selection)), { kind: 'node', id: 'step' });
+  assert.ok(ctx.document.querySelector('[data-node-id="step"]'));
+  assert.ok(ctx.document.querySelector('[data-node-id="dataset"]'), 'a saved scope draws nothing less');
+  app.destroy();
+});

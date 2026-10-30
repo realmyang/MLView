@@ -1,0 +1,24 @@
+name: Feature request
+description: Improve the skill, the diagram or the work with your assistant.
+title: 'feature: '
+labels: ['enhancement']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard to understand or do in a real ML workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the interpretation, diagram interaction or workflow you need.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Safe example and success criteria
+      description: Include a small source example or scenario and how you would assess the result. Name runtime facts that source inspection cannot establish.

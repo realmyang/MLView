@@ -1,0 +1,484 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "pipeline/train.py",
+      "pipeline/model.py",
+      "pipeline/config.json"
+    ],
+    "limitations": [
+      "This is a test fixture. It is not a sample diagram and no model wrote it."
+    ],
+    "status": "scoped",
+    "summary": "Written by contracts/conformance/documents/generate.py. Every claim is a placeholder."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-optimizer"
+      ],
+      "id": "edge-01",
+      "kind": "data",
+      "label": "optimizer",
+      "source": "step-make-optimizer",
+      "target": "step-make-schedule"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "edge-02",
+      "kind": "control",
+      "label": "schedule",
+      "source": "step-make-schedule",
+      "target": "step-forward-pass"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward-pass"
+      ],
+      "id": "edge-03",
+      "kind": "state",
+      "label": "outputs",
+      "source": "step-forward-pass",
+      "target": "step-compute-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-compute-loss"
+      ],
+      "id": "edge-04",
+      "kind": "output",
+      "label": "loss",
+      "source": "step-compute-loss",
+      "target": "step-backward-pass"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backward-pass"
+      ],
+      "id": "edge-05",
+      "kind": "data",
+      "label": "gradients",
+      "source": "step-backward-pass",
+      "target": "step-update-weights"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-update-weights"
+      ],
+      "id": "edge-06",
+      "kind": "control",
+      "label": "step",
+      "source": "step-update-weights",
+      "target": "step-train-epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-epoch"
+      ],
+      "id": "edge-07",
+      "kind": "state",
+      "label": "epoch_loss",
+      "source": "step-train-epoch",
+      "target": "step-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "edge-08",
+      "kind": "output",
+      "label": "history",
+      "source": "step-fit",
+      "target": "step-build-encoder"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-encoder"
+      ],
+      "id": "edge-09",
+      "kind": "data",
+      "label": "encoder",
+      "source": "step-build-encoder",
+      "target": "step-build-head"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-build-head"
+      ],
+      "id": "edge-10",
+      "kind": "control",
+      "label": "head",
+      "source": "step-build-head",
+      "target": "step-build-model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-model"
+      ],
+      "id": "edge-11",
+      "kind": "state",
+      "label": "model",
+      "source": "step-build-model",
+      "target": "step-init-weights"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-model"
+      ],
+      "id": "edge-12",
+      "kind": "loop",
+      "label": "model",
+      "source": "step-build-model",
+      "target": "step-make-schedule"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-optimizer"
+      ],
+      "id": "edge-13",
+      "kind": "data",
+      "label": "optimizer",
+      "source": "step-make-optimizer",
+      "target": "step-forward-pass"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "edge-14",
+      "kind": "control",
+      "label": "schedule",
+      "source": "step-make-schedule",
+      "target": "step-compute-loss"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-forward-pass"
+      ],
+      "id": "edge-15",
+      "kind": "state",
+      "label": "outputs",
+      "source": "step-forward-pass",
+      "target": "step-backward-pass"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 6,
+      "file": "pipeline/train.py",
+      "id": "ev-make-optimizer",
+      "line": 4,
+      "quote": "def make_optimizer(model):\n    optimizer = transform(model, step=\"make_optimizer\")\n    return optimizer"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/train.py",
+      "id": "ev-make-schedule",
+      "line": 9,
+      "quote": "def make_schedule(optimizer):\n    schedule = transform(optimizer, step=\"make_schedule\")\n    return schedule"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/train.py",
+      "id": "ev-forward-pass",
+      "line": 14,
+      "quote": "def forward_pass(batch):\n    outputs = transform(batch, step=\"forward_pass\")\n    return outputs"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/train.py",
+      "id": "ev-compute-loss",
+      "line": 19,
+      "quote": "def compute_loss(outputs):\n    loss = transform(outputs, step=\"compute_loss\")\n    return loss"
+    },
+    {
+      "endLine": 26,
+      "file": "pipeline/train.py",
+      "id": "ev-backward-pass",
+      "line": 24,
+      "quote": "def backward_pass(loss):\n    gradients = transform(loss, step=\"backward_pass\")\n    return gradients"
+    },
+    {
+      "endLine": 31,
+      "file": "pipeline/train.py",
+      "id": "ev-update-weights",
+      "line": 29,
+      "quote": "def update_weights(gradients):\n    step = transform(gradients, step=\"update_weights\")\n    return step"
+    },
+    {
+      "endLine": 36,
+      "file": "pipeline/train.py",
+      "id": "ev-train-epoch",
+      "line": 34,
+      "quote": "def train_epoch(batches):\n    epoch_loss = transform(batches, step=\"train_epoch\")\n    return epoch_loss"
+    },
+    {
+      "endLine": 41,
+      "file": "pipeline/train.py",
+      "id": "ev-fit",
+      "line": 39,
+      "quote": "def fit(config):\n    history = transform(config, step=\"fit\")\n    return history"
+    },
+    {
+      "endLine": 6,
+      "file": "pipeline/model.py",
+      "id": "ev-build-encoder",
+      "line": 4,
+      "quote": "def build_encoder(width):\n    encoder = transform(width, step=\"build_encoder\")\n    return encoder"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/model.py",
+      "id": "ev-build-head",
+      "line": 9,
+      "quote": "def build_head(classes):\n    head = transform(classes, step=\"build_head\")\n    return head"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/model.py",
+      "id": "ev-build-model",
+      "line": 14,
+      "quote": "def build_model(config):\n    model = transform(config, step=\"build_model\")\n    return model"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/model.py",
+      "id": "ev-init-weights",
+      "line": 19,
+      "quote": "def init_weights(model):\n    weights = transform(model, step=\"init_weights\")\n    return weights"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "finding-1",
+      "message": "Placeholder finding on make schedule. It states nothing about a real program.",
+      "nodeIds": [
+        "step-make-schedule"
+      ],
+      "severity": "low",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 1"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-update-weights"
+      ],
+      "edgeIds": [
+        "edge-02"
+      ],
+      "evidence": [
+        "ev-backward-pass"
+      ],
+      "id": "finding-2",
+      "message": "Placeholder finding on backward pass. It states nothing about a real program.",
+      "nodeIds": [
+        "step-backward-pass"
+      ],
+      "severity": "medium",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 2"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Test step 1 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-make-optimizer"
+      ],
+      "id": "step-make-optimizer",
+      "kind": "data",
+      "label": "Make optimizer",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 2 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "step-make-schedule",
+      "kind": "control",
+      "label": "Make schedule",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 3 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-forward-pass"
+      ],
+      "id": "step-forward-pass",
+      "kind": "state",
+      "label": "Forward pass",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 4 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-compute-loss"
+      ],
+      "id": "step-compute-loss",
+      "kind": "output",
+      "label": "Compute loss",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 5 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-backward-pass"
+      ],
+      "id": "step-backward-pass",
+      "kind": "data",
+      "label": "Backward pass",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 6 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-update-weights"
+      ],
+      "id": "step-update-weights",
+      "kind": "control",
+      "label": "Update weights",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 7 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-train-epoch"
+      ],
+      "id": "step-train-epoch",
+      "kind": "state",
+      "label": "Train epoch",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 8 of 12. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "step-fit",
+      "kind": "output",
+      "label": "Fit",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 9 of 12. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-build-encoder"
+      ],
+      "id": "step-build-encoder",
+      "kind": "data",
+      "label": "Build encoder",
+      "phase": "phase-4"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 10 of 12. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-build-head"
+      ],
+      "id": "step-build-head",
+      "kind": "control",
+      "label": "Build head",
+      "phase": "phase-4"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 11 of 12. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-build-model"
+      ],
+      "id": "step-build-model",
+      "kind": "state",
+      "label": "Build model",
+      "phase": "phase-5"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 12 of 12. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-init-weights"
+      ],
+      "id": "step-init-weights",
+      "kind": "output",
+      "label": "Init weights",
+      "phase": "phase-5"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "label": "Inputs"
+    },
+    {
+      "id": "phase-2",
+      "label": "Features"
+    },
+    {
+      "id": "phase-3",
+      "label": "Model"
+    },
+    {
+      "id": "phase-4",
+      "label": "Optimisation"
+    },
+    {
+      "id": "phase-5",
+      "label": "Training loop"
+    }
+  ],
+  "producer": {
+    "host": "unknown",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "pipeline/config.json",
+    "entrypoints": [
+      "pipeline/train.py"
+    ],
+    "question": "Generated test document for the validator tests. It does not describe a real program.",
+    "scope": "The generated files of contracts/conformance/documents/workspace."
+  },
+  "revision": {
+    "id": "d04-loop-r1"
+  },
+  "title": "Test document d04-loop: 12 steps, 15 connections",
+  "verification": {
+    "files": {
+      "pipeline/config.json": "060b94c17a3afb605be66984ce9a1771d0e26f6ee2b99fb03faef5d21d6c70d0",
+      "pipeline/model.py": "c05595799686d132e5b2c8e6a8f520ddca345819fc47e88dcca1418778dd5f73",
+      "pipeline/train.py": "7d06276264c95b633e6986e1547fff0a785cbced8c09c034507f95de145d3e4d"
+    },
+    "publishedAt": "2000-01-01T00:00:00Z"
+  },
+  "workflowVersion": "1.0"
+}

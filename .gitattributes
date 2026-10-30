@@ -1,0 +1,50 @@
+# Preserve exact source/evidence hashes and generated asset bytes on every OS.
+* -text
+
+# Force a TEXT diff for source files.
+#
+# `-text` above turns off conversion but leaves git's own binary heuristic on,
+# and that heuristic calls any file with a NUL byte in its first 8000 bytes
+# binary. A viewer source builds map keys out of `'\0'`-joined fields and
+# carries the separator as a literal NUL - `webview/src/layout/routing.ts`
+# (`routeEdges`) - so without this line `git diff`, `git blame` and GitHub's
+# file view all report "Binary file ... differ" on a TypeScript module anyone
+# can read. The `diff` attribute says "this is text" and costs nothing for the
+# files that already were.
+*.ts   diff
+*.tsx  diff
+*.mts  diff
+*.js   diff
+*.mjs  diff
+*.cjs  diff
+*.py   diff
+*.json diff
+*.md   diff
+*.toml diff
+*.yml  diff
+*.yaml diff
+*.html diff
+*.css  diff
+*.sh   diff
+*.ps1  diff
+
+# Genuinely binary: no diff, no merge.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.vsix binary
+*.whl  binary
+*.zip  binary
+
+# Built viewer copies ship with the extension and must stay byte-identical.
+webview/dist/mlview.js               linguist-generated=true
+webview/dist/mlview.css              linguist-generated=true
+vscode-extension/media/mlview.js     linguist-generated=true
+vscode-extension/media/mlview.css    linguist-generated=true
+claude-plugin/skills/mlview/**       linguist-generated=true

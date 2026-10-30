@@ -1,0 +1,654 @@
+/**
+ * The standalone SVG renderer.
+ *
+ * It walks the SAME `ScenePlan` the DOM renderer walks — the same
+ * `LayoutFrame` boxes, the same `RoutedEdge.d` strings verbatim, the same
+ * label placements (`layout/labels.ts`) — and emits real `<rect>` / `<text>` /
+ * `<path>`. There is one decision about what is drawn, so the two renderers
+ * agree: one `<g data-node-id>` per planned node and one `<path data-edge-id>`
+ * per planned route.
+ *
+ * Four hard rules. `test/renderer-regression.test.mjs` checks part of rules 1
+ * and 2 on the whole-diagram export of its fixture (no `<foreignObject>`, no
+ * absolute URL other than the SVG namespace), and `test/authored-ui.test.mjs`
+ * parses an export as XML:
+ *
+ *   1. **No external reference.** No `url(...)`, so no `<marker>`, no
+ *      `clip-path`, no gradient and no filter; no `<image>`, no `xlink:href`,
+ *      no `@import`, no webfont. The only `http` the renderer itself writes is
+ *      the SVG namespace declaration, which a standalone SVG cannot omit.
+ *   2. **No `foreignObject`.** Text is `<text>`, which is fragile only in the
+ *      sense that it needs a font stack the consumer has — hence rule 3.
+ *   3. **A generic font stack.** `ui-sans-serif` / `ui-monospace` with the usual
+ *      platform families behind them and `sans-serif` / `monospace` last.
+ *   4. **Literal colours.** Every paint comes from `export/palette.ts`, which
+ *      resolves the live `--mlv-*` tokens and falls back to the transcribed
+ *      `styles/tokens.css` literals. `color-mix()` washes become `fill-opacity`,
+ *      which is the same picture over the emitted background rectangle.
+ *
+ * Output is a STRING, built without touching the DOM, so it is the same in the
+ * VS Code webview and in jsdom.
+ */
+
+import { SVG_NS } from '../dom.js';
+import { locParts } from '../notebook.js';
+import { kindPath, nodeGlyphKind } from '../icons.js';
+import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
+import { ARROW_HEAD } from '../render/edges.js';
+import { ariaLabelFor, basisTagText, cardDetailLines, cardSubline, phaseFindingsText, stepsText } from '../render/nodes.js';
+import {
+  WEIGHT_BADGE_H,
+  WEIGHT_MIN,
+  weightBadgeAt,
+  weightBadgeText,
+  weightBadgeWidth,
+  weightStroke,
+} from '../render/weight.js';
+import { phaseColor, severityColor, Palette } from './palette.js';
+import {
+  EXPORT_MONO,
+  EXPORT_SANS,
+  badge,
+  boundsOf,
+  cluster,
+  ellipsise,
+  esc,
+  glyphPath,
+  intersects,
+  normalizeRect,
+  num,
+  pad,
+  severityGlyphMarkup,
+  text,
+  width,
+} from './svgprim.js';
+
+// Re-exported so every import site keeps naming ONE module for the export
+// renderer: the split is an internal one between the pen and the picture.
+export { EXPORT_MONO, EXPORT_SANS, esc, intersects, width } from './svgprim.js';
+import type { ScenePlan } from '../render/plan.js';
+import type { LayoutBox } from '../layout/layout.js';
+import { NODE_H, NODE_CHIP_ROW_H, NODE_TITLE_LINE_H } from '../layout/constants.js';
+import { wrapTitle } from '../layout/cardmetrics.js';
+import type { Point } from '../layout/routing.js';
+import type { Rect } from '../render/canvas.js';
+import type { IssueCounts, MLNode, ThemeKind } from '../types.js';
+
+/* ── geometry, transcribed from styles/node.css and styles/canvas.css ───── */
+
+const CARD_R = 10;
+const RAIL_W = 4;
+const PAD_L = 8;
+const PAD_R = 12;
+const PAD_T = 10;
+const ICON_BOX = 26;
+const ICON_GAP = 8;
+const TEXT_X = RAIL_W + PAD_L + ICON_BOX + ICON_GAP;
+
+const FS_TITLE = 13;
+const FS_SUB = 11;
+const FS_LOC = 10.5;
+const FS_CHIP = 10.5;
+/** The lane heading, at the card title's size. */
+const FS_LANE = 13;
+/** The lane heading's plate: the text colour over the surface at this share (canvas.css). */
+const LANE_PLATE_TINT = 0.05;
+const FS_COUNT = 10.5;
+const FS_GROUP = 12;
+const FS_EDGE_LABEL = 10;
+
+/** Baselines inside a card, measured off the flex box in `styles/node.css`. */
+const Y_TITLE = 22.5;
+const Y_SUB = 38.5;
+const Y_LOC = 52.5;
+/**
+ * The chip row (only a collapsed group's count) is BOTTOM-anchored,
+ * because it is the row the layout reserves extra height for:
+ * `layout/cardmetrics.ts` adds `NODE_CHIP_ROW_H` to a card that draws chips, so
+ * on a chipped card the box is 26 px taller and the chips belong in that band
+ * rather than tucked under the loc line. The three
+ * text rows above stay anchored to the top of the card, as the DOM's flex column
+ * does. `CHIP_BOTTOM` is the distance from the card's BOTTOM edge to the chip
+ * rect's top.
+ */
+const CHIP_BOTTOM = 22;
+const CHIP_RECT_H = 15;
+/** Below this height a card has no room for the attribute chip row. */
+const CHIP_MIN_H = NODE_H + NODE_CHIP_ROW_H;
+
+const LANE_R = 14;
+/** The lane's accent rule (styles/canvas.css `.mlv-lane::before`). */
+const LANE_ACCENT_W = 3;
+const LANE_ACCENT_INSET = 6;
+/** The basis tag at a card's bottom-left (styles/node.css `.mlv-basis-tag`). */
+const TAG_H = 14;
+const TAG_LEFT = 10;
+const FS_TAG = 10;
+/** The exception dashes, as styles/edge.css and node.css draw them at zoom 1. */
+const DASH_INFERRED = '6 4';
+const DASH_UNRESOLVED = '1.5 3.5';
+const GROUP_R = 12;
+const GROUP_HEADER_H = 34;
+
+export interface ExportSvgOptions {
+  plan: ScenePlan;
+  palette: Palette;
+  theme: ThemeKind;
+  /** World-space rectangle to emit. Anything not intersecting it is dropped. */
+  region: Rect;
+  /** `<title>` — what a screen reader and a browser tab call the picture. */
+  title: string;
+  /** `<desc>` — provenance, so a pasted SVG still says where it came from. */
+  desc?: string;
+}
+
+export interface ExportSvgResult {
+  svg: string;
+  width: number;
+  height: number;
+  region: Rect;
+  /** Node ids that got a `<g data-node-id>`, in emission order. */
+  nodeIds: string[];
+  /** Route ids that got a `<path data-edge-id>`, in emission order. */
+  edgeIds: string[];
+  /** Every DOCUMENT edge id those routes carry — routes merge parallel edges. */
+  edgeDocIds: string[];
+  /** Lane ids that got a band. */
+  laneIds: string[];
+  /** Edge labels actually drawn (a decluttered-away label is not one). */
+  labels: number;
+  /** Phase colours of the lanes and cards in the picture, each once, the lanes' first. */
+  stageColors: string[];
+}
+
+/* ── the renderer ───────────────────────────────────────────────────────── */
+
+export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
+  const { plan, palette, theme } = opts;
+  const hc = theme === 'hc';
+  const region = normalizeRect(opts.region);
+  const parts: string[] = [];
+  const nodeIds: string[] = [];
+  const edgeIds: string[] = [];
+  const edgeDocIds: string[] = [];
+  const laneIds: string[] = [];
+  const stageColors: string[] = [];
+  let labels = 0;
+
+  const noteStage = (colour: string) => {
+    if (stageColors.indexOf(colour) < 0) stageColors.push(colour);
+  };
+
+  /* background — an exported picture must carry its own paper */
+  parts.push(
+    '<rect data-layer="background" x="' + num(region.x) + '" y="' + num(region.y) +
+      '" width="' + num(region.w) + '" height="' + num(region.h) + '" fill="' + esc(palette.bg) + '"/>',
+  );
+
+  /* lanes, then the dashed frames of expanded groups — the backdrop layer */
+  const backdrop: string[] = [];
+  for (const laneVisual of plan.lanes) {
+    const lane = laneVisual.lane;
+    const rect: Rect = { x: lane.x, y: lane.y, w: lane.w, h: lane.h };
+    if (!intersects(rect, region)) continue;
+    laneIds.push(lane.id);
+    const colour = phaseColor(palette, laneVisual.phase);
+    noteStage(colour);
+    backdrop.push(laneBand(lane, laneVisual.counts, colour, laneVisual.phase, palette, hc));
+  }
+
+  const cards: string[] = [];
+  for (const planned of plan.nodes) {
+    const box = planned.visual.box;
+    const rect: Rect = { x: box.x - 8, y: box.y - 8, w: box.w + 16, h: box.h + 16 };
+    if (!intersects(rect, region)) continue;
+    nodeIds.push(planned.visual.node.id);
+    const colour = phaseColor(palette, planned.visual.phase);
+    noteStage(colour);
+    const markup = planned.expandedGroup
+      ? groupFrame(planned.visual, palette, hc)
+      : nodeCard(planned.visual, colour, palette, hc);
+    if (planned.expandedGroup) backdrop.push(markup);
+    else cards.push(markup);
+  }
+
+  /* edges sit above the bands and under the cards, exactly as the DOM stacks.
+   *
+   * The trunks of `plan.bundles` are deliberately NOT drawn here. A trunk is a
+   * decluttering affordance that trades detail for hover, and a file in a pull
+   * request cannot be hovered — so the exported picture keeps every stroke: one
+   * `<path data-edge-id>` per planned route. */
+  const cables: string[] = [];
+  for (const visual of plan.edges) {
+    const route = visual.route;
+    if (!intersects(pad(boundsOf(route.points), 16), region)) continue;
+    edgeIds.push(route.id);
+    for (const id of route.ids) edgeDocIds.push(id);
+    const drawn = edgeMarkup(visual, palette, hc);
+    cables.push(drawn.markup);
+    if (drawn.labelled) labels++;
+  }
+
+  parts.push('<g data-layer="lanes">' + backdrop.join('') + '</g>');
+  parts.push('<g data-layer="edges">' + cables.join('') + '</g>');
+  parts.push('<g data-layer="nodes">' + cards.join('') + '</g>');
+
+  const head =
+    '<svg xmlns="' + SVG_NS + '" width="' + num(region.w) + '" height="' + num(region.h) +
+    '" viewBox="' + num(region.x) + ' ' + num(region.y) + ' ' + num(region.w) + ' ' + num(region.h) +
+    '" font-family="' + esc(EXPORT_SANS) + '" data-mlview-export="diagram" data-mlview-theme="' + esc(theme) + '">';
+  const meta =
+    '<title>' + esc(opts.title) + '</title>' + (opts.desc ? '<desc>' + esc(opts.desc) + '</desc>' : '');
+
+  return {
+    svg: '<?xml version="1.0" encoding="UTF-8"?>\n' + head + meta + parts.join('') + '</svg>\n',
+    width: region.w,
+    height: region.h,
+    region,
+    nodeIds,
+    edgeIds,
+    edgeDocIds,
+    laneIds,
+    labels,
+    stageColors,
+  };
+}
+
+/* ── lanes ──────────────────────────────────────────────────────────────── */
+
+function laneBand(
+  lane: { id: string; label: string; x: number; y: number; w: number; h: number; headerH: number; nodeCount: number },
+  counts: IssueCounts,
+  colour: string,
+  phase: number,
+  palette: Palette,
+  hc: boolean,
+): string {
+  const out: string[] = ['<g data-lane-id="' + esc(lane.id) + '" data-stage="' + esc(lane.id) + '" data-phase-index="' + phase + '">'];
+  // A neutral wash and a 3 px accent rule in the phase colour, never a phase-coloured
+  // fill (styles/canvas.css `.mlv-lane`, `.mlv-lane::before`).
+  out.push(
+    '<rect x="' + num(lane.x) + '" y="' + num(lane.y) + '" width="' + num(lane.w) + '" height="' + num(lane.h) +
+      '" rx="' + LANE_R + '" fill="' + esc(palette.text) + '" fill-opacity="' + num(palette.laneTint) +
+      '" stroke="' + esc(palette.border) + '" stroke-width="1"/>',
+  );
+  out.push(
+    '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + LANE_ACCENT_INSET) + '" width="' + LANE_ACCENT_W + '" height="' +
+      num(Math.max(0, lane.h - 2 * LANE_ACCENT_INSET)) + '" rx="' + LANE_ACCENT_W / 2 + '" fill="' + esc(colour) + '"/>',
+  );
+  // The heading sits on a plate, numbered, in the text colour at the
+  // card title's size (styles/canvas.css `.mlv-lane__header`).
+  out.push(
+    '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + 1) + '" width="' + num(Math.max(0, lane.w - 2)) + '" height="' +
+      num(Math.max(0, lane.headerH - 1)) + '" rx="' + Math.max(0, LANE_R - 1) + '" fill="' + esc(palette.surface) + '"/>',
+  );
+  out.push(
+    '<rect x="' + num(lane.x + 1) + '" y="' + num(lane.y + 1) + '" width="' + num(Math.max(0, lane.w - 2)) + '" height="' +
+      num(Math.max(0, lane.headerH - 1)) + '" rx="' + Math.max(0, LANE_R - 1) + '" fill="' + esc(palette.text) +
+      '" fill-opacity="' + LANE_PLATE_TINT + '"/>',
+  );
+  const swatchY = lane.y + (lane.headerH - 8) / 2;
+  out.push(
+    '<rect x="' + num(lane.x + 12) + '" y="' + num(swatchY) + '" width="8" height="8" rx="2" fill="' + esc(colour) + '"/>',
+  );
+  const baseline = lane.y + lane.headerH / 2 + 4.5;
+  const numText = String(phase + 1);
+  const numX = lane.x + 26;
+  out.push(text(numText, numX, baseline, { size: FS_LANE, fill: palette.text2, weight: 650 }));
+  const labelX = numX + width(numText, FS_LANE, false, true) + 6;
+  const total = countsTotal(counts);
+  const unit = total > 0 ? '· ' + phaseFindingsText(total) : '';
+  const unitW = unit ? width(unit, FS_COUNT, false, false) : 0;
+  const steps = stepsText(lane.nodeCount);
+  const stepsW = width(steps, FS_COUNT, false, false);
+  // The label gives way first, as the DOM header's flex row lets it.
+  const budget = Math.max(40, lane.x + lane.w - 12 - labelX - stepsW - 10 - (unit ? unitW + 96 : 0));
+  const labelText = ellipsise(lane.label || lane.id, budget, FS_LANE, false, true);
+  out.push(text(labelText, labelX, baseline, { size: FS_LANE, fill: palette.text, weight: 650 }));
+  const countX = labelX + width(labelText, FS_LANE, false, true) + 10;
+  out.push(text(steps, countX, baseline, { size: FS_COUNT, fill: palette.text3 }));
+  if (unit) {
+    // The numbers name their unit: the findings that touch this phase, where a finding that
+    // touches two phases counts in each. Their total leads the phrase, after the per-severity numbers.
+    const right = lane.x + lane.w - 12;
+    out.push(text(unit, right - unitW, baseline, { size: FS_COUNT, fill: palette.text3 }));
+    out.push(cluster(counts, right - unitW - 6, lane.y + lane.headerH / 2, 13, palette, hc));
+  }
+  out.push('</g>');
+  return out.join('');
+}
+
+/* ── nodes ──────────────────────────────────────────────────────────────── */
+
+function nodeCard(
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; findings?: string[]; phase?: number },
+  colour: string,
+  palette: Palette,
+  hc: boolean,
+): string {
+  const n = visual.node;
+  const box = visual.box;
+  const groupLike = box.collapsed;
+  const top = highestSeverity(visual.counts);
+  // Only inferred and unresolved cards are marked, by a dashed or dotted border and a
+  // tag. The canvas also hatches an unresolved card; a standalone SVG cannot without a pattern
+  // reference, so the export keeps the border and the tag.
+  const dash = basisDash(n.basis);
+
+  const attrs =
+    ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
+    '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
+    (visual.phase !== undefined ? ' data-phase-index="' + visual.phase + '"' : '') +
+    (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '');
+  const out: string[] = ['<g' + attrs + '>'];
+  out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
+
+  const stroke = visual.stale ? palette.sevMedium : top ? severityColor(palette, top) : dash ? palette.text2 : palette.nodeEdge;
+  out.push(
+    '<rect x="' + num(box.x) + '" y="' + num(box.y) + '" width="' + num(box.w) + '" height="' + num(box.h) +
+      '" rx="' + CARD_R + '" fill="' + esc(palette.surface) + '" stroke="' + esc(stroke) +
+      '" stroke-width="' + (dash ? 1.5 : 1) + '"' + (top && !visual.stale ? ' stroke-opacity="0.75"' : '') +
+      (dash ? ' stroke-dasharray="' + dash + '" stroke-linecap="round"' : '') + '/>',
+  );
+  out.push(
+    '<rect x="' + num(box.x + 0.5) + '" y="' + num(box.y + 1) + '" width="' + RAIL_W +
+      '" height="' + num(box.h - 2) + '" rx="2" fill="' + esc(colour) + '"/>',
+  );
+
+  /* icon tile + kind glyph */
+  const iconX = box.x + RAIL_W + PAD_L;
+  const iconY = box.y + PAD_T;
+  // The icon tile is neutral; the phase colour is only on the rail.
+  out.push(
+    '<rect x="' + num(iconX) + '" y="' + num(iconY) + '" width="' + ICON_BOX + '" height="' + ICON_BOX +
+      '" rx="6" fill="' + esc(palette.surface2) + '"/>',
+  );
+  out.push(glyphPath(kindPath(nodeGlyphKind(n, groupLike)), iconX + 5, iconY + 5, 16 / 16, palette.text2, 1.3));
+
+  /* text block */
+  const tx = box.x + TEXT_X;
+  const tw = Math.max(24, box.w - TEXT_X - PAD_R);
+  const label = n.label || n.qualname || n.id;
+  // The title is the same wrapped lines the layout
+  // reserved (`cardmetrics.wrapTitle`), and the rows below move down by the
+  // extra lines, as the DOM card's flex column does.
+  const titleRows = wrapTitle(label, box.w);
+  titleRows.forEach((row, i) => {
+    out.push(text(ellipsise(row, tw, FS_TITLE, false, true), tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: palette.text, weight: 650 }));
+  });
+  const shift = (titleRows.length - 1) * NODE_TITLE_LINE_H;
+  if (!groupLike && cardDetailLines(n) === 2) {
+    // Two lines of the authored detail in place of the file:line row,
+    // as on the DOM card (`render/nodes.ts` cardDetailLines).
+    detailRows(cardSubline(n), tw, 2).forEach((row, i) => {
+      out.push(text(row, tx, box.y + Y_SUB + shift + i * SUB_LINE_H, { size: FS_SUB, fill: palette.text2 }));
+    });
+  } else {
+    const sub = ellipsise(cardSubline(n), tw, FS_SUB, false, false);
+    out.push(text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2 }));
+    // The cell reference (or, on a `.py` path, the line number) is reserved
+    // out of the budget first, so a path too long for the card loses the
+    // directory rather than the answer — the DOM card does the same in CSS.
+    const locBits = locParts(n.loc);
+    const tailPx = width(locBits.tail, FS_LOC, true, false);
+    const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
+    out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
+  }
+
+  // The one chip row is a collapsed group's count, as on the DOM card.
+  const chips = groupLike ? [stepsText(visual.descendants)] : [];
+  if (chips.length && box.h - shift >= CHIP_MIN_H) {
+    const chipTop = box.y + box.h - CHIP_BOTTOM;
+    let cx = tx;
+    for (const chip of chips) {
+      const cw = width(chip, FS_CHIP, false, false) + 12;
+      if (cx + cw > tx + tw) break;
+      out.push(
+        '<rect x="' + num(cx) + '" y="' + num(chipTop) + '" width="' + num(cw) + '" height="' + CHIP_RECT_H + '" rx="4" fill="' +
+          esc(palette.surface2) + '" stroke="' + esc(palette.border) + '" stroke-width="0.75"/>',
+      );
+      out.push(text(chip, cx + 6, chipTop + 11, { size: FS_CHIP, fill: palette.text2 }));
+      cx += cw + 4;
+    }
+  }
+
+  if (top && !groupLike) out.push(badge(visual.counts, box.x + box.w + 6, box.y - 6, palette, hc, visual.findings || []));
+  else if (groupLike && countsTotal(visual.counts) > 0) {
+    out.push(cluster(visual.counts, box.x + box.w + 6, box.y + 4, 14, palette, hc));
+  }
+  out.push(basisTagMarkup(n.basis, box.x + TAG_LEFT, box.y + box.h - TAG_H / 2, palette));
+  out.push('</g>');
+  return out.join('');
+}
+
+/** One 11 px detail line's height on the card (`.mlv-node__sub`, 11 px at line-height 1.35). */
+const SUB_LINE_H = 14.85;
+
+/** Greedy word wrap of `value` into at most `max` lines of `maxPx`, the last one ellipsised. */
+function detailRows(value: string, maxPx: number, max: number): string[] {
+  const words = value.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const rows: string[] = [];
+  let line = '';
+  for (let i = 0; i < words.length; i++) {
+    const next = line ? line + ' ' + words[i] : words[i];
+    if (width(next, FS_SUB, false, false) <= maxPx || !line) {
+      line = next;
+      continue;
+    }
+    rows.push(line);
+    line = words[i];
+    if (rows.length === max - 1) {
+      rows.push(ellipsise(words.slice(i).join(' '), maxPx, FS_SUB, false, false));
+      return rows;
+    }
+  }
+  if (line) rows.push(ellipsise(line, maxPx, FS_SUB, false, false));
+  return rows;
+}
+
+/** The exception dash for a basis, or '' for an observed (unmarked) claim. */
+function basisDash(basis: string | undefined): string {
+  return basis === 'inferred' ? DASH_INFERRED : basis === 'unresolved' ? DASH_UNRESOLVED : '';
+}
+
+/** The basis tag the DOM card carries (`render/nodes.ts` basisTag), at world size; '' when observed. */
+function basisTagMarkup(basis: string | undefined, x: number, middle: number, palette: Palette): string {
+  const label = basisTagText(basis);
+  if (!label) return '';
+  const w = width(label, FS_TAG, false, false) + 8;
+  return (
+    '<g data-basis-tag="' + esc(basis || '') + '"><rect x="' + num(x) + '" y="' + num(middle - TAG_H / 2) + '" width="' + num(w) +
+    '" height="' + TAG_H + '" rx="3" fill="' + esc(palette.bg) + '" stroke="' + esc(palette.text2) + '" stroke-width="1"' +
+    ' stroke-dasharray="' + (basis === 'unresolved' ? '1 2' : '3 2') + '"/>' +
+    text(label, x + 4, middle + 3.5, { size: FS_TAG, fill: palette.text }) + '</g>'
+  );
+}
+
+function groupFrame(
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number },
+  palette: Palette,
+  hc: boolean,
+): string {
+  const n = visual.node;
+  const box = visual.box;
+  const top = highestSeverity(visual.counts);
+  const dash = basisDash(n.basis);
+  const out: string[] = [
+    '<g data-node-id="' + esc(n.id) + '" data-group="1" data-stage="' + esc(n.stage || 'unknown') + '"' +
+      (top ? ' data-sev="' + esc(top) + '"' : '') + (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '') + '>',
+  ];
+  out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
+  // A neutral frame, solid unless the group itself is inferred (dashed) or unresolved
+  // (dotted) — the same code the cards use. No phase colour: on screen it is on the cards only.
+  out.push(
+    '<rect x="' + num(box.x) + '" y="' + num(box.y) + '" width="' + num(box.w) + '" height="' + num(box.h) +
+      '" rx="' + GROUP_R + '" fill="none" stroke="' + esc(dash ? palette.text2 : palette.border) + '" stroke-width="' + (dash ? 1.5 : 1) + '"' +
+      (dash ? ' stroke-dasharray="' + dash + '" stroke-linecap="round"' : '') + '/>',
+  );
+  const iconY = box.y + (GROUP_HEADER_H - 14) / 2;
+  out.push(glyphPath(kindPath(nodeGlyphKind(n, false)), box.x + 8, iconY, 14 / 16, palette.text2, 1.3));
+  const nameX = box.x + 28;
+  const baseline = box.y + GROUP_HEADER_H / 2 + 4;
+  // The name's budget is the box width less 96 px, room for the count pill, or
+  // less 170 px when a severity cluster sits at the header's right end too.
+  const nameBudget = Math.max(40, box.w - (top ? 170 : 96));
+  const name = ellipsise(n.label || n.qualname, nameBudget, FS_GROUP, false, true);
+  out.push(text(name, nameX, baseline, { size: FS_GROUP, fill: palette.text, weight: 650 }));
+  const countText = stepsText(visual.descendants);
+  const countW = width(countText, FS_COUNT, false, false) + 12;
+  const countX = nameX + width(name, FS_GROUP, false, true) + 8;
+  out.push(
+    '<rect x="' + num(countX) + '" y="' + num(baseline - 11) + '" width="' + num(countW) +
+      '" height="15" rx="7.5" fill="' + esc(palette.surface2) + '"/>',
+  );
+  out.push(text(countText, countX + 6, baseline, { size: FS_COUNT, fill: palette.text2 }));
+  out.push(basisTagMarkup(n.basis, countX + countW + 6, baseline - 3.5, palette));
+  if (top) out.push(cluster(visual.counts, box.x + box.w - 10, box.y + GROUP_HEADER_H / 2, 13, palette, hc));
+  out.push('</g>');
+  return out.join('');
+}
+
+/* ── edges ──────────────────────────────────────────────────────────────── */
+
+function edgeMarkup(
+  visual: {
+    route: {
+      id: string;
+      ids: string[];
+      kind: string;
+      d: string;
+      points: Point[];
+      mid: Point;
+      /** The weight pill is nudged along this, exactly as in the DOM. */
+      midAngle: number;
+      back: boolean;
+      count: number;
+      label: string;
+    };
+    severity: string | null;
+    placement?: { x: number; y: number; hidden: boolean; always: boolean; text: string; marker: Point } | undefined;
+    filtered?: boolean;
+    stage?: string;
+    weight?: number;
+    basis?: string;
+  },
+  palette: Palette,
+  hc: boolean,
+): { markup: string; labelled: boolean } {
+  const r = visual.route;
+  const colour = visual.severity ? severityColor(palette, visual.severity) : palette.edge;
+  // One stroke for every kind; the dash says the basis (styles/edge.css).
+  const dash = basisDash(visual.basis);
+  // The picture cannot be hovered, so the thicker stroke and the pill are the
+  // only things that say a cable stands for several connections.
+  const weight = visual.weight && visual.weight > 1 ? Math.floor(visual.weight) : 1;
+  const weighted = weight >= WEIGHT_MIN;
+  const strokeW = weighted ? Math.max(EDGE_WIDTH, weightStroke(weight)) : EDGE_WIDTH;
+  const out: string[] = [
+    '<g data-edge-kind="' + esc(r.kind) + '"' + (weighted ? ' data-edge-weight="' + weight + '"' : '') +
+      (visual.basis ? ' data-basis="' + esc(visual.basis) + '"' : '') + '>',
+  ];
+  out.push(
+    '<path data-edge-id="' + esc(r.id) + '" data-edge-ids="' + esc(r.ids.join(' ')) +
+      '" d="' + esc(r.d) + '" fill="none" stroke="' + esc(colour) + '" stroke-width="' + num(strokeW) +
+      '" stroke-linecap="round" stroke-linejoin="round"' +
+      (dash ? ' stroke-dasharray="' + dash + '"' : '') +
+      (visual.severity ? ' stroke-opacity="0.85"' : '') + '/>',
+  );
+  out.push(arrowHead(r.points, colour));
+
+  let labelled = false;
+  const placement = visual.placement;
+  // Exactly the labels the DOM paints without a pointer on it (`always`, from
+  // `alwaysVisible` in `layout/labels.ts`), less those its declutter pass hid:
+  // the pass guarantees a clear position for THOSE only (a hover-only label
+  // takes the first candidate and may overlap). Drawing the rest would put text
+  // in the export that the diagram never shows.
+  const visible = !placement || (!placement.hidden && placement.always);
+  if (r.label && visible) {
+    const lx = placement ? placement.x : r.mid.x;
+    const ly = placement ? placement.y : r.mid.y - 8;
+    const label = placement ? placement.text : r.label;
+    out.push(
+      '<text x="' + num(lx) + '" y="' + num(ly) + '" font-family="' + esc(EXPORT_MONO) + '" font-size="' + FS_EDGE_LABEL +
+        '" fill="' + esc(palette.text2) + '" text-anchor="middle" dominant-baseline="middle" paint-order="stroke" stroke="' +
+        esc(palette.bg) + '" stroke-width="3" stroke-linejoin="round">' + esc(label) + '</text>',
+    );
+    labelled = true;
+  }
+
+  const mark = placement ? placement.marker : r.mid;
+  if (visual.severity) {
+    const sev = normalizeSeverity(visual.severity);
+    out.push(
+      '<circle cx="' + num(mark.x) + '" cy="' + num(mark.y) + '" r="8.5" fill="' + esc(palette.surface) +
+        '" stroke="' + esc(severityColor(palette, sev)) + '" stroke-width="1"/>',
+    );
+    out.push(severityGlyphMarkup(sev, mark.x - 7, mark.y - 7, 14, palette, hc));
+  } else if (r.back) {
+    out.push(
+      '<path d="M ' + num(mark.x + 4) + ' ' + num(mark.y - 4) + ' L ' + num(mark.x) + ' ' + num(mark.y) +
+        ' L ' + num(mark.x + 4) + ' ' + num(mark.y + 4) + '" fill="none" stroke="' + esc(palette.edge) +
+        '" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+    );
+  }
+  if (weighted) out.push(weightPill(weight, mark, r.midAngle, !!visual.severity || r.back, palette));
+  out.push('</g>');
+  return { markup: out.join(''), labelled };
+}
+
+/**
+ * The `×7` pill, at the point `render/weight.ts` decides — the same
+ * arithmetic the DOM uses, so the exported picture cannot put the number
+ * somewhere else. FS 9 mono, to match `.mlv-edge__weighttext`.
+ */
+function weightPill(
+  weight: number,
+  mark: Point,
+  angle: number,
+  occupied: boolean,
+  palette: Palette,
+): string {
+  const label = weightBadgeText(weight);
+  const w = weightBadgeWidth(weight);
+  const at = weightBadgeAt(mark, angle, occupied);
+  return (
+    '<g data-weight="' + weight + '">' +
+    '<rect x="' + num(at.x - w / 2) + '" y="' + num(at.y - WEIGHT_BADGE_H / 2) + '" width="' + num(w) +
+    '" height="' + WEIGHT_BADGE_H + '" rx="' + num(WEIGHT_BADGE_H / 2) + '" fill="' + esc(palette.surface) +
+    '" stroke="' + esc(palette.border) + '" stroke-width="1"/>' +
+    '<text x="' + num(at.x) + '" y="' + num(at.y) + '" font-family="' + esc(EXPORT_MONO) +
+    '" font-size="9" fill="' + esc(palette.text2) + '" text-anchor="middle" dominant-baseline="middle">' +
+    esc(label) + '</text></g>'
+  );
+}
+
+/** The connection stroke width (styles/edge.css `.mlv-edge__path` at zoom 1). */
+const EDGE_WIDTH = 1.5;
+
+/**
+ * The arrowhead the DOM gets from a `<marker>`, drawn inline instead.
+ *
+ * `render/edges.ts` declares its markers `markerUnits="userSpaceOnUse"` with
+ * `markerWidth/Height 9` over a `0 0 10 10` viewBox — a 0.9 scale — anchored at
+ * `refX 8.5, refY 5`. Reproducing that transform here is what lets the export
+ * keep its no-`url(` promise without changing the picture.
+ */
+function arrowHead(points: Point[], colour: string): string {
+  const head = ARROW_HEAD;
+  if (points.length < 2) return '';
+  const end = points[points.length - 1];
+  let prev = points[points.length - 2];
+  for (let i = points.length - 2; i >= 0; i--) {
+    if (points[i].x !== end.x || points[i].y !== end.y) {
+      prev = points[i];
+      break;
+    }
+  }
+  const angle = (Math.atan2(end.y - prev.y, end.x - prev.x) * 180) / Math.PI;
+  const transform =
+    'translate(' + num(end.x) + ',' + num(end.y) + ') rotate(' + num(angle) + ') translate(-7.65,-4.5) scale(0.9)';
+  const paint = 'fill="' + esc(colour) + '"';
+  return '<path class="mlv-edge__arrow" d="' + esc(head.d) + '" transform="' + transform + '" ' + paint + '/>';
+}
+

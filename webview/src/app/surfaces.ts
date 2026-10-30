@@ -1,0 +1,96 @@
+/**
+ * The two surfaces outside the diagram — the chrome and the side rail —
+ * repainted from the App's state.
+ *
+ * They draw what the App holds and decide one thing: a revision with no claim
+ * left to single out turns off the fading of the observed claims (`exceptionsOn`).
+ * The header's counts are computed here, the not-observed count with the walk's own
+ * predicate (`isNotObserved`), so the chip and the walk's Not observed filter agree.
+ */
+
+import { emptyCounts, normalizeSeverity } from '../markers.js';
+import { freshnessStatus } from '../freshness.js';
+import { isNotObserved } from '../walk.js';
+import type { App } from '../app.js';
+import type { NotObservedCounts } from '../ui/chrome.js';
+import type { IssueCounts, Severity } from '../types.js';
+
+/**
+ * The claims the author marked inferred or unresolved, by unit. A merged
+ * cable is not counted as one: every authored connection counts once.
+ */
+export function notObservedCounts(app: App): NotObservedCounts {
+  const out: NotObservedCounts = { steps: 0, connections: 0, findings: 0 };
+  if (!app.graph) return out;
+  // The same predicate as the review walk's Not observed filter, so the two counts agree.
+  for (const node of app.graph.nodes) if (isNotObserved(node.basis)) out.steps++;
+  for (const edge of app.graph.edges) if (isNotObserved(edge.basis)) out.connections++;
+  for (const issue of app.graph.issues) if (isNotObserved(issue.basis)) out.findings++;
+  return out;
+}
+
+/** Counts for the header's severity chips: every finding, so a severity filter never hides its own count. */
+export function visibleCounts(app: App): IssueCounts {
+  const counts = emptyCounts();
+  if (!app.graph) return counts;
+  for (const issue of app.graph.issues) counts[normalizeSeverity(issue.severity) as Severity]++;
+  return counts;
+}
+
+export function renderChrome(app: App): void {
+  const notObserved = notObservedCounts(app);
+  // A revision with nothing left to single out cannot keep the observed claims faded:
+  // the toggle that would undo it is hidden.
+  if (app.exceptionsOn && notObserved.steps + notObserved.connections + notObserved.findings === 0) {
+    app.exceptionsOn = false;
+    app.view.canvasEl.removeAttribute('data-exceptions');
+  }
+  app.chrome.update({
+    graph: app.graph,
+    document: app.graph ? app.workflowDocument : null,
+    flowOn: app.flowOn,
+    legendOpen: app.legendOpen,
+    hasSelection: !!app.selection,
+    filters: app.filters.value,
+    visibleCounts: visibleCounts(app),
+    phaseIndexShown: !app.view.phaseIndexHidden,
+    phaseIndexUnavailable: app.view.phaseIndexUnavailable(),
+    overviewOpen: app.view.overviewOpen,
+    railOpen: app.railOpen,
+    freshness: freshnessStatus(app.workflowDocument, app.freshness),
+    checking: app.freshness.checking,
+    notObserved,
+    exceptionsOn: app.exceptionsOn,
+    railMode: app.railMode,
+    walking: !!app.walk && app.walk.active,
+  });
+}
+
+export function renderRail(app: App): void {
+  const sel = app.selection;
+  // An issue selection resolves to its primary node: the Outline marks it. The
+  // Selection pane shows the finding itself.
+  const nodeId = app.selectedNodeId();
+  const selectedNode = nodeId && app.index ? app.index.nodeById.get(nodeId) || null : null;
+  const selectedEdge = sel && sel.kind === 'edge' && app.index ? app.index.edgeById.get(sel.id) || null : null;
+  const selectedIssue = sel && sel.kind === 'issue' && app.index ? app.index.issueById.get(sel.id) || null : null;
+  app.paneColumns = app.selectionColumns();
+  app.rail.update({
+    index: app.index,
+    tab: app.railTab,
+    issues: app.graph ? app.graph.issues : [],
+    selectedNode,
+    selectedEdge,
+    selectedIssueId: sel && sel.kind === 'issue' ? sel.id : null,
+    selectedIssue,
+    collapsed: app.view.collapsed,
+    keep: app.filters.keep,
+    staleReason: (file) => app.freshness.reasonOf(file),
+    document: app.graph ? app.workflowDocument : null,
+    columns: app.paneColumns,
+    walk: app.walk ? app.walk.paneMark() : null,
+    // The comparison with the revision this panel showed before.
+    changes: app.graph ? app.revisionChanges : null,
+    replaced: app.graph ? app.revisionReplaced : null,
+  });
+}

@@ -1,0 +1,989 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "samples/keras_tfdata/train.py",
+      "samples/keras_tfdata/pipeline.py",
+      "samples/keras_tfdata/model.py"
+    ],
+    "limitations": [
+      "Not inspected: data/requests.csv (not in the workspace; resolved relative to the launch directory). Row count, class balance, feature ranges and missing values are unresolved, so the size of the double-normalisation effect is data-dependent.",
+      "Not inspected: TensorFlow/Keras, scikit-learn and pandas source (external libraries). The fit train step, the EarlyStopping default monitor and restore behaviour, BatchNorm/Dropout mode switching and from_logits handling are inferred from documented framework behaviour.",
+      "Not inspected: installed TensorFlow/Keras version (no requirements or lock file in the workspace); restore_best_weights behaviour when no early stop fires is left unresolved."
+    ],
+    "status": "scoped",
+    "summary": "train.py traced as a script from main() through pipeline.py (CSV load, StandardScaler, split, second normalize, tf.data chains) and model.py (MLP plus compile) into model.fit, early stopping, the printed evaluate and the returned predictions. What happens inside Keras fit is inferred from documented framework behaviour, not read."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main",
+        "ev-stats",
+        "ev-build-splits"
+      ],
+      "id": "e-entry-csv",
+      "kind": "call",
+      "label": "make_datasets(csv_path) -> build_splits -> load_matrix",
+      "source": "entry",
+      "target": "csv"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-splits",
+        "ev-scaler"
+      ],
+      "id": "e-csv-scaler",
+      "kind": "data",
+      "label": "features (all rows)",
+      "source": "csv",
+      "target": "scaler"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split"
+      ],
+      "id": "e-scaler-split",
+      "kind": "data",
+      "label": "scaled features",
+      "source": "scaler",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-splits",
+        "ev-split"
+      ],
+      "id": "e-csv-split",
+      "kind": "data",
+      "label": "labels",
+      "source": "csv",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split",
+        "ev-stats"
+      ],
+      "id": "e-csv-stats",
+      "kind": "data",
+      "label": "raw unscaled features (returned by build_splits)",
+      "source": "csv",
+      "target": "stats"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-ds"
+      ],
+      "id": "e-split-train",
+      "kind": "data",
+      "label": "train_x, train_y (80%)",
+      "source": "split",
+      "target": "train-ds"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-val-ds"
+      ],
+      "id": "e-split-val",
+      "kind": "data",
+      "label": "val_x, val_y (20%)",
+      "source": "split",
+      "target": "val-ds"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-ds"
+      ],
+      "id": "e-stats-train",
+      "kind": "config",
+      "label": "map(normalize) with raw mean/std",
+      "source": "stats",
+      "target": "train-ds"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-val-ds"
+      ],
+      "id": "e-stats-val",
+      "kind": "config",
+      "label": "map(normalize) with raw mean/std",
+      "source": "stats",
+      "target": "val-ds"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-scaler"
+      ],
+      "id": "e-scaler-double",
+      "kind": "data",
+      "label": "first standardisation",
+      "source": "scaler",
+      "target": "double-scale"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-stats"
+      ],
+      "id": "e-stats-double",
+      "kind": "data",
+      "label": "second standardisation with mismatched stats",
+      "source": "stats",
+      "target": "double-scale"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-train-ds",
+        "ev-fit"
+      ],
+      "id": "e-double-fit",
+      "kind": "data",
+      "label": "distorted input features",
+      "source": "double-scale",
+      "target": "fit-step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-train-fit",
+      "kind": "data",
+      "label": "shuffled batches of 128",
+      "source": "train-ds",
+      "target": "fit-step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-val-epoch",
+      "kind": "data",
+      "label": "validation_data",
+      "source": "val-ds",
+      "target": "val-epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-evaluate"
+      ],
+      "id": "e-val-evaluate",
+      "kind": "data",
+      "label": "same val_ds",
+      "source": "val-ds",
+      "target": "evaluate"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-predict"
+      ],
+      "id": "e-val-predict",
+      "kind": "data",
+      "label": "same val_ds",
+      "source": "val-ds",
+      "target": "predict"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main"
+      ],
+      "id": "e-entry-model",
+      "kind": "call",
+      "label": "build_model()",
+      "source": "entry",
+      "target": "model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-compile"
+      ],
+      "id": "e-model-compile",
+      "kind": "config",
+      "label": "model.compile(...)",
+      "source": "model",
+      "target": "compile"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-loss",
+        "ev-output-layer"
+      ],
+      "id": "e-compile-loss",
+      "kind": "config",
+      "label": "from_logits=True on sigmoid output",
+      "source": "compile",
+      "target": "loss-mismatch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-model-fit",
+      "kind": "data",
+      "label": "model object",
+      "source": "model",
+      "target": "fit-step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-compile",
+        "ev-fit"
+      ],
+      "id": "e-loss-fit",
+      "kind": "data",
+      "label": "loss and gradients",
+      "source": "loss-mismatch",
+      "target": "fit-step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-compile",
+        "ev-fit"
+      ],
+      "id": "e-compile-fit",
+      "kind": "config",
+      "label": "Adam(1e-3), AUC metric",
+      "source": "compile",
+      "target": "fit-step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-compile"
+      ],
+      "id": "e-fit-params",
+      "kind": "state",
+      "label": "Adam step",
+      "source": "fit-step",
+      "target": "params-adam"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-arch"
+      ],
+      "id": "e-fit-bn",
+      "kind": "state",
+      "label": "moving-average update during forward",
+      "source": "fit-step",
+      "target": "bn-moving"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-params-val",
+      "kind": "state",
+      "label": "current weights",
+      "source": "params-adam",
+      "target": "val-epoch"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-bn-val",
+      "kind": "state",
+      "label": "inference-mode BN statistics",
+      "source": "bn-moving",
+      "target": "val-epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-model-val",
+      "kind": "data",
+      "label": "same model object",
+      "source": "model",
+      "target": "val-epoch"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-compile",
+        "ev-evaluate"
+      ],
+      "id": "e-loss-evaluate",
+      "kind": "data",
+      "label": "printed loss (with auc) uses the same mismatched loss",
+      "source": "loss-mismatch",
+      "target": "evaluate"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-compile"
+      ],
+      "id": "e-loss-val",
+      "kind": "data",
+      "label": "val_loss uses the same loss",
+      "source": "loss-mismatch",
+      "target": "val-epoch"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-val-es",
+      "kind": "data",
+      "label": "val_loss (default monitor)",
+      "source": "val-epoch",
+      "target": "early-stop"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-es-next",
+      "kind": "loop",
+      "label": "improved or patience left: next epoch; weights, Adam moments, BN stats, best-so-far carry over",
+      "source": "early-stop",
+      "target": "fit-step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-es-stop",
+      "kind": "control",
+      "label": "4 epochs without val_loss improvement: stop, restore best weights",
+      "source": "early-stop",
+      "target": "restore"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "e-epochs-done",
+      "kind": "control",
+      "label": "30 epochs completed without stopping",
+      "source": "fit-loop",
+      "target": "restore"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit",
+        "ev-evaluate"
+      ],
+      "id": "e-restore-eval",
+      "kind": "state",
+      "label": "weights left by fit",
+      "source": "restore",
+      "target": "evaluate"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-fit",
+        "ev-predict"
+      ],
+      "id": "e-restore-predict",
+      "kind": "state",
+      "label": "weights left by fit",
+      "source": "restore",
+      "target": "predict"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-evaluate"
+      ],
+      "id": "e-model-evaluate",
+      "kind": "data",
+      "label": "same model object",
+      "source": "model",
+      "target": "evaluate"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-predict"
+      ],
+      "id": "e-model-predict",
+      "kind": "data",
+      "label": "same model object",
+      "source": "model",
+      "target": "predict"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-entry",
+        "ev-predict"
+      ],
+      "id": "e-predict-entry",
+      "kind": "output",
+      "label": "returned to __main__, discarded",
+      "source": "predict",
+      "target": "entry"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 24,
+      "file": "samples/keras_tfdata/train.py",
+      "id": "ev-entry",
+      "line": 23,
+      "quote": "if __name__ == \"__main__\":\n    main()"
+    },
+    {
+      "endLine": 12,
+      "file": "samples/keras_tfdata/train.py",
+      "id": "ev-main",
+      "line": 10,
+      "quote": "def main(csv_path: str = \"data/requests.csv\"):\n    train_ds, val_ds = make_datasets(csv_path)\n    model = build_model()"
+    },
+    {
+      "endLine": 18,
+      "file": "samples/keras_tfdata/train.py",
+      "id": "ev-fit",
+      "line": 13,
+      "quote": "    model.fit(\n        train_ds,\n        validation_data=val_ds,\n        epochs=30,\n        callbacks=[keras.callbacks.EarlyStopping(patience=4, restore_best_weights=True)],\n    )"
+    },
+    {
+      "endLine": 19,
+      "file": "samples/keras_tfdata/train.py",
+      "id": "ev-evaluate",
+      "line": 19,
+      "quote": "    print(model.evaluate(val_ds))"
+    },
+    {
+      "endLine": 20,
+      "file": "samples/keras_tfdata/train.py",
+      "id": "ev-predict",
+      "line": 20,
+      "quote": "    return model.predict(val_ds)"
+    },
+    {
+      "endLine": 12,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-consts",
+      "line": 10,
+      "quote": "FEATURES = [\"latency_ms\", \"payload_kb\", \"retries\", \"hour\", \"region_code\"]\nTARGET = \"failed\"\nBATCH = 128"
+    },
+    {
+      "endLine": 19,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-load",
+      "line": 15,
+      "quote": "def load_matrix(csv_path: str):\n    frame = pd.read_csv(csv_path)\n    features = frame[FEATURES].to_numpy(dtype=\"float32\")\n    labels = frame[TARGET].to_numpy(dtype=\"float32\")\n    return features, labels"
+    },
+    {
+      "endLine": 23,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-build-splits",
+      "line": 22,
+      "quote": "def build_splits(csv_path: str):\n    features, labels = load_matrix(csv_path)"
+    },
+    {
+      "endLine": 26,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-scaler",
+      "line": 25,
+      "quote": "    scaler = StandardScaler()\n    scaled = scaler.fit_transform(features)"
+    },
+    {
+      "endLine": 29,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-split",
+      "line": 28,
+      "quote": "    train_x, val_x, train_y, val_y = train_test_split(scaled, labels, test_size=0.2)\n    return train_x, val_x, train_y, val_y, features"
+    },
+    {
+      "endLine": 39,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-stats",
+      "line": 33,
+      "quote": "    train_x, val_x, train_y, val_y, features = build_splits(csv_path)\n\n    mean = features.mean(axis=0)\n    std = features.std(axis=0) + 1e-6\n\n    def normalize(x, y):\n        return (x - mean) / std, y"
+    },
+    {
+      "endLine": 45,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-train-ds",
+      "line": 41,
+      "quote": "    train_ds = (tf.data.Dataset.from_tensor_slices((train_x, train_y))\n                .map(normalize, num_parallel_calls=tf.data.AUTOTUNE)\n                .shuffle(4096)\n                .batch(BATCH)\n                .prefetch(tf.data.AUTOTUNE))"
+    },
+    {
+      "endLine": 50,
+      "file": "samples/keras_tfdata/pipeline.py",
+      "id": "ev-val-ds",
+      "line": 46,
+      "quote": "    val_ds = (tf.data.Dataset.from_tensor_slices((val_x, val_y))\n              .map(normalize, num_parallel_calls=tf.data.AUTOTUNE)\n              .batch(BATCH)\n              .prefetch(tf.data.AUTOTUNE))\n    return train_ds, val_ds"
+    },
+    {
+      "endLine": 13,
+      "file": "samples/keras_tfdata/model.py",
+      "id": "ev-arch",
+      "line": 9,
+      "quote": "def build_model(n_features: int = 5) -> keras.Model:\n    inputs = keras.Input(shape=(n_features,))\n    hidden = layers.Dense(64, activation=\"relu\")(inputs)\n    hidden = layers.BatchNormalization()(hidden)\n    hidden = layers.Dropout(0.3)(hidden)"
+    },
+    {
+      "endLine": 14,
+      "file": "samples/keras_tfdata/model.py",
+      "id": "ev-output-layer",
+      "line": 14,
+      "quote": "    outputs = layers.Dense(1, activation=\"sigmoid\")(hidden)"
+    },
+    {
+      "endLine": 21,
+      "file": "samples/keras_tfdata/model.py",
+      "id": "ev-compile",
+      "line": 16,
+      "quote": "    model = keras.Model(inputs, outputs)\n    model.compile(\n        optimizer=keras.optimizers.Adam(1e-3),\n        loss=keras.losses.BinaryCrossentropy(from_logits=True),\n        metrics=[keras.metrics.AUC(name=\"auc\")],\n    )"
+    },
+    {
+      "endLine": 19,
+      "file": "samples/keras_tfdata/model.py",
+      "id": "ev-loss",
+      "line": 19,
+      "quote": "        loss=keras.losses.BinaryCrossentropy(from_logits=True),"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-compile-loss",
+        "e-loss-fit",
+        "e-val-es"
+      ],
+      "evidence": [
+        "ev-output-layer",
+        "ev-loss",
+        "ev-fit"
+      ],
+      "id": "f-double-sigmoid",
+      "message": "The last layer already applies a sigmoid, but the loss is told its inputs are logits, so it applies a second sigmoid. In every run, the loss the model minimises is BCE(y, sigmoid(p)) with sigmoid(p) stuck in (0.5, 0.73). Negatives can never be pushed below about 0.69 loss, and gradients are squashed through two sigmoids. The printed loss and every val_loss are therefore not true cross-entropy. EarlyStopping (default monitor val_loss) and restore_best_weights select epochs on that wrong number. AUC is rank-based, so it is less directly affected, but the learned probabilities are poorly calibrated. Counter-evidence searched in model.py and train.py: no custom loss, no output-activation override. tf.keras may print a warning about this combination, but nothing stops it.",
+      "nodeIds": [
+        "model",
+        "compile",
+        "loss-mismatch",
+        "early-stop"
+      ],
+      "severity": "high",
+      "suggestion": "Either remove activation=\"sigmoid\" from the last Dense (output logits) and keep from_logits=True, applying tf.sigmoid to predict() output, or keep the sigmoid and use BinaryCrossentropy() with from_logits=False.",
+      "title": "Sigmoid output trained with BinaryCrossentropy(from_logits=True)"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-arch"
+      ],
+      "edgeIds": [
+        "e-csv-stats",
+        "e-stats-train",
+        "e-stats-val"
+      ],
+      "evidence": [
+        "ev-scaler",
+        "ev-split",
+        "ev-stats",
+        "ev-train-ds"
+      ],
+      "id": "f-double-normalise",
+      "message": "build_splits already z-scores features with StandardScaler. make_datasets then maps normalize(x) = (x - mean_raw) / std_raw, using mean and std of the unscaled matrix. The model therefore sees (z - mean_raw)/std_raw: features with a large raw spread (latency_ms, payload_kb by name) become a near-constant with tiny variance, and features with std < 1 are amplified. With Adam at 1e-3, the first-layer weights must grow by roughly std_raw to recover the signal, which slows or prevents learning from those features. The size of the effect depends on the CSV, which is not in the workspace. Counter-evidence: the transform is a per-feature affine map applied identically to train and validation, and the first Dense layer, followed by BatchNorm, can in principle absorb it.",
+      "nodeIds": [
+        "scaler",
+        "stats",
+        "double-scale",
+        "train-ds",
+        "val-ds"
+      ],
+      "severity": "medium",
+      "suggestion": "Normalise once: either drop the StandardScaler and compute mean/std from train_x only, or drop the normalize map (and the extra `features` return value).",
+      "title": "Features are standardised twice, the second time with raw-data statistics"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-csv-scaler",
+        "e-csv-stats"
+      ],
+      "evidence": [
+        "ev-scaler",
+        "ev-split",
+        "ev-stats"
+      ],
+      "id": "f-fit-before-split",
+      "message": "StandardScaler.fit_transform runs on the full matrix before train_test_split, and the second mean/std also come from all rows. Validation-row statistics therefore shape the training inputs, so validation metrics are slightly optimistic and do not reflect deployment, where only training statistics exist. The trigger for a material effect is a small dataset, outliers in latency/payload, or drift between rows. Searched pipeline.py: no train-only fit exists anywhere; the scaler object is not kept for inference either.",
+      "nodeIds": [
+        "scaler",
+        "stats",
+        "split"
+      ],
+      "severity": "medium",
+      "suggestion": "Split first, fit the scaler (or compute mean/std) on train_x only, transform val_x with it, and persist the fitted statistics with the model.",
+      "title": "Normalisation statistics are computed on all rows, including validation"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-val-epoch",
+        "e-val-evaluate"
+      ],
+      "evidence": [
+        "ev-fit",
+        "ev-evaluate",
+        "ev-split"
+      ],
+      "id": "f-val-reused",
+      "message": "val_ds drives EarlyStopping and restore_best_weights, then is used for model.evaluate and predict. The printed score is biased upwards by that selection, and there is no untouched test split. The bias is bounded: selection only picks one of at most 30 epochs. Searched train.py and pipeline.py: only two splits are created.",
+      "nodeIds": [
+        "val-ds",
+        "early-stop",
+        "evaluate"
+      ],
+      "severity": "medium",
+      "suggestion": "Carve out a separate test split (train/val/test) and report evaluate on test; keep val_ds only for early stopping.",
+      "title": "Final evaluate is on the same split used for early stopping and weight selection"
+    },
+    {
+      "basis": "unresolved",
+      "edgeIds": [
+        "e-epochs-done"
+      ],
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "f-restore-version",
+      "message": "If val_loss keeps improving often enough that EarlyStopping never fires within 30 epochs, older tf.keras keeps the last-epoch weights, while newer Keras restores the best epoch at train end. evaluate and predict could then run on different weights depending on the installed version. Search boundary: no requirements or lock file exists in the workspace to pin the version. The outcome of the `restore` node could flip.",
+      "nodeIds": [
+        "restore",
+        "evaluate",
+        "predict"
+      ],
+      "severity": "medium",
+      "suggestion": "Pin the TensorFlow/Keras version, or add a ModelCheckpoint(save_best_only=True) and reload it explicitly before evaluate.",
+      "title": "Weights used after fit depend on the Keras version when no early stop triggers"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split",
+        "ev-train-ds"
+      ],
+      "id": "f-no-seeds",
+      "message": "train_test_split has no random_state, shuffle(4096) has no seed, and no global tf/numpy seed is set in the inspected files. Each run uses a different train/validation partition and initialisation, so printed metrics are not reproducible or comparable across runs.",
+      "nodeIds": [
+        "split",
+        "train-ds"
+      ],
+      "severity": "low",
+      "suggestion": "Pass random_state to train_test_split (with stratify=labels for a failure label), call keras.utils.set_random_seed(...), and seed the shuffle.",
+      "title": "No seeds: split, shuffle and initialisation change every run"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Calls main() with no arguments, so csv_path is the default \"data/requests.csv\". main builds the datasets, then the model.",
+      "evidence": [
+        "ev-entry",
+        "ev-main"
+      ],
+      "id": "entry",
+      "kind": "entrypoint",
+      "label": "train.py __main__ -> main(\"data/requests.csv\")",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "pd.read_csv, then FEATURES = latency_ms, payload_kb, retries, hour, region_code as a float32 matrix and TARGET 'failed' as float32 labels. region_code is fed as a plain number (no one-hot/embedding).",
+      "evidence": [
+        "ev-build-splits",
+        "ev-load",
+        "ev-consts"
+      ],
+      "id": "csv",
+      "kind": "data",
+      "label": "Load CSV: 5 features + label 'failed' (float32)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "The scaler is fit on the full feature matrix before the train/validation split, then transforms it. The fitted scaler object is not returned or reused.",
+      "evidence": [
+        "ev-scaler"
+      ],
+      "id": "scaler",
+      "kind": "operation",
+      "label": "StandardScaler.fit_transform on ALL rows",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "Splits the already-scaled matrix and labels. build_splits also returns the original unscaled `features` matrix as a fifth value.",
+      "evidence": [
+        "ev-split"
+      ],
+      "id": "split",
+      "kind": "operation",
+      "label": "train_test_split 80/20 (no random_state)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "make_datasets computes mean and std (+1e-6) from the unscaled `features` of all rows and defines normalize(x, y) = ((x - mean) / std, y). This closure is applied to train_x and val_x, which were already standardised by StandardScaler.",
+      "evidence": [
+        "ev-stats"
+      ],
+      "id": "stats",
+      "kind": "state",
+      "label": "Second normalisation: mean/std of RAW full features",
+      "phase": "data"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Because x is already z-scored, each feature becomes roughly -mean_raw/std_raw + z/std_raw. For features whose raw std is large (latency_ms, payload_kb by their names) the inputs collapse to a near-constant with tiny spread; for features with std < 1 they are amplified. Magnitudes depend on the data, which is not in the workspace.",
+      "evidence": [
+        "ev-scaler",
+        "ev-stats"
+      ],
+      "id": "double-scale",
+      "kind": "data",
+      "label": "Effective inputs: (z - mean_raw) / std_raw",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "Shuffle comes after map and before batch, and has no seed.",
+      "evidence": [
+        "ev-train-ds",
+        "ev-consts"
+      ],
+      "id": "train-ds",
+      "kind": "data",
+      "label": "train_ds: slices -> map(normalize) -> shuffle(4096) -> batch(128) -> prefetch",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "No shuffle, so order is fixed. The same val_ds is used for fit validation, final evaluate and predict.",
+      "evidence": [
+        "ev-val-ds"
+      ],
+      "id": "val-ds",
+      "kind": "data",
+      "label": "val_ds: slices -> map(normalize) -> batch(128) -> prefetch",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "n_features defaults to 5, matching len(FEATURES). The output layer applies a sigmoid, so the model outputs probabilities, not logits.",
+      "evidence": [
+        "ev-main",
+        "ev-arch",
+        "ev-output-layer",
+        "ev-compile",
+        "ev-consts"
+      ],
+      "id": "model",
+      "kind": "model",
+      "label": "MLP: Input(5) -> Dense(64, relu) -> BatchNorm -> Dropout(0.3) -> Dense(1, sigmoid)",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "No layer is frozen in model.py. The metric is AUC, named 'auc'.",
+      "evidence": [
+        "ev-compile"
+      ],
+      "id": "compile",
+      "kind": "config",
+      "label": "compile: Adam(1e-3), BinaryCrossentropy(from_logits=True), AUC",
+      "phase": "model"
+    },
+    {
+      "basis": "inferred",
+      "detail": "With from_logits=True, BinaryCrossentropy treats its inputs as logits and applies a sigmoid itself. The inputs here are already sigmoid outputs in (0,1), so the loss sees sigmoid(p), which lies in (0.5, 0.73). The objective can never reach low loss on negatives, gradients go through two sigmoids, and loss/val_loss values are not true BCE.",
+      "evidence": [
+        "ev-output-layer",
+        "ev-loss"
+      ],
+      "id": "loss-mismatch",
+      "kind": "objective",
+      "label": "Loss applies a second sigmoid to probabilities",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "fit(train_ds, validation_data=val_ds, epochs=30, callbacks=[EarlyStopping(patience=4, restore_best_weights=True)]).",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "fit-loop",
+      "kind": "loop",
+      "label": "model.fit epoch loop (max 30 epochs)",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Keras train step (framework code, not read): Dropout active and BatchNorm using batch statistics in training mode; the compiled loss on (y, model output); gradients of all trainable weights; Adam(1e-3) update; AUC metric updated.",
+      "evidence": [
+        "ev-fit",
+        "ev-compile"
+      ],
+      "id": "fit-step",
+      "kind": "operation",
+      "label": "Per train batch: forward (training mode), loss, gradients, Adam step",
+      "parent": "fit-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Updated each batch by the optimizer. Adam moment estimates also carry across batches and epochs.",
+      "evidence": [
+        "ev-arch",
+        "ev-compile"
+      ],
+      "id": "params-adam",
+      "kind": "state",
+      "label": "Trainable weights (Dense kernels/biases, BN gamma/beta) - Adam-stepped",
+      "parent": "fit-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Updated as a side effect of training-mode forward passes. These are the statistics used in inference mode (validation, evaluate, predict).",
+      "evidence": [
+        "ev-arch"
+      ],
+      "id": "bn-moving",
+      "kind": "state",
+      "label": "BatchNorm moving mean/variance - momentum update, not optimizer",
+      "parent": "fit-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Inference mode (Dropout off, BN moving stats). val_loss uses the same mismatched from_logits loss.",
+      "evidence": [
+        "ev-fit",
+        "ev-compile"
+      ],
+      "id": "val-epoch",
+      "kind": "evaluation",
+      "label": "End of epoch: evaluate on val_ds -> val_loss, val_auc",
+      "parent": "fit-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "monitor is not passed, so the framework default 'val_loss' applies. Training stops after 4 epochs without improvement; the best-epoch weights are snapshotted for restore_best_weights.",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "early-stop",
+      "kind": "branch",
+      "label": "EarlyStopping: monitor val_loss (default), patience 4, track best weights",
+      "parent": "fit-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "unresolved",
+      "detail": "If early stopping triggers, the best-val_loss weights are restored. If all 30 epochs run without triggering, older tf.keras versions keep the last-epoch weights, while newer Keras restores the best at train end. No version pin is in the workspace.",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "restore",
+      "kind": "state",
+      "label": "Weights after fit: best epoch or last epoch?",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Evaluates on the same validation split that drove early stopping and weight selection; there is no separate test split in pipeline.py. The printed value is whatever model.evaluate returns.",
+      "evidence": [
+        "ev-evaluate"
+      ],
+      "id": "evaluate",
+      "kind": "evaluation",
+      "label": "print(model.evaluate(val_ds))",
+      "phase": "output"
+    },
+    {
+      "basis": "observed",
+      "detail": "Returns sigmoid probabilities for the validation rows in val_ds order. The __main__ block discards the return value, and nothing is saved (no model.save or file write in the inspected files).",
+      "evidence": [
+        "ev-predict",
+        "ev-entry"
+      ],
+      "id": "predict",
+      "kind": "output",
+      "label": "return model.predict(val_ds)",
+      "phase": "output"
+    }
+  ],
+  "phases": [
+    {
+      "id": "data",
+      "label": "Input pipeline"
+    },
+    {
+      "id": "model",
+      "label": "Model construction"
+    },
+    {
+      "id": "train",
+      "label": "model.fit"
+    },
+    {
+      "id": "output",
+      "label": "Evaluation and output"
+    }
+  ],
+  "producer": {
+    "host": "claude-code",
+    "kind": "host-llm",
+    "model": "claude-opus-5-5"
+  },
+  "request": {
+    "configuration": "No config file or CLI arguments: main() uses its default csv_path \"data/requests.csv\" (relative to the working directory; not present in the workspace). Hard-coded values: 5 FEATURES, TARGET \"failed\", BATCH 128, shuffle buffer 4096, test_size 0.2 with no random_state, Adam(1e-3), epochs=30, EarlyStopping(patience=4, restore_best_weights=True) with its default monitor (val_loss, framework default). Imports like `from model import build_model` assume the script is launched from samples/keras_tfdata (inferred).",
+    "entrypoints": [
+      "samples/keras_tfdata/train.py"
+    ],
+    "question": "Explain training with train.py: how the input pipeline is built, what the model is, and what model.fit does. Tell me what looks wrong.",
+    "scope": "samples/keras_tfdata/train.py run as a script (the __main__ block calling main() with no arguments), traced through pipeline.py and model.py from CSV loading to the printed evaluate result and the returned predictions. Keras, TensorFlow, scikit-learn and pandas internals are not in the workspace; behaviour inside them is marked inferred or unresolved."
+  },
+  "revision": {
+    "id": "r20261023a"
+  },
+  "title": "Keras tabular classifier trained from a tf.data pipeline (train.py)",
+  "verification": {
+    "files": {
+      "samples/keras_tfdata/model.py": "675cff84b1566530d2083f1455f6e514cf4c030772d910b5e4c38a8946364aa4",
+      "samples/keras_tfdata/pipeline.py": "22ba9430c7795004885d0bf6ec2a6b440b2ee8501e50a75938995ecd094a9c34",
+      "samples/keras_tfdata/train.py": "6cf55a9011d860b8d05ec0c89febd4e62d66c278280781e5b25d4f6097d761c2"
+    },
+    "publishedAt": "2026-10-23T15:38:12.150874Z"
+  },
+  "workflowVersion": "1.0"
+}

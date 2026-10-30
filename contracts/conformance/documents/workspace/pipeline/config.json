@@ -1,0 +1,5 @@
+{
+  "comment": "Test configuration for the MLView validator tests.",
+  "epochs": 2,
+  "width": 16
+}

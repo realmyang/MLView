@@ -1,0 +1,567 @@
+/*
+ * The authored layer under the one-row header: the Refine… popover, which opens OVER
+ * the diagram, so opening it never moves the canvas. The request and coverage are in the rail's
+ * About tab (rail.css).
+ *
+ * The section itself has no height: it sits right after the header and anchors the popover at
+ * the header's bottom edge, whatever the header's height.
+ */
+.mlv-workflow {
+  position: relative;
+  z-index: 45;
+  flex: none;
+  height: 0;
+}
+
+/* The Refine… popover, anchored under the button at the header's right end. */
+.mlv-workflow__composer {
+  position: absolute;
+  top: 4px;
+  right: var(--mlv-s4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: min(440px, calc(100vw - 2 * var(--mlv-s4)));
+  padding: 10px 12px;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+}
+.mlv-workflow__composer[hidden] { display: none; }
+.mlv-workflow__selection {
+  flex: 1 0 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mlv-text);
+  font-size: 12px;
+  font-weight: var(--mlv-fw-medium);
+}
+.mlv-workflow__intent { flex: 0 0 auto; }
+.mlv-workflow__custom { flex: 1 1 180px; min-width: 0; }
+.mlv-workflow__custom[hidden] { display: none; }
+.mlv-workflow__status { flex: 1 0 100%; color: var(--mlv-text); font-size: 11px; }
+.mlv-workflow__status:empty { display: none; }
+.mlv-workflow__hint { flex: 1 0 100%; margin: 0; color: var(--mlv-text-2); font-size: 11px; }
+
+/*
+ * The host's status banner. The host bootstrap prepends it to
+ * #mlview-root, before the App has stamped `.mlv-root` and its theme, so every
+ * token carries a VS Code fallback.
+ */
+#mlview-authored-error {
+  white-space: pre-wrap;
+  margin: 0;
+  padding: 6px 12px;
+  flex: none;
+  /* A long rejection (eight issue lines) scrolls inside its own band. */
+  max-height: 20vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-family: var(--mlv-font, var(--vscode-font-family, system-ui, sans-serif));
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mlv-text, var(--vscode-foreground, inherit));
+  background: var(--mlv-surface-2, var(--vscode-editorWidget-background, transparent));
+  border-bottom: 1px solid var(--mlv-sev-medium, var(--vscode-editorWarning-foreground, currentColor));
+}
+
+/*
+ * The host's banner once the viewer is mounted, under the authored header. Colour only
+ * for problems (a warning or a refused update), always with an icon and the host's words.
+ */
+.mlv-hostnotice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mlv-s3);
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mlv-text);
+  background: var(--mlv-surface-2);
+  border-bottom: 1px solid var(--mlv-border);
+}
+.mlv-hostnotice[hidden] { display: none; }
+.mlv-hostnotice--warn { border-bottom-color: var(--mlv-sev-medium); }
+.mlv-hostnotice--error { border-bottom-color: var(--mlv-sev-high); }
+.mlv-hostnotice__icon { flex: none; display: flex; padding-top: 2px; }
+.mlv-hostnotice--warn .mlv-hostnotice__icon { color: var(--mlv-sev-medium); }
+.mlv-hostnotice--error .mlv-hostnotice__icon { color: var(--mlv-sev-high); }
+.mlv-hostnotice__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* A long rejection (eight issue lines) scrolls inside its own band, as in the banner above. */
+  max-height: 20vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mlv-hostnotice__actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.mlv-hostnotice__actions[hidden] { display: none; }
+
+/* Freshness in place — the status bar item, the Selection pane's quotes and finding chips. */
+.mlv-status__fresh { display: inline-flex; align-items: center; gap: 4px; }
+.mlv-status__fresh.is-warn { color: var(--mlv-text); }
+.mlv-status__fresh.is-warn .mlv-uicon { color: var(--mlv-stale-ink); }
+.mlv-status__fresh.is-checking { color: var(--mlv-text-2); font-style: italic; }
+/* Every cited file unchanged (or no hashes to check): secondary text, no icon, no colour. */
+.mlv-status__fresh.is-muted { color: var(--mlv-text-2); }
+.mlv-insp__stale-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 6px;
+  font-size: 11px;
+  color: var(--mlv-text);
+}
+.mlv-insp__stale-note .mlv-uicon,
+.mlv-insp__stale .mlv-uicon,
+.mlv-chip--stale .mlv-uicon { flex: none; color: var(--mlv-stale-ink); }
+.mlv-insp__stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--mlv-text);
+}
+.mlv-link.is-stale,
+.mlv-btn.is-stale {
+  cursor: not-allowed;
+  color: var(--mlv-text-2);
+  text-decoration: line-through;
+}
+.mlv-chip--stale { display: inline-flex; align-items: center; gap: 3px; }
+.mlv-sheet__note { margin: 0 0 8px; font-size: 12px; color: var(--mlv-text-2); }
+
+/*
+ * The canvas floor. The header is one fixed row, and a host notice can sit under it; the
+ * diagram keeps at least this much height whatever it says, and `min()` lets a genuinely short
+ * panel still show the status bar.
+ */
+.mlv-root--workflow > .mlv-body {
+  /*
+   * Basis 0, not auto: with `auto` the body's basis is its tallest content (a
+   * docked rail full of evidence), and flexbox shrinks items in proportion to
+   * their basis, so the bands above would lose height to their own scrollers even
+   * on a panel with room to spare. At 0 the body only takes free space.
+   */
+  flex: 1 1 0;
+  min-height: min(320px, 50vh);
+}
+
+/*
+ * The review walk's bar, a band at the foot of the diagram column, shown only while the
+ * walk runs: directly above the bottom sheet's tabs, or, with the side panel docked, along the
+ * bottom of the diagram. It is after the canvas in the document, so the canvas stays
+ * within four Tab presses of the top and Tab goes canvas, walk controls, sheet. The place and the
+ * far line's slot share the first row; the controls have the row under it at every
+ * width: Previous and Next, the filters, the key hint and Exit, and wide, the editor line under
+ * them. Narrow (data-layout="narrow", under 620 px): "3/16", no key hint and no editor line, and
+ * the filters wrap between Next and Exit rather than scroll sideways. Plain text colours; colour
+ * only marks a quote the host did not open. No motion.
+ */
+.mlv-walkbar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px var(--mlv-s4) 5px var(--mlv-s5);
+  border-top: 1px solid var(--mlv-border);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.4;
+  /* Every focus ring in the bar lies on the bar's ground, where the theme's focus colour alone
+   * can fall under 3:1 (tokens.css). */
+  --mlv-focus: var(--mlv-focus-strong);
+}
+.mlv-walkbar[hidden] { display: none; }
+.mlv-walkbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mlv-s2) var(--mlv-s4);
+  min-width: 0;
+}
+.mlv-walkbar__pos {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mlv-walkbar__mark { display: inline-flex; color: var(--mlv-stale-ink); }
+.mlv-walkbar__mark[hidden] { display: none; }
+/* The controls take the whole row under the place and the far line's slot, wide and narrow. */
+.mlv-walkbar__tools {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mlv-s2) var(--mlv-s4);
+  min-width: 0;
+}
+/* Previous and Next: the claim before or after, as k and j; chevrons up and down. */
+.mlv-walkbar__steps { display: inline-flex; flex: none; gap: 2px; }
+.mlv-walkbar__step {
+  width: 24px;
+  min-width: 0;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+}
+.mlv-walkbar__step--prev .mlv-uicon { transform: rotate(-90deg); }
+.mlv-walkbar__step--next .mlv-uicon { transform: rotate(90deg); }
+.mlv-walkbar__filters { display: inline-flex; flex-wrap: wrap; gap: var(--mlv-s2); }
+.mlv-walkbar__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 var(--mlv-s3);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mlv-walkbar__filter[hidden] { display: none; }
+.mlv-walkbar__filter:hover { border-color: var(--mlv-border-strong); }
+/* The chosen filter: a stronger border and weight, not colour alone. */
+.mlv-walkbar__filter[aria-pressed="true"] {
+  border-color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-semi);
+}
+.mlv-walkbar__fcount { color: var(--mlv-text-2); font-variant-numeric: tabular-nums; }
+.mlv-walkbar__filter[aria-pressed="true"] .mlv-walkbar__fcount { color: var(--mlv-text); }
+.mlv-walkbar__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s2) var(--mlv-s4);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+.mlv-walkbar__keys[hidden] { display: none; }
+.mlv-walkbar__key { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.mlv-walkbar__exit { margin-left: auto; min-height: 22px; padding: 0 var(--mlv-s3); }
+.mlv-walkbar__editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+.mlv-walkbar__editor[hidden] { display: none; }
+.mlv-walkbar__editor[data-walk-status="blocked"],
+.mlv-walkbar__editor[data-walk-status="failed"] { color: var(--mlv-text); }
+.mlv-walkbar__editoricon { display: inline-flex; flex: none; padding-top: 1px; color: var(--mlv-stale-ink); }
+.mlv-walkbar__editoricon[hidden] { display: none; }
+.mlv-walkbar[data-layout="narrow"] { padding: 3px var(--mlv-s3); }
+/*
+ * Narrow, the filters take the room between Previous and Next and Exit, wrapping inside it, in the
+ * same order for the eye and for Tab.
+ */
+.mlv-walkbar[data-layout="narrow"] .mlv-walkbar__filters { flex: 1 1 0; min-width: 0; }
+.mlv-walkbar[data-layout="narrow"] .mlv-walkbar__exitlabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+/*
+ * Under 400 px (data-rows="stacked", WALK_STACKED_W) the controls need a second line whatever
+ * shares the place's row. The far line takes the first row to itself; Previous and Next start the
+ * second, the place follows them and Exit ends it; the filters wrap under them. Previous
+ * and Next come before the place so that they stay where they are when it gains a digit or
+ * " · far end". The controls' box gives its children to the row, so the toolbar and its arrow keys
+ * are as they were: Previous, Next, the filters, Exit, with Exit drawn at the end of the row above
+ * the filters.
+ */
+.mlv-walkbar[data-rows="stacked"] .mlv-walkbar__tools { display: contents; }
+.mlv-walkbar[data-rows="stacked"] .mlv-walkbar__farslot { order: -2; flex: 1 1 100%; }
+.mlv-walkbar[data-rows="stacked"] .mlv-walkbar__steps { order: -1; }
+.mlv-walkbar[data-rows="stacked"] .mlv-walkbar__filters { order: 1; flex: 1 1 100%; }
+
+/*
+ * The far end of the walk's connection.
+ *
+ * The cap (.mlv-farglyph): a lozenge with three dots, 22 x 14 px on screen at every zoom. It is
+ * drawn twice with the same rules: on the canvas, where the lit line runs out of sight
+ * (.mlv-farcap, lying along the line: upright on a vertical stretch), and at the start of the walk
+ * bar's far line, which is its caption. It takes the line's colour and, on a line drawn as not
+ * observed, that line's own outline: dashed for inferred, dotted for unresolved, as the basis tag
+ * on a card. No motion: hover and focus change the fill at once (a dashed or dotted cap gets a
+ * ring and keeps its ground, so its outline stays readable).
+ *
+ * The line's colour is the one it is drawn in now. A selected line is the accent, and a finding's
+ * its severity (styles/edge.css), until it is lit in its own colour (styles/flow.css: the source
+ * card's phase tone, or its finding's severity; ink in high contrast): at once where nothing
+ * moves, after the two passes of its charge under full motion, and not at all while the flow layer
+ * is off. The cap is .is-lit for as long as its line is (render/flow.ts `inChargeColour`).
+ */
+.mlv-farglyph {
+  --mlv-cap: var(--mlv-accent);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 14px;
+  border: 1.5px solid var(--mlv-cap);
+  border-radius: 7px;
+  background: var(--mlv-bg);
+  color: var(--mlv-cap);
+}
+.mlv-farglyph.is-lit { --mlv-cap: var(--mlv-stage, var(--mlv-accent)); }
+.mlv-farglyph[data-sev] { --mlv-cap: var(--mlv-sev); }
+.mlv-farglyph[data-basis="inferred"] { border-style: dashed; }
+.mlv-farglyph[data-basis="unresolved"] { border-style: dotted; }
+.mlv-farglyph__dots { display: block; fill: currentColor; }
+/* High contrast has no hues (styles/flow.css): the lit line is ink there, and so is its cap. */
+body.vscode-high-contrast .mlv-farglyph.is-lit,
+body.vscode-high-contrast-light .mlv-farglyph.is-lit,
+:root[data-theme="hc"] .mlv-farglyph.is-lit,
+.mlv-root[data-theme="hc"] .mlv-farglyph.is-lit {
+  --mlv-cap: var(--mlv-text);
+}
+
+/* The caps: over the world, under the phase index (20), the state host, the overview and the toasts. */
+.mlv-farcaps {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+}
+.mlv-farcap {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* A 25 x 25 px target around the 22 x 14 px cap (the inset is from inside its 1.5 px border). */
+.mlv-farcap::before {
+  content: "";
+  position: absolute;
+  inset: -7px -3px;
+}
+/* On a vertical stretch of line the cap lies along it: 14 x 22 px, the dots one above another. */
+.mlv-farcap--v {
+  width: 14px;
+  height: 22px;
+}
+.mlv-farcap--v::before { inset: -3px -7px; }
+.mlv-farcap--v .mlv-farglyph__dots { transform: rotate(90deg); }
+.mlv-farcap:hover,
+.mlv-farcap.is-cued {
+  background: var(--mlv-cap);
+  color: var(--mlv-bg);
+}
+/*
+ * On a line drawn dashed or dotted the cap's outline is what says so, and a fill in the outline's
+ * own colour would hide it: such a cap keeps its ground and answers with a ring around it, 2 px
+ * clear of the outline.
+ */
+.mlv-farcap[data-basis]:hover,
+.mlv-farcap[data-basis].is-cued {
+  background: var(--mlv-bg);
+  box-shadow: 0 0 0 2px var(--mlv-bg), 0 0 0 3.5px var(--mlv-cap);
+  color: var(--mlv-cap);
+}
+
+/*
+ * The far line: one button, in a slot that is part of the bar for as long as the walk runs. The
+ * slot shares the place's row and takes the room the place leaves, however long the place is
+ * ("176/176 · far end"), so the bar is the same height on every claim and at both ends of a
+ * connection: the canvas, the phase index and the Previous and Next buttons never move between
+ * two claims. On a connection with both cards on the canvas the slot says so
+ * (.mlv-walkbar__faridle).
+ */
+.mlv-walkbar__farslot {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+}
+.mlv-walkbar__faridle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlv-walkbar__faridle[hidden] { display: none; }
+.mlv-walkbar__far {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--mlv-s3);
+  min-width: 0;
+  height: 22px;
+  margin: 0;
+  padding: 0 var(--mlv-s2) 0 var(--mlv-s1);
+  border: 1px solid transparent;
+  border-radius: var(--mlv-r-chip);
+  background: none;
+  color: var(--mlv-text);
+  font: inherit;
+  font-size: var(--mlv-fs-12);
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+.mlv-walkbar__far[hidden] { display: none; }
+.mlv-walkbar__far:hover,
+.mlv-walkbar__far.is-cued {
+  border-color: var(--mlv-border-strong);
+  background: var(--mlv-surface);
+}
+.mlv-walkbar__far:hover .mlv-farglyph,
+.mlv-walkbar__far:focus-visible .mlv-farglyph,
+.mlv-walkbar__far.is-cued .mlv-farglyph {
+  background: var(--mlv-cap);
+  color: var(--mlv-bg);
+}
+/* The copy of a dashed or dotted cap keeps its outline as the cap does: a ring, no fill. */
+.mlv-walkbar__far:hover .mlv-farglyph[data-basis],
+.mlv-walkbar__far:focus-visible .mlv-farglyph[data-basis],
+.mlv-walkbar__far.is-cued .mlv-farglyph[data-basis] {
+  background: var(--mlv-bg);
+  box-shadow: 0 0 0 2px var(--mlv-bg), 0 0 0 3.5px var(--mlv-cap);
+  color: var(--mlv-cap);
+}
+.mlv-walkbar__farglyph[hidden] { display: none; }
+/* The way to the far card: an arrow in a box, read first. */
+.mlv-walkbar__farway {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--mlv-text-2);
+  border-radius: var(--mlv-r-chip);
+  color: var(--mlv-text);
+}
+.mlv-walkbar__fararrow { flex: none; }
+.mlv-walkbar__fartag { flex: none; }
+/*
+ * The line's words fold to the room it has, the least needed first, with no script and whatever
+ * the font. Three boxes wrap their children and are one line high, so a child that does not fit
+ * goes to a second line, which is not shown:
+ *
+ *   body   [ lead | · phase 2 ]         the phase goes when lead would be under 188 px, room for
+ *                                       some words beside a distance ("12 steps earlier")
+ *   lead   [ words | 12 steps later ]   the distance goes when the words would be under 4em
+ *   words  [ Go to | the title ]        the verb goes when the title would be under 72 px
+ *
+ * The words box wraps upwards and keeps its last line, so it is the verb, its first child, that
+ * goes. What is left takes the room: the title is cut with an ellipsis only when it is longer
+ * than that. Whatever goes stays in the line's name and tooltip (`farLineName`, `farLineTitle`).
+ */
+.mlv-walkbar__farbody,
+.mlv-walkbar__farlead,
+.mlv-walkbar__farwords {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  min-width: 0;
+  height: 20px;
+  overflow: hidden;
+}
+.mlv-walkbar__farbody { flex: 1 1 0; column-gap: 4px; }
+.mlv-walkbar__farlead { flex: 1 1 188px; column-gap: calc(var(--mlv-s3) + var(--mlv-s2)); }
+.mlv-walkbar__farwords {
+  flex: 1 1 4em;
+  flex-wrap: wrap-reverse;
+  align-content: flex-end;
+  column-gap: var(--mlv-s3);
+}
+.mlv-walkbar__farverb,
+.mlv-walkbar__fartitle,
+.mlv-walkbar__farmeta {
+  height: 20px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.mlv-walkbar__farverb { flex: none; color: var(--mlv-text-2); }
+.mlv-walkbar__fartitle {
+  flex: 1 1 72px;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--mlv-fw-medium);
+  text-overflow: ellipsis;
+}
+.mlv-walkbar__farmeta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-variant-numeric: tabular-nums;
+}
+.mlv-walkbar__farmore[hidden],
+.mlv-walkbar__farphase[hidden],
+.mlv-walkbar__fardot[hidden] { display: none; }
+.mlv-walkbar__farkey { flex: none; }
+/* Where the system forces colours, the fill cannot answer the pointer: an outline does. */
+@media (forced-colors: active) {
+  .mlv-farcap:hover,
+  .mlv-farcap.is-cued,
+  .mlv-walkbar__far:hover,
+  .mlv-walkbar__far.is-cued {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+
+/* The header's Review button: an icon and a word; pressed while the walk runs. */
+.mlv-header__review {
+  flex: none;
+  height: 24px;
+  min-height: 0;
+  padding: 0 var(--mlv-s3);
+  gap: 5px;
+}
+.mlv-header__review[aria-pressed="true"] { border-color: var(--mlv-text-2); }
+
+/*
+ * The walk's quote in the Selection pane: a focus-coloured left rule (the line the editor beside
+ * is asked for) and one line under its head saying what the editor shows, or why nothing was
+ * opened. Not colour alone: the line says it in words.
+ */
+.mlv-quote.is-walk {
+  margin-left: calc(-1 * var(--mlv-s3));
+  padding-left: calc(var(--mlv-s3) - 2px);
+  border-left: 2px solid var(--mlv-focus);
+}
+.mlv-quote__walk {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 3px 0 0 calc(1.4em + var(--mlv-s3));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+.mlv-quote.is-walk[data-walk-status="blocked"] .mlv-quote__walk,
+.mlv-quote.is-walk[data-walk-status="failed"] .mlv-quote__walk { color: var(--mlv-text); }
+.mlv-quote__walk .mlv-uicon { flex: none; margin-top: 1px; color: var(--mlv-stale-ink); }

@@ -1,0 +1,89 @@
+/*
+ * The chrome's TRANSIENT surfaces: the toast stack and the full-canvas states,
+ * with the disabled button.
+ *
+ * The second of the three `chrome*.css` layers, after `chrome.css` and before
+ * `chromepanels.css`. build.mjs concatenates them IN THIS ORDER, and the cascade
+ * of rules of equal weight depends on it.
+ */
+
+/* toasts */
+.mlv-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: var(--mlv-s7);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s3);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.mlv-toast {
+  min-width: 240px;
+  max-width: 360px;
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-2);
+  font-size: var(--mlv-fs-12);
+  text-align: center;
+}
+
+/* full-canvas states */
+.mlv-state {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--mlv-s9);
+  background: var(--mlv-bg);
+}
+
+.mlv-state[hidden] {
+  display: none;
+}
+
+.mlv-state__inner {
+  width: min(460px, 100%);
+  text-align: center;
+}
+
+.mlv-state__title {
+  margin: 0 0 var(--mlv-s4);
+  font-size: var(--mlv-fs-16);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-state__body {
+  margin: 0 0 var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-state__list {
+  margin: 0 auto var(--mlv-s5);
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  max-width: 420px;
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-state__actions {
+  display: flex;
+  gap: var(--mlv-s4);
+  justify-content: center;
+}
+
+.mlv-btn[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+

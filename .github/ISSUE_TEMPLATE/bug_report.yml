@@ -1,0 +1,49 @@
+name: Bug report
+description: A problem with the skill, a diagram, the viewer or a package.
+title: 'bug: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report security defects privately through the Security and quality tab.
+        A diagram file holds quoted lines of your source. Share a diagram or
+        a source excerpt only when it is safe to publish. Unknown model
+        details are fine; do not guess them.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Interpretation or model-authored finding
+        - Skill installation or discovery
+        - Checking or publishing a diagram
+        - Diagram, refinement or source navigation
+        - Packaging or development checks
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Environment
+      description: MLView's version or commit, the assistant and its version, the model's name if it is shown, VS Code and OS. Python version for helper failures.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: The request, the entrypoint and configuration, and a minimal excerpt of the source or of the diagram that is safe to publish. Include evidence that supports or contradicts a disputed interpretation.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant sanitized output
+      description: Include validation errors or screenshots if useful; remove secrets, private paths and unrelated source.

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: What is checked, and how to report a wrong diagram
+    url: https://github.com/realmyang/MLView/blob/main/docs/validation.md
+    about: What the automated checks cover, what they do not show, and how to report a wrong diagram.
+  - name: Security report
+    url: https://github.com/realmyang/MLView/security/policy
+    about: Report vulnerabilities privately using the security policy.

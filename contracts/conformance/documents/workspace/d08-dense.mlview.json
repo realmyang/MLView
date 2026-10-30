@@ -1,0 +1,1559 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "pipeline/data.py",
+      "pipeline/features.py",
+      "pipeline/model.py",
+      "pipeline/train.py",
+      "pipeline/evaluate.py",
+      "pipeline/config.json"
+    ],
+    "limitations": [
+      "This is a test fixture. It is not a sample diagram and no model wrote it."
+    ],
+    "status": "scoped",
+    "summary": "Written by contracts/conformance/documents/generate.py. Every claim is a placeholder."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "edge-01",
+      "kind": "data",
+      "label": "rows",
+      "source": "step-read-rows",
+      "target": "step-drop-empty-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-drop-empty-rows"
+      ],
+      "id": "edge-02",
+      "kind": "control",
+      "label": "kept",
+      "source": "step-drop-empty-rows",
+      "target": "step-shuffle-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-shuffle-rows"
+      ],
+      "id": "edge-03",
+      "kind": "state",
+      "label": "shuffled",
+      "source": "step-shuffle-rows",
+      "target": "step-split-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split-rows"
+      ],
+      "id": "edge-04",
+      "kind": "output",
+      "label": "parts",
+      "source": "step-split-rows",
+      "target": "step-make-batches"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-make-batches"
+      ],
+      "id": "edge-05",
+      "kind": "data",
+      "label": "batches",
+      "source": "step-make-batches",
+      "target": "step-cache-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cache-rows"
+      ],
+      "id": "edge-06",
+      "kind": "control",
+      "label": "cached",
+      "source": "step-cache-rows",
+      "target": "step-count-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-count-rows"
+      ],
+      "id": "edge-07",
+      "kind": "state",
+      "label": "total",
+      "source": "step-count-rows",
+      "target": "step-select-columns"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-select-columns"
+      ],
+      "id": "edge-08",
+      "kind": "output",
+      "label": "columns",
+      "source": "step-select-columns",
+      "target": "step-fill-missing"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-09",
+      "kind": "data",
+      "label": "filled",
+      "source": "step-fill-missing",
+      "target": "step-clip-values"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-clip-values"
+      ],
+      "id": "edge-10",
+      "kind": "control",
+      "label": "clipped",
+      "source": "step-clip-values",
+      "target": "step-fit-scaler"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit-scaler"
+      ],
+      "id": "edge-11",
+      "kind": "state",
+      "label": "scaler",
+      "source": "step-fit-scaler",
+      "target": "step-apply-scaler"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-apply-scaler"
+      ],
+      "id": "edge-12",
+      "kind": "output",
+      "label": "scaled",
+      "source": "step-apply-scaler",
+      "target": "step-encode-labels"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-encode-labels"
+      ],
+      "id": "edge-13",
+      "kind": "data",
+      "label": "encoded",
+      "source": "step-encode-labels",
+      "target": "step-join-features"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-join-features"
+      ],
+      "id": "edge-14",
+      "kind": "control",
+      "label": "features",
+      "source": "step-join-features",
+      "target": "step-build-encoder"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-build-encoder"
+      ],
+      "id": "edge-15",
+      "kind": "state",
+      "label": "encoder",
+      "source": "step-build-encoder",
+      "target": "step-build-head"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-head"
+      ],
+      "id": "edge-16",
+      "kind": "output",
+      "label": "head",
+      "source": "step-build-head",
+      "target": "step-build-model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-model"
+      ],
+      "id": "edge-17",
+      "kind": "data",
+      "label": "model",
+      "source": "step-build-model",
+      "target": "step-init-weights"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-18",
+      "kind": "control",
+      "label": "weights",
+      "source": "step-init-weights",
+      "target": "step-freeze-encoder"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-freeze-encoder"
+      ],
+      "id": "edge-19",
+      "kind": "state",
+      "label": "frozen",
+      "source": "step-freeze-encoder",
+      "target": "step-load-checkpoint"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-load-checkpoint"
+      ],
+      "id": "edge-20",
+      "kind": "output",
+      "label": "state",
+      "source": "step-load-checkpoint",
+      "target": "step-count-parameters"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-count-parameters"
+      ],
+      "id": "edge-21",
+      "kind": "data",
+      "label": "size",
+      "source": "step-count-parameters",
+      "target": "step-make-optimizer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-optimizer"
+      ],
+      "id": "edge-22",
+      "kind": "control",
+      "label": "optimizer",
+      "source": "step-make-optimizer",
+      "target": "step-make-schedule"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "edge-23",
+      "kind": "state",
+      "label": "schedule",
+      "source": "step-make-schedule",
+      "target": "step-forward-pass"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward-pass"
+      ],
+      "id": "edge-24",
+      "kind": "output",
+      "label": "outputs",
+      "source": "step-forward-pass",
+      "target": "step-compute-loss"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-compute-loss"
+      ],
+      "id": "edge-25",
+      "kind": "data",
+      "label": "loss",
+      "source": "step-compute-loss",
+      "target": "step-backward-pass"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-backward-pass"
+      ],
+      "id": "edge-26",
+      "kind": "control",
+      "label": "gradients",
+      "source": "step-backward-pass",
+      "target": "step-update-weights"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-27",
+      "kind": "state",
+      "label": "step",
+      "source": "step-update-weights",
+      "target": "step-train-epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-epoch"
+      ],
+      "id": "edge-28",
+      "kind": "output",
+      "label": "epoch_loss",
+      "source": "step-train-epoch",
+      "target": "step-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "edge-29",
+      "kind": "data",
+      "label": "history",
+      "source": "step-fit",
+      "target": "step-predict-batch"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-predict-batch"
+      ],
+      "id": "edge-30",
+      "kind": "control",
+      "label": "predictions",
+      "source": "step-predict-batch",
+      "target": "step-score-batch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-score-batch"
+      ],
+      "id": "edge-31",
+      "kind": "state",
+      "label": "scores",
+      "source": "step-score-batch",
+      "target": "step-aggregate-scores"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-aggregate-scores"
+      ],
+      "id": "edge-32",
+      "kind": "output",
+      "label": "summary",
+      "source": "step-aggregate-scores",
+      "target": "step-compare-with-baseline"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-compare-with-baseline"
+      ],
+      "id": "edge-33",
+      "kind": "data",
+      "label": "delta",
+      "source": "step-compare-with-baseline",
+      "target": "step-pick-threshold"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-compare-with-baseline"
+      ],
+      "id": "edge-34",
+      "kind": "loop",
+      "label": "delta",
+      "source": "step-compare-with-baseline",
+      "target": "step-drop-empty-rows"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "edge-35",
+      "kind": "state",
+      "label": "rows",
+      "source": "step-read-rows",
+      "target": "step-shuffle-rows"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-36",
+      "kind": "output",
+      "label": "kept",
+      "source": "step-drop-empty-rows",
+      "target": "step-split-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-shuffle-rows"
+      ],
+      "id": "edge-37",
+      "kind": "data",
+      "label": "shuffled",
+      "source": "step-shuffle-rows",
+      "target": "step-make-batches"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split-rows"
+      ],
+      "id": "edge-38",
+      "kind": "control",
+      "label": "parts",
+      "source": "step-split-rows",
+      "target": "step-cache-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-batches"
+      ],
+      "id": "edge-39",
+      "kind": "state",
+      "label": "batches",
+      "source": "step-make-batches",
+      "target": "step-count-rows"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-cache-rows"
+      ],
+      "id": "edge-40",
+      "kind": "output",
+      "label": "cached",
+      "source": "step-cache-rows",
+      "target": "step-select-columns"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-count-rows"
+      ],
+      "id": "edge-41",
+      "kind": "data",
+      "label": "total",
+      "source": "step-count-rows",
+      "target": "step-fill-missing"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-select-columns"
+      ],
+      "id": "edge-42",
+      "kind": "control",
+      "label": "columns",
+      "source": "step-select-columns",
+      "target": "step-clip-values"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fill-missing"
+      ],
+      "id": "edge-43",
+      "kind": "state",
+      "label": "filled",
+      "source": "step-fill-missing",
+      "target": "step-fit-scaler"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-clip-values"
+      ],
+      "id": "edge-44",
+      "kind": "output",
+      "label": "clipped",
+      "source": "step-clip-values",
+      "target": "step-apply-scaler"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-45",
+      "kind": "data",
+      "label": "scaler",
+      "source": "step-fit-scaler",
+      "target": "step-encode-labels"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-apply-scaler"
+      ],
+      "id": "edge-46",
+      "kind": "control",
+      "label": "scaled",
+      "source": "step-apply-scaler",
+      "target": "step-join-features"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-encode-labels"
+      ],
+      "id": "edge-47",
+      "kind": "state",
+      "label": "encoded",
+      "source": "step-encode-labels",
+      "target": "step-build-encoder"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-join-features"
+      ],
+      "id": "edge-48",
+      "kind": "output",
+      "label": "features",
+      "source": "step-join-features",
+      "target": "step-build-head"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-encoder"
+      ],
+      "id": "edge-49",
+      "kind": "data",
+      "label": "encoder",
+      "source": "step-build-encoder",
+      "target": "step-build-model"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-build-head"
+      ],
+      "id": "edge-50",
+      "kind": "control",
+      "label": "head",
+      "source": "step-build-head",
+      "target": "step-init-weights"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-build-model"
+      ],
+      "id": "edge-51",
+      "kind": "state",
+      "label": "model",
+      "source": "step-build-model",
+      "target": "step-freeze-encoder"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-init-weights"
+      ],
+      "id": "edge-52",
+      "kind": "output",
+      "label": "weights",
+      "source": "step-init-weights",
+      "target": "step-load-checkpoint"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-freeze-encoder"
+      ],
+      "id": "edge-53",
+      "kind": "data",
+      "label": "frozen",
+      "source": "step-freeze-encoder",
+      "target": "step-count-parameters"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-54",
+      "kind": "control",
+      "label": "state",
+      "source": "step-load-checkpoint",
+      "target": "step-make-optimizer"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-count-parameters"
+      ],
+      "id": "edge-55",
+      "kind": "state",
+      "label": "size",
+      "source": "step-count-parameters",
+      "target": "step-make-schedule"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-optimizer"
+      ],
+      "id": "edge-56",
+      "kind": "output",
+      "label": "optimizer",
+      "source": "step-make-optimizer",
+      "target": "step-forward-pass"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "edge-57",
+      "kind": "data",
+      "label": "schedule",
+      "source": "step-make-schedule",
+      "target": "step-compute-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward-pass"
+      ],
+      "id": "edge-58",
+      "kind": "control",
+      "label": "outputs",
+      "source": "step-forward-pass",
+      "target": "step-backward-pass"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-compute-loss"
+      ],
+      "id": "edge-59",
+      "kind": "state",
+      "label": "loss",
+      "source": "step-compute-loss",
+      "target": "step-update-weights"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backward-pass"
+      ],
+      "id": "edge-60",
+      "kind": "output",
+      "label": "gradients",
+      "source": "step-backward-pass",
+      "target": "step-train-epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-update-weights"
+      ],
+      "id": "edge-61",
+      "kind": "data",
+      "label": "step",
+      "source": "step-update-weights",
+      "target": "step-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-epoch"
+      ],
+      "id": "edge-62",
+      "kind": "control",
+      "label": "epoch_loss",
+      "source": "step-train-epoch",
+      "target": "step-predict-batch"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-63",
+      "kind": "state",
+      "label": "history",
+      "source": "step-fit",
+      "target": "step-score-batch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-predict-batch"
+      ],
+      "id": "edge-64",
+      "kind": "output",
+      "label": "predictions",
+      "source": "step-predict-batch",
+      "target": "step-aggregate-scores"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-score-batch"
+      ],
+      "id": "edge-65",
+      "kind": "data",
+      "label": "scores",
+      "source": "step-score-batch",
+      "target": "step-compare-with-baseline"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-aggregate-scores"
+      ],
+      "id": "edge-66",
+      "kind": "control",
+      "label": "summary",
+      "source": "step-aggregate-scores",
+      "target": "step-pick-threshold"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "edge-67",
+      "kind": "state",
+      "label": "rows",
+      "source": "step-read-rows",
+      "target": "step-split-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-shuffle-rows"
+      ],
+      "id": "edge-68",
+      "kind": "output",
+      "label": "shuffled",
+      "source": "step-shuffle-rows",
+      "target": "step-cache-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-make-batches"
+      ],
+      "id": "edge-69",
+      "kind": "data",
+      "label": "batches",
+      "source": "step-make-batches",
+      "target": "step-select-columns"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-count-rows"
+      ],
+      "id": "edge-70",
+      "kind": "control",
+      "label": "total",
+      "source": "step-count-rows",
+      "target": "step-clip-values"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fill-missing"
+      ],
+      "id": "edge-71",
+      "kind": "state",
+      "label": "filled",
+      "source": "step-fill-missing",
+      "target": "step-apply-scaler"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-72",
+      "kind": "output",
+      "label": "scaler",
+      "source": "step-fit-scaler",
+      "target": "step-join-features"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 6,
+      "file": "pipeline/data.py",
+      "id": "ev-read-rows",
+      "line": 4,
+      "quote": "def read_rows(source):\n    rows = transform(source, step=\"read_rows\")\n    return rows"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/data.py",
+      "id": "ev-drop-empty-rows",
+      "line": 9,
+      "quote": "def drop_empty_rows(rows):\n    kept = transform(rows, step=\"drop_empty_rows\")\n    return kept"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/data.py",
+      "id": "ev-shuffle-rows",
+      "line": 14,
+      "quote": "def shuffle_rows(rows):\n    shuffled = transform(rows, step=\"shuffle_rows\")\n    return shuffled"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/data.py",
+      "id": "ev-split-rows",
+      "line": 19,
+      "quote": "def split_rows(rows):\n    parts = transform(rows, step=\"split_rows\")\n    return parts"
+    },
+    {
+      "endLine": 26,
+      "file": "pipeline/data.py",
+      "id": "ev-make-batches",
+      "line": 24,
+      "quote": "def make_batches(rows):\n    batches = transform(rows, step=\"make_batches\")\n    return batches"
+    },
+    {
+      "endLine": 31,
+      "file": "pipeline/data.py",
+      "id": "ev-cache-rows",
+      "line": 29,
+      "quote": "def cache_rows(rows):\n    cached = transform(rows, step=\"cache_rows\")\n    return cached"
+    },
+    {
+      "endLine": 36,
+      "file": "pipeline/data.py",
+      "id": "ev-count-rows",
+      "line": 34,
+      "quote": "def count_rows(rows):\n    total = transform(rows, step=\"count_rows\")\n    return total"
+    },
+    {
+      "endLine": 6,
+      "file": "pipeline/features.py",
+      "id": "ev-select-columns",
+      "line": 4,
+      "quote": "def select_columns(rows):\n    columns = transform(rows, step=\"select_columns\")\n    return columns"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/features.py",
+      "id": "ev-fill-missing",
+      "line": 9,
+      "quote": "def fill_missing(columns):\n    filled = transform(columns, step=\"fill_missing\")\n    return filled"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/features.py",
+      "id": "ev-clip-values",
+      "line": 14,
+      "quote": "def clip_values(columns):\n    clipped = transform(columns, step=\"clip_values\")\n    return clipped"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/features.py",
+      "id": "ev-fit-scaler",
+      "line": 19,
+      "quote": "def fit_scaler(columns):\n    scaler = transform(columns, step=\"fit_scaler\")\n    return scaler"
+    },
+    {
+      "endLine": 26,
+      "file": "pipeline/features.py",
+      "id": "ev-apply-scaler",
+      "line": 24,
+      "quote": "def apply_scaler(columns):\n    scaled = transform(columns, step=\"apply_scaler\")\n    return scaled"
+    },
+    {
+      "endLine": 31,
+      "file": "pipeline/features.py",
+      "id": "ev-encode-labels",
+      "line": 29,
+      "quote": "def encode_labels(labels):\n    encoded = transform(labels, step=\"encode_labels\")\n    return encoded"
+    },
+    {
+      "endLine": 36,
+      "file": "pipeline/features.py",
+      "id": "ev-join-features",
+      "line": 34,
+      "quote": "def join_features(parts):\n    features = transform(parts, step=\"join_features\")\n    return features"
+    },
+    {
+      "endLine": 6,
+      "file": "pipeline/model.py",
+      "id": "ev-build-encoder",
+      "line": 4,
+      "quote": "def build_encoder(width):\n    encoder = transform(width, step=\"build_encoder\")\n    return encoder"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/model.py",
+      "id": "ev-build-head",
+      "line": 9,
+      "quote": "def build_head(classes):\n    head = transform(classes, step=\"build_head\")\n    return head"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/model.py",
+      "id": "ev-build-model",
+      "line": 14,
+      "quote": "def build_model(config):\n    model = transform(config, step=\"build_model\")\n    return model"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/model.py",
+      "id": "ev-init-weights",
+      "line": 19,
+      "quote": "def init_weights(model):\n    weights = transform(model, step=\"init_weights\")\n    return weights"
+    },
+    {
+      "endLine": 26,
+      "file": "pipeline/model.py",
+      "id": "ev-freeze-encoder",
+      "line": 24,
+      "quote": "def freeze_encoder(model):\n    frozen = transform(model, step=\"freeze_encoder\")\n    return frozen"
+    },
+    {
+      "endLine": 31,
+      "file": "pipeline/model.py",
+      "id": "ev-load-checkpoint",
+      "line": 29,
+      "quote": "def load_checkpoint(path):\n    state = transform(path, step=\"load_checkpoint\")\n    return state"
+    },
+    {
+      "endLine": 36,
+      "file": "pipeline/model.py",
+      "id": "ev-count-parameters",
+      "line": 34,
+      "quote": "def count_parameters(model):\n    size = transform(model, step=\"count_parameters\")\n    return size"
+    },
+    {
+      "endLine": 6,
+      "file": "pipeline/train.py",
+      "id": "ev-make-optimizer",
+      "line": 4,
+      "quote": "def make_optimizer(model):\n    optimizer = transform(model, step=\"make_optimizer\")\n    return optimizer"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/train.py",
+      "id": "ev-make-schedule",
+      "line": 9,
+      "quote": "def make_schedule(optimizer):\n    schedule = transform(optimizer, step=\"make_schedule\")\n    return schedule"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/train.py",
+      "id": "ev-forward-pass",
+      "line": 14,
+      "quote": "def forward_pass(batch):\n    outputs = transform(batch, step=\"forward_pass\")\n    return outputs"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/train.py",
+      "id": "ev-compute-loss",
+      "line": 19,
+      "quote": "def compute_loss(outputs):\n    loss = transform(outputs, step=\"compute_loss\")\n    return loss"
+    },
+    {
+      "endLine": 26,
+      "file": "pipeline/train.py",
+      "id": "ev-backward-pass",
+      "line": 24,
+      "quote": "def backward_pass(loss):\n    gradients = transform(loss, step=\"backward_pass\")\n    return gradients"
+    },
+    {
+      "endLine": 31,
+      "file": "pipeline/train.py",
+      "id": "ev-update-weights",
+      "line": 29,
+      "quote": "def update_weights(gradients):\n    step = transform(gradients, step=\"update_weights\")\n    return step"
+    },
+    {
+      "endLine": 36,
+      "file": "pipeline/train.py",
+      "id": "ev-train-epoch",
+      "line": 34,
+      "quote": "def train_epoch(batches):\n    epoch_loss = transform(batches, step=\"train_epoch\")\n    return epoch_loss"
+    },
+    {
+      "endLine": 41,
+      "file": "pipeline/train.py",
+      "id": "ev-fit",
+      "line": 39,
+      "quote": "def fit(config):\n    history = transform(config, step=\"fit\")\n    return history"
+    },
+    {
+      "endLine": 6,
+      "file": "pipeline/evaluate.py",
+      "id": "ev-predict-batch",
+      "line": 4,
+      "quote": "def predict_batch(batch):\n    predictions = transform(batch, step=\"predict_batch\")\n    return predictions"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/evaluate.py",
+      "id": "ev-score-batch",
+      "line": 9,
+      "quote": "def score_batch(predictions):\n    scores = transform(predictions, step=\"score_batch\")\n    return scores"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/evaluate.py",
+      "id": "ev-aggregate-scores",
+      "line": 14,
+      "quote": "def aggregate_scores(scores):\n    summary = transform(scores, step=\"aggregate_scores\")\n    return summary"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/evaluate.py",
+      "id": "ev-compare-with-baseline",
+      "line": 19,
+      "quote": "def compare_with_baseline(summary):\n    delta = transform(summary, step=\"compare_with_baseline\")\n    return delta"
+    },
+    {
+      "endLine": 26,
+      "file": "pipeline/evaluate.py",
+      "id": "ev-pick-threshold",
+      "line": 24,
+      "quote": "def pick_threshold(scores):\n    threshold = transform(scores, step=\"pick_threshold\")\n    return threshold"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-drop-empty-rows"
+      ],
+      "id": "finding-1",
+      "message": "Placeholder finding on drop empty rows. It states nothing about a real program.",
+      "nodeIds": [
+        "step-drop-empty-rows"
+      ],
+      "severity": "low",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 1"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-cache-rows"
+      ],
+      "edgeIds": [
+        "edge-02"
+      ],
+      "evidence": [
+        "ev-make-batches"
+      ],
+      "id": "finding-2",
+      "message": "Placeholder finding on make batches. It states nothing about a real program.",
+      "nodeIds": [
+        "step-make-batches"
+      ],
+      "severity": "medium",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 2"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "evidence": [],
+      "id": "group-1",
+      "kind": "group",
+      "label": "Test group 1",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "evidence": [],
+      "id": "group-2",
+      "kind": "group",
+      "label": "Test group 2",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "evidence": [],
+      "id": "group-3",
+      "kind": "group",
+      "label": "Test group 3",
+      "phase": "phase-5"
+    },
+    {
+      "basis": "observed",
+      "evidence": [],
+      "id": "group-4",
+      "kind": "group",
+      "label": "Test group 4",
+      "phase": "phase-7"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 1 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "step-read-rows",
+      "kind": "data",
+      "label": "Read rows",
+      "parent": "group-1",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 2 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-drop-empty-rows"
+      ],
+      "id": "step-drop-empty-rows",
+      "kind": "control",
+      "label": "Drop empty rows",
+      "parent": "group-1",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 3 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-shuffle-rows"
+      ],
+      "id": "step-shuffle-rows",
+      "kind": "state",
+      "label": "Shuffle rows",
+      "parent": "group-1",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 4 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-split-rows"
+      ],
+      "id": "step-split-rows",
+      "kind": "output",
+      "label": "Split rows",
+      "parent": "group-1",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 5 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-make-batches"
+      ],
+      "id": "step-make-batches",
+      "kind": "data",
+      "label": "Make batches",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 6 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-cache-rows"
+      ],
+      "id": "step-cache-rows",
+      "kind": "control",
+      "label": "Cache rows",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 7 of 34. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-count-rows"
+      ],
+      "id": "step-count-rows",
+      "kind": "state",
+      "label": "Count rows",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 8 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-select-columns"
+      ],
+      "id": "step-select-columns",
+      "kind": "output",
+      "label": "Select columns",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 9 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-fill-missing"
+      ],
+      "id": "step-fill-missing",
+      "kind": "data",
+      "label": "Fill missing",
+      "parent": "group-2",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 10 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-clip-values"
+      ],
+      "id": "step-clip-values",
+      "kind": "control",
+      "label": "Clip values",
+      "parent": "group-2",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 11 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-fit-scaler"
+      ],
+      "id": "step-fit-scaler",
+      "kind": "state",
+      "label": "Fit scaler",
+      "parent": "group-2",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 12 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-apply-scaler"
+      ],
+      "id": "step-apply-scaler",
+      "kind": "output",
+      "label": "Apply scaler",
+      "parent": "group-2",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 13 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-encode-labels"
+      ],
+      "id": "step-encode-labels",
+      "kind": "data",
+      "label": "Encode labels",
+      "phase": "phase-4"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 14 of 34. It cites pipeline/features.py.",
+      "evidence": [
+        "ev-join-features"
+      ],
+      "id": "step-join-features",
+      "kind": "control",
+      "label": "Join features",
+      "phase": "phase-4"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 15 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-build-encoder"
+      ],
+      "id": "step-build-encoder",
+      "kind": "state",
+      "label": "Build encoder",
+      "phase": "phase-4"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 16 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-build-head"
+      ],
+      "id": "step-build-head",
+      "kind": "output",
+      "label": "Build head",
+      "phase": "phase-4"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 17 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-build-model"
+      ],
+      "id": "step-build-model",
+      "kind": "data",
+      "label": "Build model",
+      "parent": "group-3",
+      "phase": "phase-5"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 18 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-init-weights"
+      ],
+      "id": "step-init-weights",
+      "kind": "control",
+      "label": "Init weights",
+      "parent": "group-3",
+      "phase": "phase-5"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 19 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-freeze-encoder"
+      ],
+      "id": "step-freeze-encoder",
+      "kind": "state",
+      "label": "Freeze encoder",
+      "parent": "group-3",
+      "phase": "phase-5"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 20 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-load-checkpoint"
+      ],
+      "id": "step-load-checkpoint",
+      "kind": "output",
+      "label": "Load checkpoint",
+      "phase": "phase-6"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 21 of 34. It cites pipeline/model.py.",
+      "evidence": [
+        "ev-count-parameters"
+      ],
+      "id": "step-count-parameters",
+      "kind": "data",
+      "label": "Count parameters",
+      "phase": "phase-6"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 22 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-make-optimizer"
+      ],
+      "id": "step-make-optimizer",
+      "kind": "control",
+      "label": "Make optimizer",
+      "phase": "phase-6"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 23 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-make-schedule"
+      ],
+      "id": "step-make-schedule",
+      "kind": "state",
+      "label": "Make schedule",
+      "phase": "phase-6"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 24 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-forward-pass"
+      ],
+      "id": "step-forward-pass",
+      "kind": "output",
+      "label": "Forward pass",
+      "phase": "phase-7"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 25 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-compute-loss"
+      ],
+      "id": "step-compute-loss",
+      "kind": "data",
+      "label": "Compute loss",
+      "parent": "group-4",
+      "phase": "phase-7"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 26 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-backward-pass"
+      ],
+      "id": "step-backward-pass",
+      "kind": "control",
+      "label": "Backward pass",
+      "parent": "group-4",
+      "phase": "phase-7"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 27 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-update-weights"
+      ],
+      "id": "step-update-weights",
+      "kind": "state",
+      "label": "Update weights",
+      "parent": "group-4",
+      "phase": "phase-7"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 28 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-train-epoch"
+      ],
+      "id": "step-train-epoch",
+      "kind": "output",
+      "label": "Train epoch",
+      "phase": "phase-8"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 29 of 34. It cites pipeline/train.py.",
+      "evidence": [
+        "ev-fit"
+      ],
+      "id": "step-fit",
+      "kind": "data",
+      "label": "Fit",
+      "phase": "phase-8"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 30 of 34. It cites pipeline/evaluate.py.",
+      "evidence": [
+        "ev-predict-batch"
+      ],
+      "id": "step-predict-batch",
+      "kind": "control",
+      "label": "Predict batch",
+      "phase": "phase-8"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 31 of 34. It cites pipeline/evaluate.py.",
+      "evidence": [
+        "ev-score-batch"
+      ],
+      "id": "step-score-batch",
+      "kind": "state",
+      "label": "Score batch",
+      "phase": "phase-8"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 32 of 34. It cites pipeline/evaluate.py.",
+      "evidence": [
+        "ev-aggregate-scores"
+      ],
+      "id": "step-aggregate-scores",
+      "kind": "output",
+      "label": "Aggregate scores",
+      "phase": "phase-9"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 33 of 34. It cites pipeline/evaluate.py.",
+      "evidence": [
+        "ev-compare-with-baseline"
+      ],
+      "id": "step-compare-with-baseline",
+      "kind": "data",
+      "label": "Compare with baseline",
+      "phase": "phase-9"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 34 of 34. It cites pipeline/evaluate.py.",
+      "evidence": [
+        "ev-pick-threshold"
+      ],
+      "id": "step-pick-threshold",
+      "kind": "control",
+      "label": "Pick threshold",
+      "phase": "phase-9"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "label": "Inputs"
+    },
+    {
+      "id": "phase-2",
+      "label": "Features"
+    },
+    {
+      "id": "phase-3",
+      "label": "Model"
+    },
+    {
+      "id": "phase-4",
+      "label": "Optimisation"
+    },
+    {
+      "id": "phase-5",
+      "label": "Training loop"
+    },
+    {
+      "id": "phase-6",
+      "label": "Evaluation"
+    },
+    {
+      "id": "phase-7",
+      "label": "Outputs"
+    },
+    {
+      "id": "phase-8",
+      "label": "Reporting"
+    },
+    {
+      "id": "phase-9",
+      "label": "Checks"
+    }
+  ],
+  "producer": {
+    "host": "unknown",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "pipeline/config.json",
+    "entrypoints": [
+      "pipeline/data.py"
+    ],
+    "question": "Generated test document for the validator tests. It does not describe a real program.",
+    "scope": "The generated files of contracts/conformance/documents/workspace."
+  },
+  "revision": {
+    "id": "d08-dense-r1"
+  },
+  "title": "Test document d08-dense: 38 steps, 72 connections",
+  "verification": {
+    "files": {
+      "pipeline/config.json": "060b94c17a3afb605be66984ce9a1771d0e26f6ee2b99fb03faef5d21d6c70d0",
+      "pipeline/data.py": "3239ea0d4a072d2e067902bc3d95fd5befec209f4365e1a9cb1495475d90ee33",
+      "pipeline/evaluate.py": "5eb6104f8a2599826eca3e19bf3a4ca0f4343b812077624d373ea141723e62ab",
+      "pipeline/features.py": "47d7c5764408b9cc7f4bfad960f6d706e5c886459429dac9175d1ed8877a6e1b",
+      "pipeline/model.py": "c05595799686d132e5b2c8e6a8f520ddca345819fc47e88dcca1418778dd5f73",
+      "pipeline/train.py": "7d06276264c95b633e6986e1547fff0a785cbced8c09c034507f95de145d3e4d"
+    },
+    "publishedAt": "2000-01-01T00:00:00Z"
+  },
+  "workflowVersion": "1.0"
+}

@@ -1,0 +1,1029 @@
+{
+ "tool": "mlview-layout-metrics",
+ "about": "Informational baseline of node tools/layout-metrics.mjs on the repo-held documents. No test compares a layout number with it; test/layout-metrics.test.mjs compares its document names and their step, connection, phase and finding counts with the tracked documents. Re-record with --write-baseline when a change moves the layout on purpose, and say so in the pull request.",
+ "policy": "W1",
+ "panels": {
+  "541": {
+   "panel": {
+    "w": 541,
+    "h": 798
+   },
+   "first": {
+    "w": 541,
+    "h": 708
+   },
+   "walk": {
+    "w": 541,
+    "h": 363
+   },
+   "covered": {
+    "x": 288,
+    "y": 323,
+    "w": 241,
+    "h": 28
+   }
+  },
+  "900": {
+   "panel": {
+    "w": 900,
+    "h": 800
+   },
+   "first": {
+    "w": 900,
+    "h": 710
+   },
+   "walk": {
+    "w": 900,
+    "h": 323
+   },
+   "covered": {
+    "x": 647,
+    "y": 283,
+    "w": 241,
+    "h": 28
+   }
+  },
+  "1440": {
+   "panel": {
+    "w": 1440,
+    "h": 900
+   },
+   "first": {
+    "w": 1080,
+    "h": 842
+   },
+   "walk": {
+    "w": 1080,
+    "h": 793
+   },
+   "covered": {
+    "x": 708,
+    "y": 649,
+    "w": 360,
+    "h": 132
+   }
+  }
+ },
+ "documents": {
+  "sample configured_training": {
+   "set": "repo sample",
+   "summary": {
+    "counts": {
+     "steps": 26,
+     "connections": 43,
+     "phases": 5,
+     "findings": 5,
+     "cards": 24,
+     "cables": 43
+    },
+    "frame": [
+     2226,
+     1589
+    ],
+    "crossings": 105,
+    "crossingsAtRest": 54,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.174,
+    "uncertain": {
+     "cables": 9,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 27,
+     "alwaysHidden": 16,
+     "atRest": 11,
+     "crossedByUnrelated": 3
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 2,
+      "walkAll": 16502,
+      "walkAllClaims": 74,
+      "walkNotObserved": 4080,
+      "walkNotObservedClaims": 15,
+      "uncertainFramable045": 7
+     },
+     "900": {
+      "firstViewCards": 8,
+      "walkAll": 12516,
+      "walkAllClaims": 74,
+      "walkNotObserved": 3112,
+      "walkNotObservedClaims": 15,
+      "uncertainFramable045": 9
+     },
+     "1440": {
+      "firstViewCards": 9,
+      "walkAll": 8292,
+      "walkAllClaims": 74,
+      "walkNotObserved": 2739,
+      "walkNotObservedClaims": 15,
+      "uncertainFramable045": 9
+     }
+    }
+   }
+  },
+  "sample image_classification": {
+   "set": "repo sample",
+   "summary": {
+    "counts": {
+     "steps": 35,
+     "connections": 55,
+     "phases": 6,
+     "findings": 12,
+     "cards": 32,
+     "cables": 55
+    },
+    "frame": [
+     2240,
+     2414
+    ],
+    "crossings": 129,
+    "crossingsAtRest": 86,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.246,
+    "uncertain": {
+     "cables": 14,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 41,
+     "alwaysHidden": 12,
+     "atRest": 29,
+     "crossedByUnrelated": 20
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 4,
+      "walkAll": 24103,
+      "walkAllClaims": 102,
+      "walkNotObserved": 9183,
+      "walkNotObservedClaims": 30,
+      "uncertainFramable045": 13
+     },
+     "900": {
+      "firstViewCards": 7,
+      "walkAll": 19790,
+      "walkAllClaims": 102,
+      "walkNotObserved": 6963,
+      "walkNotObservedClaims": 30,
+      "uncertainFramable045": 12
+     },
+     "1440": {
+      "firstViewCards": 7,
+      "walkAll": 16108,
+      "walkAllClaims": 102,
+      "walkNotObserved": 4903,
+      "walkNotObservedClaims": 30,
+      "uncertainFramable045": 14
+     }
+    }
+   }
+  },
+  "sample keras_tfdata": {
+   "set": "repo sample",
+   "summary": {
+    "counts": {
+     "steps": 20,
+     "connections": 38,
+     "phases": 4,
+     "findings": 6,
+     "cards": 19,
+     "cables": 38
+    },
+    "frame": [
+     1604,
+     1422
+    ],
+    "crossings": 86,
+    "crossingsAtRest": 51,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.181,
+    "uncertain": {
+     "cables": 18,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 31,
+     "alwaysHidden": 9,
+     "atRest": 22,
+     "crossedByUnrelated": 10
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 2,
+      "walkAll": 13761,
+      "walkAllClaims": 64,
+      "walkNotObserved": 6548,
+      "walkNotObservedClaims": 31,
+      "uncertainFramable045": 14
+     },
+     "900": {
+      "firstViewCards": 7,
+      "walkAll": 7727,
+      "walkAllClaims": 64,
+      "walkNotObserved": 2814,
+      "walkNotObservedClaims": 31,
+      "uncertainFramable045": 16
+     },
+     "1440": {
+      "firstViewCards": 10,
+      "walkAll": 4116,
+      "walkAllClaims": 64,
+      "walkNotObserved": 1793,
+      "walkNotObservedClaims": 31,
+      "uncertainFramable045": 18
+     }
+    }
+   }
+  },
+  "sample notebook_classifier": {
+   "set": "repo sample",
+   "summary": {
+    "counts": {
+     "steps": 19,
+     "connections": 24,
+     "phases": 5,
+     "findings": 7,
+     "cards": 18,
+     "cables": 24
+    },
+    "frame": [
+     1562,
+     1445
+    ],
+    "crossings": 21,
+    "crossingsAtRest": 17,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.013,
+    "uncertain": {
+     "cables": 5,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 21,
+     "alwaysHidden": 8,
+     "atRest": 13,
+     "crossedByUnrelated": 6
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 5,
+      "walkAll": 8541,
+      "walkAllClaims": 50,
+      "walkNotObserved": 2186,
+      "walkNotObservedClaims": 12,
+      "uncertainFramable045": 4
+     },
+     "900": {
+      "firstViewCards": 9,
+      "walkAll": 7125,
+      "walkAllClaims": 50,
+      "walkNotObserved": 1641,
+      "walkNotObservedClaims": 12,
+      "uncertainFramable045": 5
+     },
+     "1440": {
+      "firstViewCards": 11,
+      "walkAll": 3863,
+      "walkAllClaims": 50,
+      "walkNotObserved": 1759,
+      "walkNotObservedClaims": 12,
+      "uncertainFramable045": 5
+     }
+    }
+   }
+  },
+  "renderer-regression-48": {
+   "set": "synthetic (the geometry golden fixture)",
+   "summary": {
+    "counts": {
+     "steps": 48,
+     "connections": 64,
+     "phases": 8,
+     "findings": 2,
+     "cards": 40,
+     "cables": 54
+    },
+    "frame": [
+     854,
+     3464
+    ],
+    "crossings": 554,
+    "crossingsAtRest": 463,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.309,
+    "uncertain": {
+     "cables": 27,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 19
+    },
+    "labels": {
+     "alwaysOn": 54,
+     "alwaysHidden": 2,
+     "atRest": 52,
+     "crossedByUnrelated": 34
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 6,
+      "walkAll": 49807,
+      "walkAllClaims": 114,
+      "walkNotObserved": 30379,
+      "walkNotObservedClaims": 66,
+      "uncertainFramable045": 0
+     },
+     "900": {
+      "firstViewCards": 10,
+      "walkAll": 50546,
+      "walkAllClaims": 114,
+      "walkNotObserved": 30268,
+      "walkNotObservedClaims": 66,
+      "uncertainFramable045": 0
+     },
+     "1440": {
+      "firstViewCards": 10,
+      "walkAll": 34442,
+      "walkAllClaims": 114,
+      "walkNotObserved": 23734,
+      "walkNotObservedClaims": 66,
+      "uncertainFramable045": 13
+     }
+    }
+   }
+  },
+  "SHAPE_79_CLAIMS": {
+   "set": "synthetic (random connections)",
+   "summary": {
+    "counts": {
+     "steps": 31,
+     "connections": 41,
+     "phases": 6,
+     "findings": 7,
+     "cards": 29,
+     "cables": 41
+    },
+    "frame": [
+     1312,
+     2116
+    ],
+    "crossings": 371,
+    "crossingsAtRest": 122,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.601,
+    "uncertain": {
+     "cables": 3,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 41,
+     "alwaysHidden": 3,
+     "atRest": 38,
+     "crossedByUnrelated": 28
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 4,
+      "walkAll": 23710,
+      "walkAllClaims": 79,
+      "walkNotObserved": 1917,
+      "walkNotObservedClaims": 7,
+      "uncertainFramable045": 2
+     },
+     "900": {
+      "firstViewCards": 9,
+      "walkAll": 23633,
+      "walkAllClaims": 79,
+      "walkNotObserved": 1691,
+      "walkNotObservedClaims": 7,
+      "uncertainFramable045": 2
+     },
+     "1440": {
+      "firstViewCards": 13,
+      "walkAll": 12814,
+      "walkAllClaims": 79,
+      "walkNotObserved": 1638,
+      "walkNotObservedClaims": 7,
+      "uncertainFramable045": 3
+     }
+    }
+   }
+  },
+  "SHAPE_176_CLAIMS": {
+   "set": "synthetic (random connections)",
+   "summary": {
+    "counts": {
+     "steps": 59,
+     "connections": 113,
+     "phases": 4,
+     "findings": 4,
+     "cards": 57,
+     "cables": 111
+    },
+    "frame": [
+     2016,
+     3084
+    ],
+    "crossings": 2481,
+    "crossingsAtRest": 1410,
+    "cardHits": 10,
+    "cardHitCables": 2,
+    "unrelatedOverlap": 0.699,
+    "uncertain": {
+     "cables": 10,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 4
+    },
+    "labels": {
+     "alwaysOn": 111,
+     "alwaysHidden": 5,
+     "atRest": 106,
+     "crossedByUnrelated": 53
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 4,
+      "walkAll": 82899,
+      "walkAllClaims": 176,
+      "walkNotObserved": 9177,
+      "walkNotObservedClaims": 16,
+      "uncertainFramable045": 2
+     },
+     "900": {
+      "firstViewCards": 10,
+      "walkAll": 76550,
+      "walkAllClaims": 176,
+      "walkNotObserved": 8338,
+      "walkNotObservedClaims": 16,
+      "uncertainFramable045": 2
+     },
+     "1440": {
+      "firstViewCards": 11,
+      "walkAll": 61554,
+      "walkAllClaims": 176,
+      "walkNotObserved": 7066,
+      "walkNotObservedClaims": 16,
+      "uncertainFramable045": 8
+     }
+    }
+   }
+  },
+  "benchmark-120": {
+   "set": "synthetic (a chain over 8 phases)",
+   "summary": {
+    "counts": {
+     "steps": 120,
+     "connections": 125,
+     "phases": 8,
+     "findings": 12,
+     "cards": 120,
+     "cables": 125
+    },
+    "frame": [
+     1354,
+     3514
+    ],
+    "crossings": 347,
+    "crossingsAtRest": 237,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.706,
+    "uncertain": {
+     "cables": 11,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 125,
+     "alwaysHidden": 31,
+     "atRest": 94,
+     "crossedByUnrelated": 28
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 12,
+      "walkAll": 102016,
+      "walkAllClaims": 257,
+      "walkNotObserved": 11970,
+      "walkNotObservedClaims": 42,
+      "uncertainFramable045": 11
+     },
+     "900": {
+      "firstViewCards": 18,
+      "walkAll": 98904,
+      "walkAllClaims": 257,
+      "walkNotObserved": 11289,
+      "walkNotObservedClaims": 42,
+      "uncertainFramable045": 10
+     },
+     "1440": {
+      "firstViewCards": 24,
+      "walkAll": 73389,
+      "walkAllClaims": 257,
+      "walkNotObserved": 8451,
+      "walkNotObservedClaims": 42,
+      "uncertainFramable045": 11
+     }
+    }
+   }
+  },
+  "doc d01-minimal": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 4,
+     "connections": 3,
+     "phases": 3,
+     "findings": 0,
+     "cards": 4,
+     "cables": 3
+    },
+    "frame": [
+     624,
+     588
+    ],
+    "crossings": 0,
+    "crossingsAtRest": 0,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 0,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 3,
+     "alwaysHidden": 0,
+     "atRest": 3,
+     "crossedByUnrelated": 0
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 4,
+      "walkAll": 176,
+      "walkAllClaims": 7,
+      "walkNotObserved": 0,
+      "walkNotObservedClaims": 0,
+      "uncertainFramable045": 0
+     },
+     "900": {
+      "firstViewCards": 4,
+      "walkAll": 333,
+      "walkAllClaims": 7,
+      "walkNotObserved": 0,
+      "walkNotObservedClaims": 0,
+      "uncertainFramable045": 0
+     },
+     "1440": {
+      "firstViewCards": 4,
+      "walkAll": 0,
+      "walkAllClaims": 7,
+      "walkNotObserved": 0,
+      "walkNotObservedClaims": 0,
+      "uncertainFramable045": 0
+     }
+    }
+   }
+  },
+  "doc d02-notebook": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 7,
+     "connections": 6,
+     "phases": 4,
+     "findings": 3,
+     "cards": 7,
+     "cables": 6
+    },
+    "frame": [
+     624,
+     794
+    ],
+    "crossings": 0,
+    "crossingsAtRest": 0,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 1,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 6,
+     "alwaysHidden": 0,
+     "atRest": 6,
+     "crossedByUnrelated": 0
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 7,
+      "walkAll": 930,
+      "walkAllClaims": 16,
+      "walkNotObserved": 64,
+      "walkNotObservedClaims": 3,
+      "uncertainFramable045": 1
+     },
+     "900": {
+      "firstViewCards": 7,
+      "walkAll": 1048,
+      "walkAllClaims": 16,
+      "walkNotObserved": 257,
+      "walkNotObservedClaims": 3,
+      "uncertainFramable045": 1
+     },
+     "1440": {
+      "firstViewCards": 7,
+      "walkAll": 956,
+      "walkAllClaims": 16,
+      "walkNotObserved": 80,
+      "walkNotObservedClaims": 3,
+      "uncertainFramable045": 1
+     }
+    }
+   }
+  },
+  "doc d03-two-files": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 10,
+     "connections": 9,
+     "phases": 3,
+     "findings": 1,
+     "cards": 9,
+     "cables": 9
+    },
+    "frame": [
+     944,
+     665
+    ],
+    "crossings": 0,
+    "crossingsAtRest": 0,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 1,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 9,
+     "alwaysHidden": 2,
+     "atRest": 7,
+     "crossedByUnrelated": 0
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 6,
+      "walkAll": 1254,
+      "walkAllClaims": 20,
+      "walkNotObserved": 0,
+      "walkNotObservedClaims": 2,
+      "uncertainFramable045": 1
+     },
+     "900": {
+      "firstViewCards": 9,
+      "walkAll": 308,
+      "walkAllClaims": 20,
+      "walkNotObserved": 0,
+      "walkNotObservedClaims": 2,
+      "uncertainFramable045": 1
+     },
+     "1440": {
+      "firstViewCards": 9,
+      "walkAll": 391,
+      "walkAllClaims": 20,
+      "walkNotObserved": 0,
+      "walkNotObservedClaims": 2,
+      "uncertainFramable045": 1
+     }
+    }
+   }
+  },
+  "doc d04-loop": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 12,
+     "connections": 15,
+     "phases": 5,
+     "findings": 2,
+     "cards": 12,
+     "cables": 15
+    },
+    "frame": [
+     954,
+     991
+    ],
+    "crossings": 4,
+    "crossingsAtRest": 1,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0.026,
+    "uncertain": {
+     "cables": 3,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 15,
+     "alwaysHidden": 3,
+     "atRest": 12,
+     "crossedByUnrelated": 0
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 8,
+      "walkAll": 3546,
+      "walkAllClaims": 29,
+      "walkNotObserved": 1182,
+      "walkNotObservedClaims": 6,
+      "uncertainFramable045": 3
+     },
+     "900": {
+      "firstViewCards": 10,
+      "walkAll": 1827,
+      "walkAllClaims": 29,
+      "walkNotObserved": 825,
+      "walkNotObservedClaims": 6,
+      "uncertainFramable045": 3
+     },
+     "1440": {
+      "firstViewCards": 12,
+      "walkAll": 635,
+      "walkAllClaims": 29,
+      "walkNotObserved": 434,
+      "walkNotObservedClaims": 6,
+      "uncertainFramable045": 3
+     }
+    }
+   }
+  },
+  "doc d05-groups": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 16,
+     "connections": 21,
+     "phases": 4,
+     "findings": 4,
+     "cards": 12,
+     "cables": 21
+    },
+    "frame": [
+     976,
+     1039
+    ],
+    "crossings": 7,
+    "crossingsAtRest": 6,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 4,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 21,
+     "alwaysHidden": 5,
+     "atRest": 16,
+     "crossedByUnrelated": 4
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 6,
+      "walkAll": 5313,
+      "walkAllClaims": 41,
+      "walkNotObserved": 1422,
+      "walkNotObservedClaims": 8,
+      "uncertainFramable045": 4
+     },
+     "900": {
+      "firstViewCards": 9,
+      "walkAll": 2174,
+      "walkAllClaims": 41,
+      "walkNotObserved": 1157,
+      "walkNotObservedClaims": 8,
+      "uncertainFramable045": 4
+     },
+     "1440": {
+      "firstViewCards": 12,
+      "walkAll": 964,
+      "walkAllClaims": 41,
+      "walkNotObserved": 652,
+      "walkNotObservedClaims": 8,
+      "uncertainFramable045": 4
+     }
+    }
+   }
+  },
+  "doc d06-refinement": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 20,
+     "connections": 23,
+     "phases": 5,
+     "findings": 2,
+     "cards": 18,
+     "cables": 23
+    },
+    "frame": [
+     1232,
+     1184
+    ],
+    "crossings": 10,
+    "crossingsAtRest": 9,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 6,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 23,
+     "alwaysHidden": 5,
+     "atRest": 18,
+     "crossedByUnrelated": 0
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 6,
+      "walkAll": 5430,
+      "walkAllClaims": 45,
+      "walkNotObserved": 1267,
+      "walkNotObservedClaims": 10,
+      "uncertainFramable045": 6
+     },
+     "900": {
+      "firstViewCards": 9,
+      "walkAll": 2041,
+      "walkAllClaims": 45,
+      "walkNotObserved": 781,
+      "walkNotObservedClaims": 10,
+      "uncertainFramable045": 6
+     },
+     "1440": {
+      "firstViewCards": 15,
+      "walkAll": 1072,
+      "walkAllClaims": 45,
+      "walkNotObserved": 707,
+      "walkNotObservedClaims": 10,
+      "uncertainFramable045": 6
+     }
+    }
+   }
+  },
+  "doc d07-multi-file": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 28,
+     "connections": 41,
+     "phases": 6,
+     "findings": 2,
+     "cards": 25,
+     "cables": 41
+    },
+    "frame": [
+     1562,
+     1442
+    ],
+    "crossings": 25,
+    "crossingsAtRest": 24,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 8,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 41,
+     "alwaysHidden": 8,
+     "atRest": 33,
+     "crossedByUnrelated": 0
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 5,
+      "walkAll": 13552,
+      "walkAllClaims": 71,
+      "walkNotObserved": 4276,
+      "walkNotObservedClaims": 13,
+      "uncertainFramable045": 6
+     },
+     "900": {
+      "firstViewCards": 9,
+      "walkAll": 4586,
+      "walkAllClaims": 71,
+      "walkNotObserved": 1951,
+      "walkNotObservedClaims": 13,
+      "uncertainFramable045": 7
+     },
+     "1440": {
+      "firstViewCards": 13,
+      "walkAll": 3340,
+      "walkAllClaims": 71,
+      "walkNotObserved": 1735,
+      "walkNotObservedClaims": 13,
+      "uncertainFramable045": 8
+     }
+    }
+   }
+  },
+  "doc d08-dense": {
+   "set": "generated test document",
+   "summary": {
+    "counts": {
+     "steps": 38,
+     "connections": 72,
+     "phases": 9,
+     "findings": 2,
+     "cards": 34,
+     "cables": 72
+    },
+    "frame": [
+     1274,
+     2420
+    ],
+    "crossings": 40,
+    "crossingsAtRest": 26,
+    "cardHits": 0,
+    "cardHitCables": 0,
+    "unrelatedOverlap": 0,
+    "uncertain": {
+     "cables": 21,
+     "hiddenHalf": 0,
+     "inTrunk": 0,
+     "drawnOn": 0
+    },
+    "labels": {
+     "alwaysOn": 72,
+     "alwaysHidden": 23,
+     "atRest": 49,
+     "crossedByUnrelated": 2
+    },
+    "perPanel": {
+     "541": {
+      "firstViewCards": 4,
+      "walkAll": 21603,
+      "walkAllClaims": 112,
+      "walkNotObserved": 4616,
+      "walkNotObservedClaims": 27,
+      "uncertainFramable045": 21
+     },
+     "900": {
+      "firstViewCards": 7,
+      "walkAll": 9686,
+      "walkAllClaims": 112,
+      "walkNotObserved": 2779,
+      "walkNotObservedClaims": 27,
+      "uncertainFramable045": 21
+     },
+     "1440": {
+      "firstViewCards": 12,
+      "walkAll": 4796,
+      "walkAllClaims": 112,
+      "walkNotObserved": 1894,
+      "walkNotObservedClaims": 27,
+      "uncertainFramable045": 21
+     }
+    }
+   }
+  }
+ }
+}

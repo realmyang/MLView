@@ -1,0 +1,134 @@
+{
+  "name": "mlview",
+  "displayName": "MLView",
+  "description": "Open ML workflow diagrams written by your coding assistant: interactive, and linked to the source lines they cite.",
+  "version": "0.4.0",
+  "publisher": "mlview",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "preview": true,
+  "galleryBanner": {
+    "color": "#0E1420",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realmyang/MLView.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/realmyang/MLView/issues"
+  },
+  "homepage": "https://github.com/realmyang/MLView#readme",
+  "extensionKind": ["workspace"],
+  "engines": {
+    "vscode": "^1.100.0",
+    "node": ">=20.18.1"
+  },
+  "categories": ["Visualization", "Machine Learning"],
+  "keywords": ["machine-learning", "visualization", "llm", "workflow"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onWebviewPanel:mlview.authoredDiagram",
+    "workspaceContains:**/*.mlview.json"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "MLView reads diagram files and the source files they cite from the local disk."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "mlview.openGeneratedDiagram",
+        "title": "Open Generated Diagram",
+        "category": "MLView",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "mlview.revealInDiagram",
+        "title": "Reveal in Diagram",
+        "category": "MLView"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "mlview.diagram",
+        "displayName": "MLView Diagram",
+        "selector": [
+          {
+            "filenamePattern": "*.mlview.json"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "mlview.revealInDiagram",
+          "when": "resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mlview.openGeneratedDiagram",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/",
+          "group": "mlview@0"
+        },
+        {
+          "command": "mlview.revealInDiagram",
+          "when": "resourceScheme =~ /^(file|vscode-notebook-cell)$/ && resourcePath in mlview.citedFiles",
+          "group": "mlview@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "mlview.openGeneratedDiagram",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/ && activeEditor == workbench.editors.files.textFileEditor",
+          "group": "navigation@99"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "mlview.openGeneratedDiagram",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/ && !explorerResourceIsFolder",
+          "group": "navigation@99"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node tools/sync-notices.mjs && node esbuild.mjs",
+    "watch": "node tools/sync-notices.mjs && node esbuild.mjs --watch",
+    "check": "tsc --noEmit",
+    "pretest": "node tools/sync-notices.mjs --check && node esbuild.mjs",
+    "test": "node tools/run-tests.mjs",
+    "vscode:prepublish": "node tools/sync-notices.mjs && node esbuild.mjs --production",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.30",
+    "@types/vscode": "1.100.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@azure/abort-controller": "2.1.2",
+    "@azure/core-auth": "1.10.1",
+    "@azure/core-client": "1.10.1",
+    "@azure/core-rest-pipeline": "1.22.1",
+    "@azure/core-tracing": "1.3.0",
+    "@azure/core-util": "1.13.1",
+    "@azure/identity": "4.12.0",
+    "@azure/logger": "1.3.0",
+    "@typespec/ts-http-runtime": "0.3.1",
+    "cheerio": "1.0.0",
+    "uuid": "11.1.1"
+  }
+}

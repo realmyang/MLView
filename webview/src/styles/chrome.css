@@ -1,0 +1,629 @@
+/*
+ * The header row, the ... menu, the search box and the status bar. The phase index
+ * is in overview.css.
+ *
+ * The first of three `chrome*.css` layers: the toasts and the empty states
+ * are in `chromestates.css`, the sheet and legend in `chromepanels.css`.
+ * They concatenate in that order (build.mjs).
+ */
+
+/*
+ * ONE row, about 36 px, that never wraps (ui/chrome.ts). The title gives up its width first, with
+ * an ellipsis; what else stays depends on `data-layout`, which the App sets from the panel's
+ * width: full >= 1200 px, wide >= 1000, mid >= 620, narrow below (`HEADER_BREAKPOINTS` in
+ * ui/chrome.ts). Hidden controls are in the ... menu, so nothing is lost, only moved.
+ * When the controls still do not fit (two-digit counts, an open search field, a very narrow
+ * panel), `Chrome.fitRow` folds more and says how much in `data-fit`.
+ */
+.mlv-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  flex: none;
+  min-width: 0;
+  height: var(--mlv-header-h);
+  padding: 0 var(--mlv-s4) 0 var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+  white-space: nowrap;
+}
+
+.mlv-header__title {
+  flex: 0 1 auto;
+  min-width: 48px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  line-height: 1.3;
+}
+
+.mlv-header__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  flex: 1 0 auto;
+  min-width: 0;
+}
+
+.mlv-header__spacer {
+  flex: 1 1 0;
+  min-width: var(--mlv-s2);
+}
+
+/* Provenance: host · revision, with a dot that turns amber only for stale evidence. */
+.mlv-header__prov {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 38ch;
+  height: 22px;
+  gap: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-regular);
+  background: transparent;
+}
+
+.mlv-header__prov:hover {
+  color: var(--mlv-text);
+  border-color: var(--mlv-border-strong);
+}
+
+.mlv-header__prov[aria-expanded="true"] {
+  color: var(--mlv-text);
+  border-color: var(--mlv-border-strong);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-header__rev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-header__host {
+  flex: none;
+}
+
+.mlv-header__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mlv-text-3);
+  opacity: 0.6;
+}
+
+/* Colour only for a problem: a stale cited file. The words are in the tooltip and the name. */
+.mlv-header__prov[data-stale="true"] .mlv-header__dot {
+  background: var(--mlv-stale-ink);
+  opacity: 1;
+}
+
+/* The severity toggles and "N not observed": plain counts in the text colour, glyphs carry hue. */
+.mlv-header .mlv-chip--btn {
+  height: 24px;
+  gap: var(--mlv-s2);
+  padding: 0 var(--mlv-s3);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+}
+
+.mlv-header .mlv-chip--btn:hover {
+  background: var(--mlv-surface-2);
+}
+
+/* "7 not observed (…)" — a toggle; plain text in the text colour, no hue. */
+.mlv-chip--exceptions {
+  white-space: nowrap;
+}
+
+.mlv-chip--exceptions[hidden] {
+  display: none;
+}
+
+.mlv-chip--exceptions .mlv-uicon {
+  color: var(--mlv-text-2);
+}
+
+/* A toggle, not a filter: off is the normal state, never struck through or dashed (base.css). */
+.mlv-chip--exceptions[aria-pressed="false"] {
+  border-style: solid;
+  border-color: var(--mlv-border);
+  text-decoration: none;
+}
+
+.mlv-chip--exceptions[aria-pressed="true"] {
+  border-color: var(--mlv-text-2);
+  color: var(--mlv-text);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-chip--exceptions .mlv-chip__detail {
+  color: var(--mlv-text-2);
+}
+
+/* "findings" after the severity toggles, the unit of their numbers. */
+.mlv-header__unit {
+  flex: none;
+  margin-left: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+/* The row folded its title to fit (data-fit 3 and 4): it stays the document's h1 for a screen
+ * reader, out of the row. */
+.mlv-header[data-fit="3"] .mlv-header__title,
+.mlv-header[data-fit="4"] .mlv-header__title {
+  position: absolute;
+  width: 1px;
+  min-width: 0;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.mlv-header .mlv-btn--icon {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-header .mlv-btn--icon:hover,
+.mlv-header .mlv-btn--icon[aria-expanded="true"] {
+  border-color: transparent;
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+}
+
+.mlv-header__refine {
+  display: inline-flex;
+  flex: none;
+}
+
+.mlv-header .mlv-workflow__refine {
+  height: 24px;
+  min-height: 0;
+  padding: 0 var(--mlv-s4);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-header__searchbtn {
+  display: none;
+}
+
+/* Before the layout rules below, which hide it: a later rule of the same weight would win in a
+ * cascade that ignores specificity (jsdom's, which the tests use). */
+.mlv-search {
+  display: flex;
+  align-items: center;
+  flex: 0 1 260px;
+  min-width: 150px;
+  height: 24px;
+}
+
+/* mid: search behind an icon until opened; the chip shows the revision only. */
+.mlv-header[data-layout="mid"] .mlv-header__host,
+.mlv-header[data-layout="narrow"] .mlv-header__host {
+  display: none;
+}
+
+.mlv-header[data-layout="mid"][data-search="closed"] .mlv-search {
+  display: none;
+}
+
+.mlv-header[data-layout="mid"][data-search="closed"] .mlv-header__searchbtn {
+  display: inline-flex;
+}
+
+/* narrow: the title, severity, "not observed", ... and Refine… stay; search and the revision
+ * are in the ... menu. An open search takes the title's place. */
+.mlv-header[data-layout="narrow"] .mlv-header__prov,
+.mlv-header[data-layout="narrow"][data-search="closed"] .mlv-search {
+  display: none;
+}
+
+.mlv-header[data-layout="narrow"][data-search="open"] .mlv-header__title {
+  display: none;
+}
+
+.mlv-header[data-layout="narrow"][data-search="open"] .mlv-header__spacer {
+  display: none;
+}
+
+.mlv-header[data-layout="narrow"] .mlv-search {
+  flex: 1 1 auto;
+  min-width: 96px;
+}
+
+/* The tightest rows (data-fit 3 and 4) close up the gaps. */
+.mlv-header[data-fit="3"],
+.mlv-header[data-fit="4"] {
+  gap: var(--mlv-s2);
+  padding: 0 var(--mlv-s3);
+}
+
+.mlv-header[data-fit="3"] .mlv-header__bar,
+.mlv-header[data-fit="4"] .mlv-header__bar {
+  gap: var(--mlv-s2);
+}
+
+.mlv-search__glyph {
+  position: relative;
+  left: 22px;
+  margin-left: -16px;
+  color: var(--mlv-text-3);
+  pointer-events: none;
+}
+
+.mlv-search .mlv-input {
+  flex: 1 1 auto;
+  height: 24px;
+  padding-left: 26px;
+}
+
+/*
+ * The results drop from the header's right edge (`.mlv-search` is not positioned, so `.mlv-header`
+ * is the containing block), always inside the panel: a list anchored on the field's left edge
+ * could run off the right side.
+ */
+.mlv-search__results {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: var(--mlv-s4);
+  z-index: 50;
+  width: min(460px, calc(100% - 2 * var(--mlv-s4)));
+  max-height: min(380px, 60vh);
+  overflow-y: auto;
+  padding: var(--mlv-s2);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+  list-style: none;
+  margin: 0;
+  white-space: normal;
+}
+
+.mlv-search__results[hidden] {
+  display: none;
+}
+
+/* "12 matches: 9 steps, 3 findings" above the rows. */
+.mlv-result__count {
+  padding: var(--mlv-s2) var(--mlv-s4) var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Two lines: the title first (up to two lines), then the location, cut from its start. */
+.mlv-result {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: var(--mlv-s3);
+  row-gap: 1px;
+  align-items: start;
+  width: 100%;
+  padding: var(--mlv-s3) var(--mlv-s4);
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-result > .mlv-sev-glyph,
+.mlv-result > svg {
+  grid-column: 1;
+  margin-top: 2px;
+}
+
+.mlv-result:hover,
+.mlv-result[aria-selected="true"] {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-result__label {
+  grid-column: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--mlv-fs-12);
+  line-height: 1.35;
+}
+
+.mlv-result__meta {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-result__jump {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.mlv-result__empty {
+  padding: var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+/* The ... menu: a VS Code-style context menu, mounted on the app root (ui/moremenu.ts). */
+.mlv-moremenu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: var(--mlv-s2);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--vscode-menu-background, var(--mlv-surface));
+  box-shadow: var(--mlv-sh-3);
+  color: var(--vscode-menu-foreground, var(--mlv-text));
+}
+
+.mlv-moremenu[hidden],
+.mlv-moremenu__item[hidden],
+.mlv-moremenu__sep[hidden] {
+  display: none;
+}
+
+.mlv-moremenu__sep {
+  height: 1px;
+  margin: var(--mlv-s2) var(--mlv-s3);
+  background: var(--vscode-menu-separatorBackground, var(--mlv-border));
+}
+
+.mlv-moremenu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  width: 100%;
+  min-height: 26px;
+  padding: 2px var(--mlv-s4);
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--mlv-fs-12);
+  text-align: left;
+}
+
+.mlv-moremenu__item .mlv-uicon {
+  color: var(--mlv-text-2);
+}
+
+.mlv-moremenu__item:hover,
+.mlv-moremenu__item:focus-visible {
+  background: var(--vscode-menu-selectionBackground, var(--mlv-surface-2));
+  color: var(--vscode-menu-selectionForeground, var(--mlv-text));
+  outline-offset: -2px;
+}
+
+.mlv-moremenu__item[disabled] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.mlv-moremenu__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A checked toggle: a check mark drawn in the text colour (not a success mark). */
+.mlv-moremenu__item[role="menuitemcheckbox"]::after {
+  content: "";
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+
+.mlv-moremenu__item[aria-checked="true"]::after {
+  content: "\2713";
+}
+
+.mlv-moremenu__keys {
+  flex: none;
+  color: var(--mlv-text-2);
+  font-family: inherit;
+  font-size: var(--mlv-fs-11);
+}
+
+/* The phase index's item says why the index is not shown, on a second line in the
+ * secondary text colour, so the disabled item keeps readable text (no fade) and its check mark
+ * stays on the first line. */
+.mlv-moremenu__item[data-more-item="phaseindex"] {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.mlv-moremenu__item[data-more-item="phaseindex"]::after {
+  order: 2;
+}
+
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled] {
+  opacity: 1;
+}
+
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled] .mlv-moremenu__label,
+.mlv-moremenu__note {
+  color: var(--mlv-text-2);
+}
+
+.mlv-moremenu__note {
+  order: 3;
+  flex: 1 0 100%;
+  padding-left: calc(14px + var(--mlv-s4));
+  font-size: var(--mlv-fs-11);
+  white-space: normal;
+}
+
+.mlv-moremenu__note[hidden] {
+  display: none;
+}
+
+/* On a hovered or focused item the icon, key hint and note take the item's colour
+ * (menu.selectionForeground). VS Code's menu.selectionBackground is a solid blue in Dark Modern,
+ * Dark+, Light Modern and Light+, where no grey reaches 4.5:1; test/muted-text.test.mjs checks
+ * these items. */
+.mlv-moremenu__item:hover .mlv-uicon,
+.mlv-moremenu__item:hover .mlv-moremenu__keys,
+.mlv-moremenu__item:hover .mlv-moremenu__note,
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled]:hover .mlv-moremenu__label,
+.mlv-moremenu__item:focus-visible .mlv-uicon,
+.mlv-moremenu__item:focus-visible .mlv-moremenu__keys,
+.mlv-moremenu__item:focus-visible .mlv-moremenu__note,
+.mlv-moremenu__item[data-more-item="phaseindex"][disabled]:focus-visible .mlv-moremenu__label {
+  color: inherit;
+}
+
+/* The key hint is a <kbd>, which VS Code's default webview stylesheet paints with
+ * keybindingLabel.background, a translucent grey in Light Modern and Light+. Over the solid blue
+ * selection it lightens the blue under the white glyphs below 4.5:1. On a hovered or focused item
+ * the key cap keeps its outline, in the item's colour, and drops its fill, so the hint sits on the
+ * selection colour itself. */
+.mlv-moremenu__item:hover .mlv-moremenu__keys,
+.mlv-moremenu__item:focus-visible .mlv-moremenu__keys {
+  border-color: currentColor;
+  background: transparent;
+}
+
+/* A box for a quote's lines: the monospace font, line breaks kept, at most 120 px with its own scroll. */
+.mlv-banner__detail {
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow: auto;
+}
+
+/*
+ * The status bar: counts, coverage, freshness and zoom, on one line that never wraps. Each item
+ * gives up width with an ellipsis; a stale-file warning never does.
+ */
+.mlv-status {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s5);
+  flex: none;
+  min-width: 0;
+  height: var(--mlv-status-h);
+  padding: 0 var(--mlv-s3) 0 var(--mlv-s5);
+  border-top: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mlv-status__counts {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-status__coverage {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 18px;
+  padding: 0 var(--mlv-s2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.mlv-status__coverage[hidden] {
+  display: none;
+}
+
+.mlv-status__coverage:hover,
+.mlv-status__coverage[aria-expanded="true"] {
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+}
+
+.mlv-status__spacer {
+  flex: 1 1 0;
+}
+
+.mlv-status__freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mlv-status__fresh {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-status__fresh.is-warn {
+  flex: none;
+}
+
+/*
+ * A stale-file warning ("1 of 18 cited files changed") is never cut: it keeps its width, and in a
+ * narrow status bar the coverage item gives way first, then the counts.
+ */
+.mlv-status__freshness[data-stale="true"] {
+  flex: none;
+}
+
+.mlv-status[data-layout="narrow"] .mlv-status__coverage {
+  flex-shrink: 1000;
+}
+
+.mlv-status[data-layout="narrow"] .mlv-status__counts {
+  flex-shrink: 1;
+}
+
+/* Narrow, the zoom keeps its readout and drops its buttons; + and - (and the wheel) still zoom. */
+.mlv-status[data-layout="narrow"] {
+  gap: var(--mlv-s4);
+}
+
+.mlv-status[data-layout="narrow"] .mlv-zoom__btn {
+  display: none;
+}
+

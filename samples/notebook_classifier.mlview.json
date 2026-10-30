@@ -1,0 +1,812 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "samples/notebook_classifier/train.ipynb"
+    ],
+    "limitations": [
+      "Not inspected: features.npz (not present in the workspace); feature count, dtypes and label values are unresolved, so the dtype/shape failure is conditional.",
+      "Not inspected: PyTorch and scikit-learn source (external libraries); gradient accumulation without zero_grad, in-place parameter updates by Adam, dtype preservation by torch.tensor and StandardScaler, and CrossEntropyLoss label requirements are taken from documented framework behaviour and marked inferred.",
+      "Not inspected: actual run results (the notebook was read, not executed); saved outputs are empty and execution counts may be stale."
+    ],
+    "status": "scoped",
+    "summary": "All four code cells of train.ipynb traced in document order, from np.load of features.npz through scaling, the split, model/loss/optimizer/loader construction, and the single-pass training loop. Raw notebook metadata was also read: execution counts 1, 3, 2, 4, empty outputs, and a python3 kernelspec (Python 3.11.0). The counts are treated as recorded history only. The notebook was not executed."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-imports",
+        "ev-magics"
+      ],
+      "id": "e-imports-magics",
+      "kind": "control",
+      "label": "next cell",
+      "source": "imports",
+      "target": "magics"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-magics",
+        "ev-load"
+      ],
+      "id": "e-magics-load",
+      "kind": "control",
+      "label": "same cell, next lines",
+      "source": "magics",
+      "target": "load"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-load"
+      ],
+      "id": "e-npz-load",
+      "kind": "data",
+      "label": "np.load(\"features.npz\")",
+      "source": "npz",
+      "target": "load"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-load",
+        "ev-scale"
+      ],
+      "id": "e-load-scaler",
+      "kind": "data",
+      "label": "X (all rows)",
+      "source": "load",
+      "target": "scaler"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-scale",
+        "ev-split"
+      ],
+      "id": "e-scaler-split",
+      "kind": "data",
+      "label": "X_scaled",
+      "source": "scaler",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-load",
+        "ev-split"
+      ],
+      "id": "e-load-split",
+      "kind": "data",
+      "label": "y",
+      "source": "load",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split"
+      ],
+      "id": "e-split-test",
+      "kind": "data",
+      "label": "20%: X_test, y_test",
+      "source": "split",
+      "target": "test-split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split",
+        "ev-loader"
+      ],
+      "id": "e-split-loader",
+      "kind": "data",
+      "label": "80%: X_train, y_train",
+      "source": "split",
+      "target": "loader"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-loader"
+      ],
+      "id": "e-loader-dtypes",
+      "kind": "state",
+      "label": "torch.tensor keeps NumPy dtype",
+      "source": "loader",
+      "target": "dtypes"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-forward",
+        "ev-model"
+      ],
+      "id": "e-dtypes-forward",
+      "kind": "state",
+      "label": "float64 input vs float32 weights would raise at the first batch",
+      "source": "dtypes",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-loader",
+        "ev-forward"
+      ],
+      "id": "e-loader-forward",
+      "kind": "data",
+      "label": "shuffled batches of 32 features",
+      "source": "loader",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward"
+      ],
+      "id": "e-loader-loss",
+      "kind": "data",
+      "label": "batch labels",
+      "source": "loader",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-model",
+        "ev-forward"
+      ],
+      "id": "e-model-forward",
+      "kind": "call",
+      "label": "model object",
+      "source": "model",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-optimizer"
+      ],
+      "id": "e-model-optimizer",
+      "kind": "state",
+      "label": "model.parameters()",
+      "source": "model",
+      "target": "optimizer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward"
+      ],
+      "id": "e-forward-loss",
+      "kind": "data",
+      "label": "logits (batch x 3)",
+      "source": "forward",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-criterion",
+        "ev-forward"
+      ],
+      "id": "e-criterion-loss",
+      "kind": "call",
+      "label": "criterion",
+      "source": "criterion",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-update"
+      ],
+      "id": "e-loss-backward",
+      "kind": "data",
+      "label": "batch-mean loss",
+      "source": "loss",
+      "target": "backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backstep"
+      ],
+      "id": "e-backward-grads",
+      "kind": "state",
+      "label": "adds this batch's gradient to .grad",
+      "source": "backward",
+      "target": "grads"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backstep"
+      ],
+      "id": "e-grads-step",
+      "kind": "state",
+      "label": "running sum of all gradients so far",
+      "source": "grads",
+      "target": "step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-optimizer",
+        "ev-backstep"
+      ],
+      "id": "e-optimizer-step",
+      "kind": "call",
+      "label": "Adam object (moment state persists)",
+      "source": "optimizer",
+      "target": "step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backstep",
+        "ev-optimizer"
+      ],
+      "id": "e-step-model",
+      "kind": "state",
+      "label": "in-place update of Linear weight and bias",
+      "source": "step",
+      "target": "model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-update"
+      ],
+      "id": "e-next-batch",
+      "kind": "loop",
+      "label": "next batch: same model, optimizer and .grad buffers carried over",
+      "source": "step",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-loop"
+      ],
+      "id": "e-loop-done",
+      "kind": "control",
+      "label": "loader exhausted after one pass",
+      "source": "batch-loop",
+      "target": "final"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-update"
+      ],
+      "id": "e-model-final",
+      "kind": "output",
+      "label": "final weights (not evaluated or saved)",
+      "source": "model",
+      "target": "final"
+    }
+  ],
+  "evidence": [
+    {
+      "cell": 0,
+      "endLine": 7,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-imports",
+      "line": 1,
+      "quote": "import numpy as np\nimport torch\nimport torch.nn as nn\nimport torch.optim as optim\nfrom torch.utils.data import DataLoader, TensorDataset\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.preprocessing import StandardScaler"
+    },
+    {
+      "cell": 1,
+      "endLine": 2,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-magics",
+      "line": 1,
+      "quote": "%matplotlib inline\n!pip install --quiet scikit-learn"
+    },
+    {
+      "cell": 1,
+      "endLine": 5,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-load",
+      "line": 3,
+      "quote": "raw = np.load(\"features.npz\")\nX = raw[\"features\"]\ny = raw[\"labels\"]"
+    },
+    {
+      "cell": 2,
+      "endLine": 2,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-scale",
+      "line": 1,
+      "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)"
+    },
+    {
+      "cell": 2,
+      "endLine": 4,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-split",
+      "line": 3,
+      "quote": "X_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+    },
+    {
+      "cell": 3,
+      "endLine": 1,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-model",
+      "line": 1,
+      "quote": "model = nn.Sequential(nn.Linear(10, 3))"
+    },
+    {
+      "cell": 3,
+      "endLine": 2,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-criterion",
+      "line": 2,
+      "quote": "criterion = nn.CrossEntropyLoss()"
+    },
+    {
+      "cell": 3,
+      "endLine": 3,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-optimizer",
+      "line": 3,
+      "quote": "optimizer = optim.Adam(model.parameters(), lr=0.001)"
+    },
+    {
+      "cell": 3,
+      "endLine": 5,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-loader",
+      "line": 4,
+      "quote": "ds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))\ntrain_loader = DataLoader(ds, batch_size=32, shuffle=True)"
+    },
+    {
+      "cell": 3,
+      "endLine": 6,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-loop",
+      "line": 6,
+      "quote": "for features, labels in train_loader:"
+    },
+    {
+      "cell": 3,
+      "endLine": 8,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-forward",
+      "line": 6,
+      "quote": "for features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-backstep",
+      "line": 9,
+      "quote": "    loss.backward()\n    optimizer.step()"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "samples/notebook_classifier/train.ipynb",
+      "id": "ev-update",
+      "line": 6,
+      "quote": "for features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)\n    loss.backward()\n    optimizer.step()"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-backward-grads",
+        "e-grads-step"
+      ],
+      "evidence": [
+        "ev-update",
+        "ev-optimizer"
+      ],
+      "id": "f-no-zero-grad",
+      "message": "Cell 3 calls loss.backward() and optimizer.step() on every batch but never resets gradients. PyTorch accumulates into .grad, so from the second batch on, Adam steps on the running sum of every gradient seen so far, each computed at older weights, instead of on the current batch's gradient. Adam's per-parameter normalisation keeps the step size bounded, but the step direction is dominated by stale history. Training runs without any error and silently follows the wrong update rule. Search boundary: all four cells of train.ipynb contain no zero_grad call (optimizer or model) and no .grad reset.",
+      "nodeIds": [
+        "backward",
+        "grads",
+        "step"
+      ],
+      "severity": "high",
+      "suggestion": "Call optimizer.zero_grad() at the top of the loop body, before outputs = model(features).",
+      "title": "Gradients are never zeroed, so each step uses the sum of all previous batch gradients"
+    },
+    {
+      "basis": "observed",
+      "edgeIds": [
+        "e-scaler-split"
+      ],
+      "evidence": [
+        "ev-scale",
+        "ev-split"
+      ],
+      "id": "f-scaler-leak",
+      "message": "scaler.fit_transform(X) runs on the full dataset, then train_test_split divides X_scaled. The mean and standard deviation applied to the training data therefore include the 20% test rows, and any evaluation on X_test could be optimistic. Trigger: this has no effect on the current notebook, which never reads X_test, but it becomes leakage as soon as a test evaluation is added. Search boundary: no other scaler fit or transform exists in the four cells.",
+      "nodeIds": [
+        "scaler",
+        "split",
+        "test-split"
+      ],
+      "severity": "medium",
+      "suggestion": "Split X first, then call scaler.fit_transform(X_train) and scaler.transform(X_test).",
+      "title": "StandardScaler is fit on all rows before the train/test split"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-dtypes-forward"
+      ],
+      "evidence": [
+        "ev-loader",
+        "ev-scale",
+        "ev-model",
+        "ev-criterion"
+      ],
+      "id": "f-dtype-shape",
+      "message": "torch.tensor(X_train) keeps the NumPy dtype. StandardScaler produces float64 unless the input is already float32, and nn.Linear weights are float32, so model(features) would raise a dtype-mismatch RuntimeError at the first batch. CrossEntropyLoss also expects int64 class indices, so int32 or float labels would fail or be misinterpreted. nn.Linear(10, 3) also requires exactly 10 feature columns and labels in 0..2. Trigger: features.npz stores float64 or integer features (the NumPy default), non-int64 labels, a feature count other than 10, or more than 3 classes. Search boundary: no .float(), .long(), astype or dtype= anywhere in the notebook; features.npz is not in the workspace, so the actual dtypes and shapes are unresolved.",
+      "nodeIds": [
+        "dtypes",
+        "loader",
+        "model",
+        "npz"
+      ],
+      "severity": "medium",
+      "suggestion": "Use torch.tensor(X_train, dtype=torch.float32) and torch.tensor(y_train, dtype=torch.long), and build the layer as nn.Linear(X.shape[1], len(np.unique(y))).",
+      "title": "Tensor dtypes and hard-coded sizes likely make the first forward or loss call fail"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-loop-done"
+      ],
+      "evidence": [
+        "ev-loop",
+        "ev-optimizer",
+        "ev-loader"
+      ],
+      "id": "f-single-epoch",
+      "message": "There is no epoch loop, so the model gets one Adam step per batch of 32, about 0.8*N/32 steps at lr=0.001. Unless the dataset is large, this is likely to leave the classifier undertrained, and the notebook reports nothing that would reveal it. Trigger: a dataset of modest size, where a few hundred or fewer small Adam steps do not converge. Search boundary: cell 3 is the only training code and has no outer loop.",
+      "nodeIds": [
+        "batch-loop"
+      ],
+      "severity": "medium",
+      "suggestion": "Wrap the batch loop in for epoch in range(num_epochs): and track the loss per epoch.",
+      "title": "Training is a single pass over the data"
+    },
+    {
+      "basis": "observed",
+      "edgeIds": [
+        "e-split-test",
+        "e-model-final"
+      ],
+      "evidence": [
+        "ev-split",
+        "ev-update"
+      ],
+      "id": "f-no-eval",
+      "message": "The test split is created but never used, the per-batch loss is never printed or stored, and the model is not saved. After running the notebook there is no way to tell whether the classifier learned anything, and the weights disappear with the kernel. Search boundary: all four cells; there is no print, logging, metric, torch.save, or use of X_test/y_test.",
+      "nodeIds": [
+        "test-split",
+        "final",
+        "batch-loop"
+      ],
+      "severity": "low",
+      "suggestion": "Add an evaluation cell: model.eval(), then under torch.no_grad() compute accuracy on X_test/y_test. Log the average loss during training and torch.save(model.state_dict(), ...) if the model is needed later.",
+      "title": "Nothing is evaluated, logged or saved"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-model",
+        "ev-loader",
+        "ev-split",
+        "ev-load",
+        "ev-scale"
+      ],
+      "id": "f-reproducibility",
+      "message": "Only train_test_split is seeded. The Linear initialisation and the DataLoader shuffle order use torch's unseeded RNG, so each run trains differently. Separately, the notebook's saved metadata has execution counts 1, 3, 2, 4 for cells 0-3: in the recorded session the scaling/split cell (count 2) ran before the loading cell (count 3), so it used an X left over from earlier kernel state. That is history, not proof of the current state, but it means the saved session was not a clean top-to-bottom run.",
+      "nodeIds": [
+        "model",
+        "loader",
+        "load",
+        "scaler"
+      ],
+      "severity": "low",
+      "suggestion": "Call torch.manual_seed(...) (and np.random.seed if needed) in the first cell, then restart the kernel and run all cells in order before saving.",
+      "title": "Unseeded training, and recorded execution order differs from cell order"
+    },
+    {
+      "basis": "observed",
+      "edgeIds": [
+        "e-imports-magics"
+      ],
+      "evidence": [
+        "ev-magics",
+        "ev-imports"
+      ],
+      "id": "f-pip-placement",
+      "message": "Cell 0 imports from sklearn before cell 1 installs it. If scikit-learn is missing, cell 0 fails first and the install never helps. If it is present, the install is redundant work on every run and can change the environment mid-session. %matplotlib inline enables a backend that the notebook never uses.",
+      "nodeIds": [
+        "magics",
+        "imports"
+      ],
+      "severity": "low",
+      "suggestion": "Move dependency installation into a requirements file or the first cell, and remove the unused %matplotlib magic.",
+      "title": "!pip install scikit-learn runs after sklearn is imported"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Cell 0 imports numpy, torch, torch.nn, torch.optim, DataLoader/TensorDataset, train_test_split and StandardScaler.",
+      "evidence": [
+        "ev-imports"
+      ],
+      "id": "imports",
+      "kind": "entrypoint",
+      "label": "Import numpy, torch, sklearn",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 1 starts with two IPython magics. The pip install runs after cell 0 has already imported sklearn. matplotlib is never imported or used in the notebook.",
+      "evidence": [
+        "ev-magics",
+        "ev-imports"
+      ],
+      "id": "magics",
+      "kind": "operation",
+      "label": "%matplotlib inline and !pip install scikit-learn",
+      "phase": "setup"
+    },
+    {
+      "basis": "unresolved",
+      "detail": "A relative path, resolved against the kernel's working directory. The file is not in the workspace, so the shape of 'features' (cell 3 expects 10 columns), its dtype, and the dtype and range of 'labels' (cell 3 expects class indices 0..2) are unresolved.",
+      "evidence": [
+        "ev-load",
+        "ev-model"
+      ],
+      "id": "npz",
+      "kind": "data",
+      "label": "features.npz (contents unknown)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "raw = np.load(\"features.npz\"); X = raw[\"features\"]; y = raw[\"labels\"].",
+      "evidence": [
+        "ev-load"
+      ],
+      "id": "load",
+      "kind": "operation",
+      "label": "Load X = features, y = labels",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "scaler.fit_transform(X) runs on the full X before the split, so the fitted mean/std include the rows that later become X_test.",
+      "evidence": [
+        "ev-scale",
+        "ev-split"
+      ],
+      "id": "scaler",
+      "kind": "state",
+      "label": "Fit StandardScaler on ALL rows, transform X",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "Splits X_scaled and y into X_train/X_test and y_train/y_test with test_size=0.2 and a fixed random_state=0.",
+      "evidence": [
+        "ev-split"
+      ],
+      "id": "split",
+      "kind": "operation",
+      "label": "train_test_split 80/20 (random_state=0)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "No later cell in this notebook reads X_test or y_test. The only consumers of the split outputs are the TensorDataset in cell 3, which takes X_train and y_train.",
+      "evidence": [
+        "ev-split",
+        "ev-loader"
+      ],
+      "id": "test-split",
+      "kind": "data",
+      "label": "X_test, y_test (never used)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "One linear layer, 10 inputs to 3 logits: multinomial logistic regression. These sizes are hard-coded, not taken from X.shape or the label set.",
+      "evidence": [
+        "ev-model"
+      ],
+      "id": "model",
+      "kind": "model",
+      "label": "Model: nn.Sequential(nn.Linear(10, 3))",
+      "phase": "build"
+    },
+    {
+      "basis": "observed",
+      "detail": "Default mean reduction over the batch, with no class weights.",
+      "evidence": [
+        "ev-criterion"
+      ],
+      "id": "criterion",
+      "kind": "objective",
+      "label": "Loss: nn.CrossEntropyLoss()",
+      "phase": "build"
+    },
+    {
+      "basis": "observed",
+      "detail": "Owns every parameter of the model (the Linear weight and bias). Default betas and no weight decay.",
+      "evidence": [
+        "ev-optimizer"
+      ],
+      "id": "optimizer",
+      "kind": "optimizer",
+      "label": "Adam(model.parameters(), lr=0.001)",
+      "phase": "build"
+    },
+    {
+      "basis": "observed",
+      "detail": "Wraps torch.tensor(X_train) and torch.tensor(y_train) with no dtype argument, so the tensors keep the NumPy dtypes.",
+      "evidence": [
+        "ev-loader"
+      ],
+      "id": "loader",
+      "kind": "data",
+      "label": "TensorDataset + DataLoader(batch_size=32, shuffle=True)",
+      "phase": "build"
+    },
+    {
+      "basis": "inferred",
+      "detail": "torch.tensor keeps the array dtype. StandardScaler returns float64 for float64 or integer input, and NumPy arrays are float64 by default, so the features are likely float64 while nn.Linear weights are float32. CrossEntropyLoss also needs int64 class indices for y. Both depend on features.npz and on library behaviour that was not read here.",
+      "evidence": [
+        "ev-loader",
+        "ev-scale"
+      ],
+      "id": "dtypes",
+      "kind": "state",
+      "label": "Tensor dtypes inherited from NumPy (likely float64)",
+      "phase": "build"
+    },
+    {
+      "basis": "observed",
+      "detail": "A single for loop over train_loader with no outer epoch loop, so each training row is seen once. Nothing inside the loop prints or stores the loss.",
+      "evidence": [
+        "ev-loop",
+        "ev-update"
+      ],
+      "id": "batch-loop",
+      "kind": "loop",
+      "label": "One pass over train_loader (single epoch)",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward"
+      ],
+      "id": "forward",
+      "kind": "operation",
+      "label": "Forward: outputs = model(features)",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward"
+      ],
+      "id": "loss",
+      "kind": "objective",
+      "label": "loss = criterion(outputs, labels)",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "There is no optimizer.zero_grad() or model.zero_grad() anywhere in the notebook.",
+      "evidence": [
+        "ev-backstep",
+        "ev-update"
+      ],
+      "id": "backward",
+      "kind": "operation",
+      "label": "loss.backward()",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "PyTorch adds each backward() result into the existing .grad. With no reset, the gradient used at batch k is the sum of the gradients from batches 1..k, each computed at different weights. This is framework semantics, not project source.",
+      "evidence": [
+        "ev-update"
+      ],
+      "id": "grads",
+      "kind": "state",
+      "label": ".grad buffers keep accumulating (never zeroed)",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Calls step() on the Adam optimizer that owns model.parameters(), once per batch right after backward(). The resulting in-place parameter update is framework behaviour and is shown on the inferred edge to the model.",
+      "evidence": [
+        "ev-backstep",
+        "ev-optimizer"
+      ],
+      "id": "step",
+      "kind": "optimizer",
+      "label": "optimizer.step()",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "After the loop, no cell evaluates the model, prints a metric or loss, or saves weights. The only result is the in-memory model object.",
+      "evidence": [
+        "ev-update"
+      ],
+      "id": "final",
+      "kind": "output",
+      "label": "Trained model left only in kernel memory",
+      "phase": "result"
+    }
+  ],
+  "phases": [
+    {
+      "id": "setup",
+      "label": "Setup"
+    },
+    {
+      "id": "data",
+      "label": "Load and preprocess data"
+    },
+    {
+      "id": "build",
+      "label": "Build model, loss, optimizer, loader"
+    },
+    {
+      "id": "train",
+      "label": "Training"
+    },
+    {
+      "id": "result",
+      "label": "Result"
+    }
+  ],
+  "producer": {
+    "host": "claude-code",
+    "kind": "host-llm",
+    "model": "claude-opus-5-5"
+  },
+  "request": {
+    "configuration": "No config file or launch arguments. Settings are literals: test_size=0.2 and random_state=0 (cell 2); nn.Linear(10, 3), CrossEntropyLoss, Adam lr=0.001, batch_size=32, shuffle=True (cell 3). Assumes features.npz is in the kernel's working directory; the file is not in the workspace, so its shapes, dtypes and label values are unresolved.",
+    "entrypoints": [
+      "samples/notebook_classifier/train.ipynb"
+    ],
+    "question": "Explain what train.ipynb does, from loading the data to training the classifier. Tell me what looks wrong.",
+    "scope": "samples/notebook_classifier/train.ipynb, all four code cells run once in document order in a fresh kernel, from np.load of features.npz through the end of the training loop in cell 3. The notebook was read, not executed; recorded execution counts are treated as history only."
+  },
+  "revision": {
+    "id": "rev-20261023a"
+  },
+  "title": "train.ipynb: feature loading to linear classifier training",
+  "verification": {
+    "files": {
+      "samples/notebook_classifier/train.ipynb": "f3fa7e4837d70e93cb95c04f204d7c2f5701c5f53b1b6c4598abca5e22cb30f9"
+    },
+    "publishedAt": "2026-10-23T15:28:33.537975Z"
+  },
+  "workflowVersion": "1.0"
+}

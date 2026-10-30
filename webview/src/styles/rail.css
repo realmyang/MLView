@@ -1,0 +1,1029 @@
+/*
+ * The rail: About · Findings (n) · Selection · Outline. Docked beside the canvas when
+ * the canvas keeps at least 900 px; otherwise a bottom sheet under the canvas (see the sheet block
+ * below), never a drawer over it.
+ */
+
+.mlv-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--mlv-rail-width);
+  min-width: 280px;
+  max-width: 560px;
+  border-left: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+}
+
+.mlv-rail[hidden] {
+  display: none;
+}
+
+.mlv-rail__grip {
+  position: absolute;
+  top: 0;
+  left: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.mlv-rail__grip::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: transparent;
+}
+
+.mlv-rail__grip:hover::after {
+  background: var(--mlv-accent);
+}
+
+.mlv-rail__bar {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  border-bottom: 1px solid var(--mlv-border);
+}
+
+.mlv-rail__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+}
+
+.mlv-rail__tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 var(--mlv-s3);
+  white-space: nowrap;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  cursor: pointer;
+}
+
+.mlv-rail__tab[aria-selected="true"] {
+  color: var(--mlv-text);
+  border-bottom-color: var(--mlv-accent);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-rail__tab:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+.mlv-rail__tabcount {
+  color: var(--mlv-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-rail__chevron {
+  flex: none;
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  margin: 0 var(--mlv-s2);
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-rail__chevron[hidden] {
+  display: none;
+}
+
+/* The chevron points down when the sheet is open (collapse) and up when it is collapsed. */
+.mlv-rail__chevron .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-rail__chevron[aria-expanded="false"] .mlv-uicon {
+  transform: rotate(-90deg);
+}
+
+.mlv-rail__panel:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+/* The count beside a section heading always names its unit: "3 quotes", "2 findings". */
+.mlv-rail__count {
+  color: var(--mlv-text-3);
+  font-weight: var(--mlv-fw-regular);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/*
+ * The bottom sheet. Below the width where a docked rail would leave the canvas under
+ * 900 px (RAIL_MIN_CANVAS_W in app.ts), the body stacks the canvas over the rail. The sheet takes --mlv-sheet-fraction of the
+ * height when open (the handle drags it) and only its 32 px tab strip when collapsed. The canvas
+ * keeps at least min(240px, 45%) whatever the sheet's height: it is the main surface at every width.
+ */
+.mlv-body[data-rail="sheet"] {
+  flex-direction: column;
+}
+
+.mlv-body[data-rail="sheet"] > .mlv-main {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.mlv-rail[data-mode="sheet"] {
+  flex: 0 0 calc(var(--mlv-sheet-fraction, 0.47) * 100%);
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 32px;
+  max-height: calc(100% - min(240px, 45%));
+  border-left: 0;
+  border-top: 1px solid var(--mlv-border-strong);
+}
+
+.mlv-rail[data-mode="sheet"][data-expanded="false"] {
+  flex-basis: 32px;
+  height: 32px;
+}
+
+.mlv-rail[data-mode="sheet"] .mlv-rail__tabs {
+  height: 31px;
+}
+
+.mlv-rail[data-mode="sheet"][data-expanded="false"] .mlv-rail__bar {
+  border-bottom: 0;
+}
+
+/* The handle: a full-width strip over the sheet's top edge, with a short visible bar. */
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip {
+  top: -4px;
+  left: 0;
+  width: 100%;
+  height: 9px;
+  cursor: row-resize;
+}
+
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip::after {
+  left: 50%;
+  top: 2px;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: var(--mlv-border-strong);
+}
+
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip:hover::after,
+.mlv-rail[data-mode="sheet"] > .mlv-rail__grip:focus-visible::after {
+  background: var(--mlv-accent);
+}
+
+.mlv-rail__grip:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+.mlv-rail__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mlv-s4);
+}
+
+.mlv-rail__panel[hidden] {
+  display: none;
+}
+
+.mlv-rail__section {
+  margin: 0 0 var(--mlv-s5);
+}
+
+.mlv-rail__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+}
+
+.mlv-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The row and its "open in editor" button are SIBLINGS: an element with
+ * role="option" may not contain a focusable descendant, and a <button> inside a
+ * <button> is invalid HTML. The item wraps so the expanded detail
+ * still gets the full width beneath both. */
+.mlv-issues__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.mlv-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mlv-s4);
+  /* Basis 0, NOT auto. The parent wraps, and a wrapping flex container breaks
+   * lines on HYPOTHETICAL main sizes, before any shrinking: with basis auto a
+   * title wider than the rail on its own makes the row claim the whole first
+   * line and pushes its "open in editor" sibling onto a second one, left-aligned
+   * under the meta, where it reads as a stray button belonging to nothing.
+   * `min-width: 0` does not help — it governs shrinking within a line, not the
+   * line break. Basis 0 keeps every row and its button on one line at any title
+   * length. */
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--mlv-s4);
+  border: 1px solid transparent;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-issue:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+.mlv-issue:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-issue.is-selected {
+  border-color: var(--mlv-accent);
+  background: var(--mlv-surface-2);
+}
+
+/* A chip in a hovered or selected row keeps its border and drops its fill, which is the row's
+ * own colour (--mlv-surface-2, list.hoverBackground). Where that colour is opaque (Dark Modern,
+ * Dark+, Light Modern, Light+) nothing changes; where it is translucent (Dark 2026, Light 2026) a
+ * fill would paint it a second time and take the chip's secondary text ("cites a changed file")
+ * under 4.5:1. test/muted-text.test.mjs holds that text to 4.5:1 on the row as it is painted here. */
+.mlv-issue:hover .mlv-chip,
+.mlv-issue.is-selected .mlv-chip {
+  background: transparent;
+}
+
+.mlv-issue__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The short label (F1…Fn) the canvas badges print; the real id stays in the meta line. */
+.mlv-issue__short,
+.mlv-insp__short {
+  flex: none;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-issue__title {
+  font-size: 12.5px;
+  font-weight: var(--mlv-fw-medium);
+  line-height: var(--mlv-lh-tight);
+}
+
+.mlv-issue__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  margin-top: var(--mlv-s1);
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-issue__open {
+  flex: none;
+  align-self: center;
+}
+
+.mlv-issue__detail {
+  flex: 1 0 100%;
+}
+
+.mlv-empty-note {
+  padding: var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  text-align: center;
+}
+
+/* The Selection pane: the claim first, then what backs it (ui/selection.ts). */
+.mlv-sel[data-columns="2"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  column-gap: var(--mlv-s7, 20px);
+  align-items: start;
+}
+
+.mlv-sel__col {
+  min-width: 0;
+}
+
+.mlv-insp__eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--mlv-s2);
+  margin: 0 0 var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__phase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-insp__phasedot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-insp__sep {
+  color: var(--mlv-text-3);
+}
+
+.mlv-insp__severity {
+  color: var(--mlv-text);
+}
+
+.mlv-insp__title {
+  margin: 0 0 var(--mlv-s3);
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+  line-height: var(--mlv-lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__ends {
+  margin: 0 0 var(--mlv-s3);
+  font-size: var(--mlv-fs-12);
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__section {
+  margin: var(--mlv-s5) 0 0;
+}
+
+.mlv-sel__col--evidence > .mlv-insp__section:first-child {
+  margin-top: 0;
+}
+
+.mlv-insp__issue-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--mlv-text);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__issue-head .mlv-mono {
+  color: var(--mlv-text-3);
+}
+
+/* A listed finding's real id, under its title, muted; a long id wraps at the
+ * box's edge, not in a narrow column beside the title. */
+.mlv-insp__issue-id {
+  margin: calc(-1 * var(--mlv-s2)) 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-insp__note,
+.mlv-insp__aside {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__links,
+.mlv-insp__sentences {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.45;
+}
+
+.mlv-insp__flow-basis {
+  color: var(--mlv-text-2);
+}
+
+/* One quote: number, file and lines, freshness, Open; then the exact lines with their numbers. */
+.mlv-quote {
+  padding: var(--mlv-s3) 0 0;
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-quote__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--mlv-s1) var(--mlv-s3);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-quote__num {
+  flex: none;
+  min-width: 1.4em;
+  color: var(--mlv-text-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--mlv-fw-semi);
+}
+
+/* Two rows at every width: the number and the place, then the role, the freshness and Open,
+ * lined up under the place. */
+.mlv-quote__loc {
+  flex: 1 0 calc(100% - 1.4em - var(--mlv-s3));
+  min-width: 0;
+  color: var(--mlv-text);
+  font-family: var(--mlv-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.mlv-quote__loc + * {
+  margin-left: calc(1.4em + var(--mlv-s3));
+}
+
+.mlv-quote__at {
+  color: var(--mlv-text-2);
+}
+
+.mlv-quote__role {
+  color: var(--mlv-text-2);
+  font-style: italic;
+}
+
+/* Freshness: muted words when unchanged or unchecked; colour only for a stale file. The muted
+ * words are muted text, the colour of the notes beside them. */
+.mlv-quote__fresh.is-muted {
+  color: var(--mlv-text-3);
+}
+
+.mlv-quote__fresh.mlv-insp__stale {
+  margin-left: 0;
+}
+
+.mlv-quote__open {
+  flex: none;
+}
+
+.mlv-quote__text {
+  margin: var(--mlv-s2) 0 0;
+  padding: var(--mlv-s2) var(--mlv-s3);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  user-select: text;
+}
+
+.mlv-quote__line {
+  display: inline;
+}
+
+.mlv-quote__ln {
+  display: inline-block;
+  min-width: 3ch;
+  margin-right: var(--mlv-s3);
+  color: var(--mlv-text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.mlv-insp__evidence-nav {
+  display: flex;
+  gap: var(--mlv-s2);
+  margin: 0 0 var(--mlv-s3);
+}
+
+/* The About tab: authored request and coverage only (ui/about.ts). */
+.mlv-about__section {
+  margin: 0 0 var(--mlv-s6);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.5;
+}
+
+.mlv-about__question {
+  margin: 0;
+  color: var(--mlv-text);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__question[data-clamped="true"] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.mlv-about__more {
+  margin-top: var(--mlv-s2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-about__para,
+.mlv-about__text,
+.mlv-about__status {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__lead {
+  font-weight: var(--mlv-fw-semi);
+}
+
+/*
+ * About's notes and provenance line, the Changes section's field
+ * lists and removed ids, and the Selection pane's "changed since" line are muted text
+ * (--mlv-text-3), which clears 4.5:1 in every theme of the screenshot harness and is quieter
+ * than the text outside high contrast (test/muted-text.test.mjs). Both text tokens are derived
+ * from the theme's text colour, not from descriptionForeground (tokens.css).
+ */
+.mlv-about__meta,
+.mlv-about__note {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+/* A run configuration's k=v token, a <code>. VS Code's default webview stylesheet colours <code>
+ * with textPreformat.foreground over textPreformat.background; this rule replaces the background,
+ * so it replaces the colour too: the theme chose that foreground for its own background, and on
+ * --mlv-surface-2 it can fall under 4.5:1 or vanish. */
+.mlv-about__kv {
+  padding: 0 3px;
+  border-radius: 3px;
+  color: inherit;
+  background: var(--mlv-surface-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__limitations {
+  color: var(--mlv-text);
+}
+
+.mlv-about__limitations summary {
+  cursor: pointer;
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-about__limitations ul {
+  margin: var(--mlv-s2) 0 0;
+  padding-left: 20px;
+}
+
+.mlv-about__limitations li {
+  margin-bottom: var(--mlv-s2);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__files {
+  list-style: none;
+  margin: 0 0 var(--mlv-s3);
+  padding: 0;
+}
+
+.mlv-about__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--mlv-s3);
+  padding: 2px 0;
+}
+
+.mlv-about__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__file .mlv-quote__fresh {
+  flex: none;
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-about__trust {
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/*
+ * Changes since <parent>. Each group's counts sit in its heading; each item is
+ * its tag in words, then a link to it (a removed item is text, with its id).
+ */
+/* The revision id in the Changes heading keeps its own case (ids are case-sensitive). */
+.mlv-about__revid {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.mlv-about__subhead {
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-about__changes {
+  list-style: none;
+  margin: var(--mlv-s2) 0 0;
+  padding: 0;
+}
+
+.mlv-about__change {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.mlv-about__change .mlv-rev-tag {
+  vertical-align: 1px;
+}
+
+.mlv-about__changegone {
+  color: var(--mlv-text);
+}
+
+.mlv-about__changeid,
+.mlv-about__changefields {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+}
+
+/* The "new" / "changed" tag in a row of the Outline, the Findings list or a pane. */
+.mlv-rev-tag--row {
+  flex: none;
+  font-family: var(--mlv-font);
+}
+
+.mlv-insp__change {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__change .mlv-rev-tag {
+  vertical-align: 1px;
+}
+
+.mlv-insp__issue {
+  margin-bottom: var(--mlv-s5);
+  padding: var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-insp__issue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  margin-bottom: var(--mlv-s3);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-insp__line {
+  margin: 0 0 var(--mlv-s3);
+  font-size: var(--mlv-fs-11);
+  color: var(--mlv-text-2);
+}
+
+.mlv-insp__fix {
+  margin: 0 0 var(--mlv-s3);
+  padding-left: var(--mlv-s4);
+  border-left: 3px solid var(--mlv-accent);
+  font-size: var(--mlv-fs-11);
+}
+
+/* "What to change", the label over the author's suggestion. */
+.mlv-insp__fix-label {
+  margin: 0 0 2px;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.mlv-insp__fix-text {
+  margin: 0;
+  color: var(--mlv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The authored claim, in full, near the top of the Selection pane. */
+.mlv-insp__detail {
+  margin: 0 0 var(--mlv-s4);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* What an inferred or unresolved basis means; observed gets no sentence. It follows the basis's
+ * own tag, so the word and the dashes match the card. */
+.mlv-insp__basis {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__basis .mlv-basis-tag {
+  vertical-align: 1px;
+}
+
+/* Under the evidence heading, what a matching quote does and does not show. */
+.mlv-insp__caption {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* "6 document-wide limitations apply to every claim. Read them in About". */
+.mlv-insp__limits {
+  margin: var(--mlv-s4) 0 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__related {
+  list-style: none;
+  margin: var(--mlv-s3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+}
+
+/* outline */
+.mlv-outline,
+.mlv-outline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--mlv-s5);
+}
+
+.mlv-outline {
+  padding-left: 0;
+}
+
+/* The focusable element is the treeitem <li>, not the row inside it: ARIA's tree
+ * pattern puts the roving tabindex on the item itself. */
+.mlv-outline__item {
+  outline: none;
+}
+
+.mlv-outline__item:focus > .mlv-outline__row {
+  box-shadow: 0 0 0 2px var(--mlv-focus);
+}
+
+.mlv-outline__row {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  padding: 2px var(--mlv-s3);
+  border: 0;
+  border-radius: var(--mlv-r-chip);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-outline__row--lane {
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-outline__chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--mlv-text-3);
+  transform: rotate(90deg);
+  transition: transform var(--mlv-dur-1, 120ms) ease;
+}
+
+.mlv-outline__item[aria-expanded="false"] > .mlv-outline__row .mlv-outline__chevron {
+  transform: rotate(0deg);
+}
+
+.mlv-outline__chevron--none {
+  transform: none;
+}
+
+.mlv-outline__row:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-outline__row.is-selected {
+  background: var(--mlv-surface-2);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-outline__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-outline__stage {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+}
+
+/*
+ * A phase row's "2 findings touch this phase" goes under the phase's
+ * name, in sentence case, so the name is never cut to make room for it.
+ */
+.mlv-outline__row--lane {
+  flex-wrap: wrap;
+}
+
+.mlv-outline__row--lane .mlv-outline__label {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mlv-outline__phasecount {
+  flex: 1 0 100%;
+  font-weight: var(--mlv-fw-regular);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* A finding's basis tag in the rail: the canvas tag, in the flow of its row. */
+.mlv-basis-tag--rail {
+  flex: none;
+  vertical-align: middle;
+}
+
+.mlv-relations {
+  margin-top: var(--mlv-s6);
+  padding-top: var(--mlv-s4);
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-relations__context {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-relations__views {
+  display: flex;
+  gap: var(--mlv-s2);
+  margin-bottom: var(--mlv-s3);
+}
+
+.mlv-relations__views .mlv-btn[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
+  color: var(--mlv-text);
+}
+
+.mlv-relations__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mlv-relations__item + .mlv-relations__item {
+  margin-top: var(--mlv-s2);
+}
+
+.mlv-relations__row {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: var(--mlv-s3);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlv-relations__row:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: 2px;
+}
+
+.mlv-relations__path,
+.mlv-relations__detail {
+  display: block;
+}
+
+.mlv-relations__detail {
+  margin-top: var(--mlv-s1);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-insp__actions {
+  display: flex;
+  gap: var(--mlv-s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--mlv-s4);
+}
+
+/* the zero-finding and empty states' title and detail */
+.mlv-clean__title {
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-clean__detail {
+  font-size: var(--mlv-fs-12);
+  max-width: 34ch;
+}
+
+/* the selected finding row expands in place */
+.mlv-issue__detail {
+  padding: var(--mlv-s3) var(--mlv-s5) var(--mlv-s5) var(--mlv-s8);
+  border-left: 2px solid var(--mlv-accent);
+  margin: 0 var(--mlv-s3) var(--mlv-s3);
+  background: var(--mlv-surface-2);
+  border-radius: 0 var(--mlv-r-btn) var(--mlv-r-btn) 0;
+}
+
+.mlv-issue__detail .mlv-insp__line {
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-issue__goto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s2);
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-empty-note .mlv-btn {
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-insp__issue.is-selected {
+  box-shadow: 0 0 0 2px var(--mlv-accent);
+}
+
+/* A finding row's meta line wraps: a 360 px rail with an id, a location, a
+ * basis chip and a freshness chip would otherwise clip the last one. */
+.mlv-issue__meta {
+  flex-wrap: wrap;
+  row-gap: var(--mlv-s1);
+  min-width: 0;
+}
+
+.mlv-issue__meta .mlv-chip {
+  max-width: 100%;
+}

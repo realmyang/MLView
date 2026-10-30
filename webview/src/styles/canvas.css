@@ -1,0 +1,369 @@
+/* Canvas viewport, stage lanes and group boxes. */
+
+.mlv-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--mlv-bg);
+  background-image: radial-gradient(var(--mlv-canvas-dot) 1px, transparent 1px);
+  background-size: 20px 20px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.mlv-canvas[data-lod="compact"] {
+  background-image: none;
+}
+
+.mlv-canvas.is-panning {
+  cursor: grabbing;
+}
+
+.mlv-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.mlv-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.mlv-layer--edges {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.mlv-layer--nodes {
+  pointer-events: none;
+}
+
+.mlv-layer--nodes > * {
+  pointer-events: auto;
+}
+
+/* lanes — a neutral wash and a 3 px accent rule in the phase colour, never a phase-coloured
+ * fill. The rule is a pseudo-element, so the lane box does not change (test/geometry-golden.test.mjs
+ * hashes it); export/svg.ts draws the same rule. */
+.mlv-lane {
+  position: absolute;
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-lane);
+  background: color-mix(in srgb, var(--mlv-text) calc(var(--mlv-lane-tint) * 100%), transparent);
+}
+
+.mlv-lane::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+  pointer-events: none;
+}
+
+/*
+ * The lane heading sits on a plate and reads like a heading: the phase number (as the
+ * Selection pane's eyebrow numbers it) and the label, the label in the text colour at the card
+ * title's size, never smaller or fainter than the cards under it. The header is as tall as the
+ * layout reserves for it (`LANE_HEADER_H`, 28 px, written as --mlv-lane-header-h).
+ */
+.mlv-lane__header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  height: var(--mlv-lane-header-h, 28px);
+  padding: 0 var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  border-radius: calc(var(--mlv-r-lane) - 1px) calc(var(--mlv-r-lane) - 1px) 0 0;
+  background: color-mix(in srgb, var(--mlv-text) 5%, var(--mlv-surface));
+}
+
+/* The phase's colour swatch, first on the plate. */
+.mlv-lane__header::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-lane__num {
+  flex: none;
+  margin-right: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-lane__label {
+  flex: 0 1 auto;
+  min-width: 48px;
+  overflow: hidden;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-lane__count {
+  flex: none;
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mlv-lane__spacer {
+  flex: 1 1 auto;
+}
+
+.mlv-lane__header .mlv-cluster {
+  flex: none;
+}
+
+/* What the lane's severity numbers count, after them with their total ("· 5 findings
+ * touch this phase"). It gives way first in a narrow lane; its tooltip and the cluster's
+ * accessible name keep the whole sentence. */
+.mlv-lane__unit::before {
+  content: "· ";
+}
+
+.mlv-lane__unit {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: calc(-1 * var(--mlv-s2));
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* group boxes — a neutral solid frame. Dashed and dotted mean inferred and unresolved, so a
+ * group's frame uses them only for the group's own basis, never for depth. */
+.mlv-group {
+  position: absolute;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mlv-text) calc(var(--mlv-group-tint) * 100%), transparent);
+}
+
+.mlv-group[data-basis="inferred"] {
+  border: calc(1.5px / var(--mlv-z, 1)) dashed var(--mlv-text-2);
+}
+
+.mlv-group[data-basis="unresolved"] {
+  border: calc(1.5px / var(--mlv-z, 1)) dotted var(--mlv-text-2);
+}
+
+.mlv-group__header {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  height: var(--mlv-group-header-h);
+  padding: 0 var(--mlv-s4);
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: none;
+  color: var(--mlv-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-group__header:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-group__chevron {
+  transition: transform var(--mlv-dur-2) var(--mlv-ease);
+  color: var(--mlv-text-2);
+}
+
+.mlv-group.is-collapsed .mlv-group__chevron {
+  transform: rotate(0deg);
+}
+
+.mlv-group__chevron {
+  transform: rotate(90deg);
+}
+
+.mlv-group__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mlv-fs-12);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-group__count {
+  flex: none;
+  padding: 0 var(--mlv-s3);
+  border-radius: var(--mlv-r-pill);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+}
+
+/* On a hovered group header the step count drops its fill, which is the header's own colour
+ * (--mlv-surface-2, list.hoverBackground), as a chip in a hovered row does (rail.css). Where that
+ * colour is opaque (Dark Modern, Dark+, Light Modern, Light+) the pill vanishes into the header
+ * either way; where it is translucent (Dark 2026, Light 2026) a fill would paint it twice and give
+ * the lightest background under secondary text. test/muted-text.test.mjs holds the count's
+ * secondary text to 4.5:1 on the header as it is painted here. */
+.mlv-group__header:hover .mlv-group__count {
+  background: transparent;
+}
+
+.mlv-group.is-dim,
+.mlv-lane.is-dim {
+  opacity: 0.5;
+}
+
+/*
+ * Focus mode dims what is not in the lineage — class toggles only, never a re-render. A hover dims
+ * nothing: it lights its direct connections (edge.css `.is-lit`) and rings the cards at their other
+ * ends (`.is-tracing`), and the rest keep their contrast, so every title stays readable while the
+ * pointer crosses a card. Only latched focus mode (F) dims, and makes the dimmed cards inert.
+ */
+.mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
+  opacity: 0.22;
+  filter: saturate(0.3);
+  pointer-events: none;
+}
+
+.mlv-canvas.is-focusing .mlv-edge:not(.is-lit) {
+  opacity: 0.16;
+}
+
+.mlv-canvas.is-tracing .mlv-node.is-lit {
+  box-shadow: 0 0 0 max(1.5px, calc(1px / var(--mlv-z, 1))) var(--mlv-text-2);
+}
+
+/* tooltip / hover card */
+.mlv-tooltip {
+  position: absolute;
+  z-index: 50;
+  max-width: 320px;
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+  font-size: var(--mlv-fs-12);
+  pointer-events: none;
+}
+
+.mlv-tooltip[hidden] {
+  display: none;
+}
+
+.mlv-tooltip__title {
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-tooltip__row {
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-tooltip__loc {
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  color: var(--mlv-text-3);
+}
+
+/* The zoom lives at the right end of the status bar: − 90% + (ui/chrome.ts). */
+.mlv-zoom {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 1px;
+}
+
+.mlv-zoom__level {
+  min-width: 38px;
+  text-align: center;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-zoom .mlv-zoom__btn {
+  width: 20px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-zoom .mlv-zoom__btn:hover {
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+}
+
+/* Pointer routing: the bands and group boxes are backdrop, only their headers
+ * and the node cards are interactive, so dragging the background always pans. */
+.mlv-layer--lanes,
+.mlv-lane,
+.mlv-group {
+  pointer-events: none;
+}
+
+.mlv-lane__header,
+.mlv-group__header {
+  pointer-events: auto;
+}
+
+.mlv-statehost {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.mlv-statehost > * {
+  pointer-events: auto;
+}
+
+/* the chevron is its own hit target: chevron collapses, header selects */
+.mlv-group__chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mlv-group__chevron-btn:hover {
+  background: var(--mlv-surface-2);
+}

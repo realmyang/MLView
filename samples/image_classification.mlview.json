@@ -1,0 +1,1586 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "samples/image_classification/train.py",
+      "samples/image_classification/config.py",
+      "samples/image_classification/data.py",
+      "samples/image_classification/model.py",
+      "samples/image_classification/sklearn_baseline.py"
+    ],
+    "limitations": [
+      "Not inspected: PyTorch and torchvision source (not in the workspace). The behaviour of random_split subsets, nn.Module registration, .grad accumulation, CrossEntropyLoss and module modes is taken from documented framework semantics and marked inferred.",
+      "Not inspected: the CIFAR-10 files under data/cifar10 (external data, not in the workspace). Whether they exist, which download=False requires, is unresolved.",
+      "Not inspected: any caller of train() outside the workspace. None exists in the inspected files, so how training is launched is unresolved.",
+      "Not inspected: the code was not executed, so the crash, memory-growth and convergence consequences are reasoned from source, not observed at runtime.",
+      "Not inspected: the workflow in sklearn_baseline.py (read in full but not traced, because train.py does not import it and it is a separate scenario)."
+    ],
+    "status": "scoped",
+    "summary": "train() is traced from the imported config and module-level data pipeline in data.py, through SmallCNN construction in model.py, the Adam/CrossEntropy batch loop and per-epoch validation, to the printed log and the returned model. Gradient ownership (Adam owns only the registered stem and head), gradient reset (none), the exact printed loss expression and validation mode were each reread at the source lines. Consequences that depend on PyTorch semantics (module registration, gradient accumulation, device placement, train/eval behaviour, Subset transforms) are in separate inferred nodes and edges."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-imports"
+      ],
+      "id": "e-entry-imports",
+      "kind": "call",
+      "label": "import data.py builds datasets and loaders at import",
+      "source": "entry",
+      "target": "train-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-device-model"
+      ],
+      "id": "e-entry-model",
+      "kind": "call",
+      "label": "SmallCNN(); model.to(cuda)",
+      "source": "entry",
+      "target": "model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-criterion"
+      ],
+      "id": "e-entry-criterion",
+      "kind": "call",
+      "label": "construct",
+      "source": "entry",
+      "target": "criterion"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-running-init"
+      ],
+      "id": "e-entry-init",
+      "kind": "control",
+      "label": "then",
+      "source": "entry",
+      "target": "running-init"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-loader",
+        "ev-cfg-train"
+      ],
+      "id": "e-cfg-loaders",
+      "kind": "config",
+      "label": "BATCH_SIZE, NUM_WORKERS",
+      "source": "cfg",
+      "target": "train-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-val-loader",
+        "ev-cfg-train"
+      ],
+      "id": "e-cfg-val",
+      "kind": "config",
+      "label": "EVAL_BATCH_SIZE",
+      "source": "cfg",
+      "target": "val-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split",
+        "ev-cfg-model"
+      ],
+      "id": "e-cfg-split",
+      "kind": "config",
+      "label": "TRAIN_SIZE 45000, VAL_SIZE 5000",
+      "source": "cfg",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-model-defaults",
+        "ev-device-model",
+        "ev-cfg-model"
+      ],
+      "id": "e-cfg-model",
+      "kind": "config",
+      "label": "NUM_CLASSES, WIDTH, DEPTH, DEVICE",
+      "source": "cfg",
+      "target": "model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-optimizer",
+        "ev-cfg-train"
+      ],
+      "id": "e-cfg-opt",
+      "kind": "config",
+      "label": "LEARNING_RATE, WEIGHT_DECAY",
+      "source": "cfg",
+      "target": "optimizer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-cfg-train"
+      ],
+      "id": "e-cfg-epochs",
+      "kind": "config",
+      "label": "EPOCHS 20",
+      "source": "cfg",
+      "target": "epoch-loop"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-datasets"
+      ],
+      "id": "e-cifar-full",
+      "kind": "data",
+      "label": "train=True split",
+      "source": "cifar",
+      "target": "full-train"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-datasets",
+        "ev-test-loader"
+      ],
+      "id": "e-cifar-test",
+      "kind": "data",
+      "label": "train=False split",
+      "source": "cifar",
+      "target": "test-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-datasets"
+      ],
+      "id": "e-traintf-full",
+      "kind": "config",
+      "label": "transform=TRAIN_TRANSFORM",
+      "source": "train-tf",
+      "target": "full-train"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-datasets"
+      ],
+      "id": "e-evaltf-test",
+      "kind": "config",
+      "label": "transform=EVAL_TRANSFORM (test only)",
+      "source": "eval-tf",
+      "target": "test-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split"
+      ],
+      "id": "e-full-split",
+      "kind": "data",
+      "label": "50k images",
+      "source": "full-train",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split",
+        "ev-train-loader"
+      ],
+      "id": "e-split-train",
+      "kind": "data",
+      "label": "train_ds (45000)",
+      "source": "split",
+      "target": "train-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-split",
+        "ev-val-loader"
+      ],
+      "id": "e-split-val",
+      "kind": "data",
+      "label": "val_ds (5000 indices of full_train)",
+      "source": "split",
+      "target": "val-loader"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-split",
+        "ev-datasets"
+      ],
+      "id": "e-split-valaug",
+      "kind": "state",
+      "label": "subset shares full_train's transform",
+      "source": "split",
+      "target": "val-aug"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-val-loader"
+      ],
+      "id": "e-valaug-loader",
+      "kind": "data",
+      "label": "augmented validation images",
+      "source": "val-aug",
+      "target": "val-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-model-forward"
+      ],
+      "id": "e-stem-blocks",
+      "kind": "data",
+      "label": "32-channel features",
+      "source": "stem",
+      "target": "blocks"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-model-forward"
+      ],
+      "id": "e-blocks-head",
+      "kind": "data",
+      "label": "features",
+      "source": "blocks",
+      "target": "head"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-model-init",
+        "ev-optimizer"
+      ],
+      "id": "e-model-paramsreg",
+      "kind": "state",
+      "label": "model.parameters() (stem, head)",
+      "source": "model",
+      "target": "params-reg"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-model-init"
+      ],
+      "id": "e-blocks-state",
+      "kind": "state",
+      "label": "plain list: not registered",
+      "source": "blocks",
+      "target": "blocks-state"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-optimizer"
+      ],
+      "id": "e-paramsreg-opt",
+      "kind": "state",
+      "label": "owned parameter set",
+      "source": "params-reg",
+      "target": "optimizer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-running-init",
+        "ev-epoch-loop"
+      ],
+      "id": "e-init-epoch",
+      "kind": "control",
+      "label": "start epochs",
+      "source": "running-init",
+      "target": "epoch-loop"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-forward-loss"
+      ],
+      "id": "e-trainloader-forward",
+      "kind": "data",
+      "label": "images (no device move)",
+      "source": "train-loader",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-forward-loss"
+      ],
+      "id": "e-trainloader-loss",
+      "kind": "data",
+      "label": "labels (no device move)",
+      "source": "train-loader",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-print"
+      ],
+      "id": "e-trainloader-print",
+      "kind": "data",
+      "label": "len(train_loader)",
+      "source": "train-loader",
+      "target": "print"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward-loss"
+      ],
+      "id": "e-model-forward",
+      "kind": "call",
+      "label": "model object",
+      "source": "model",
+      "target": "forward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-forward-loss"
+      ],
+      "id": "e-paramsreg-forward",
+      "kind": "state",
+      "label": "current stem/head weights",
+      "source": "params-reg",
+      "target": "forward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-model-forward"
+      ],
+      "id": "e-blocksstate-forward",
+      "kind": "state",
+      "label": "initial ConvBlock weights, CPU, train mode",
+      "source": "blocks-state",
+      "target": "forward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-device-model",
+        "ev-forward-loss"
+      ],
+      "id": "e-forward-fail",
+      "kind": "control",
+      "label": "DEVICE cuda: CPU inputs vs GPU stem",
+      "source": "forward",
+      "target": "device-fail"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward-loss",
+        "ev-softmax"
+      ],
+      "id": "e-forward-loss",
+      "kind": "data",
+      "label": "softmax probabilities passed as logits",
+      "source": "forward",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-forward-loss"
+      ],
+      "id": "e-criterion-loss",
+      "kind": "call",
+      "label": "criterion(logits, labels)",
+      "source": "criterion",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-backward-step"
+      ],
+      "id": "e-loss-backward",
+      "kind": "control",
+      "label": "backward",
+      "source": "loss",
+      "target": "backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backward-step"
+      ],
+      "id": "e-backward-grads",
+      "kind": "state",
+      "label": "adds to .grad (never zeroed)",
+      "source": "backward",
+      "target": "grads"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backward-step",
+        "ev-optimizer"
+      ],
+      "id": "e-backward-blocks",
+      "kind": "state",
+      "label": "ConvBlocks get .grad but are never stepped",
+      "source": "backward",
+      "target": "blocks-state"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backward-step"
+      ],
+      "id": "e-grads-step",
+      "kind": "state",
+      "label": "accumulated gradient sum",
+      "source": "grads",
+      "target": "step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-backward-step"
+      ],
+      "id": "e-opt-step",
+      "kind": "call",
+      "label": "optimizer.step()",
+      "source": "optimizer",
+      "target": "step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-backward-step",
+        "ev-optimizer"
+      ],
+      "id": "e-step-params",
+      "kind": "state",
+      "label": "Adam update of stem/head",
+      "source": "step",
+      "target": "params-reg"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-backward-step",
+        "ev-running-acc"
+      ],
+      "id": "e-step-running",
+      "kind": "control",
+      "label": "then",
+      "source": "step",
+      "target": "running-acc"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-running-acc"
+      ],
+      "id": "e-loss-running",
+      "kind": "data",
+      "label": "loss tensor (not .item())",
+      "source": "loss",
+      "target": "running-acc"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-running-acc"
+      ],
+      "id": "e-running-graph",
+      "kind": "state",
+      "label": "non-detached sum",
+      "source": "running-acc",
+      "target": "graph-retain"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-running-init",
+        "ev-running-acc"
+      ],
+      "id": "e-init-running",
+      "kind": "state",
+      "label": "running_loss starts at 0.0 once, never reset",
+      "source": "running-init",
+      "target": "running-acc"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "e-batch-next",
+      "kind": "loop",
+      "label": "next batch; .grad, weights, running_loss carry over",
+      "source": "running-acc",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-validate-call"
+      ],
+      "id": "e-batch-done",
+      "kind": "control",
+      "label": "train_loader exhausted",
+      "source": "batch-loop",
+      "target": "validate"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-validate-call",
+        "ev-validate-loop"
+      ],
+      "id": "e-valloader-validate",
+      "kind": "data",
+      "label": "validation batches (no device move)",
+      "source": "val-loader",
+      "target": "validate"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-validate-call",
+        "ev-running-init"
+      ],
+      "id": "e-model-validate",
+      "kind": "data",
+      "label": "same model object, still in train mode",
+      "source": "model",
+      "target": "validate"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-validate-loop"
+      ],
+      "id": "e-validate-mode",
+      "kind": "state",
+      "label": "no eval(), no no_grad()",
+      "source": "validate",
+      "target": "val-mode"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-validate-metric"
+      ],
+      "id": "e-validate-acc",
+      "kind": "data",
+      "label": "argmax predictions vs labels",
+      "source": "validate",
+      "target": "accuracy"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-validate-call",
+        "ev-print"
+      ],
+      "id": "e-acc-print",
+      "kind": "output",
+      "label": "val_acc",
+      "source": "accuracy",
+      "target": "print"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-print"
+      ],
+      "id": "e-running-print",
+      "kind": "output",
+      "label": "cumulative running_loss",
+      "source": "running-acc",
+      "target": "print"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "e-epoch-next",
+      "kind": "loop",
+      "label": "next epoch; running_loss, .grad, weights carry over",
+      "source": "print",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-return"
+      ],
+      "id": "e-epoch-done",
+      "kind": "control",
+      "label": "after 20 epochs",
+      "source": "epoch-loop",
+      "target": "return"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-return"
+      ],
+      "id": "e-model-return",
+      "kind": "output",
+      "label": "trained model object",
+      "source": "model",
+      "target": "return"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 9,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-imports",
+      "line": 7,
+      "quote": "from config import DEVICE, EPOCHS, LEARNING_RATE, WEIGHT_DECAY\nfrom data import train_loader, val_loader\nfrom model import SmallCNN"
+    },
+    {
+      "endLine": 15,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-device-model",
+      "line": 13,
+      "quote": "    device = torch.device(DEVICE)\n    model = SmallCNN()\n    model.to(device)"
+    },
+    {
+      "endLine": 16,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-criterion",
+      "line": 16,
+      "quote": "    criterion = nn.CrossEntropyLoss()"
+    },
+    {
+      "endLine": 18,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-optimizer",
+      "line": 17,
+      "quote": "    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,\n                           weight_decay=WEIGHT_DECAY)"
+    },
+    {
+      "endLine": 21,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-running-init",
+      "line": 20,
+      "quote": "    running_loss = 0.0\n    model.train()"
+    },
+    {
+      "endLine": 23,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-epoch-loop",
+      "line": 22,
+      "quote": "    for epoch in range(EPOCHS):\n        for images, labels in train_loader:"
+    },
+    {
+      "endLine": 25,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-forward-loss",
+      "line": 24,
+      "quote": "            logits = model(images)\n            loss = criterion(logits, labels)"
+    },
+    {
+      "endLine": 27,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-backward-step",
+      "line": 26,
+      "quote": "            loss.backward()\n            optimizer.step()"
+    },
+    {
+      "endLine": 28,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-running-acc",
+      "line": 28,
+      "quote": "            running_loss += loss"
+    },
+    {
+      "endLine": 29,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-validate-call",
+      "line": 29,
+      "quote": "        accuracy = validate(model, val_loader)"
+    },
+    {
+      "endLine": 31,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-print",
+      "line": 30,
+      "quote": "        print(\"epoch %d  loss %.4f  val_acc %.4f\"\n              % (epoch, running_loss / len(train_loader), accuracy))"
+    },
+    {
+      "endLine": 32,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-return",
+      "line": 32,
+      "quote": "    return model"
+    },
+    {
+      "endLine": 39,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-validate-loop",
+      "line": 35,
+      "quote": "def validate(model: SmallCNN, loader) -> float:\n    correct = 0\n    total = 0\n    for images, labels in loader:\n        logits = model(images)"
+    },
+    {
+      "endLine": 43,
+      "file": "samples/image_classification/train.py",
+      "id": "ev-validate-metric",
+      "line": 40,
+      "quote": "        preds = logits.argmax(dim=1)\n        correct += (preds == labels).sum().item()\n        total += labels.size(0)\n    return correct / max(total, 1)"
+    },
+    {
+      "endLine": 15,
+      "file": "samples/image_classification/config.py",
+      "id": "ev-cfg-train",
+      "line": 9,
+      "quote": "BATCH_SIZE = 128\nEVAL_BATCH_SIZE = 256\nNUM_WORKERS = 4\nEPOCHS = 20\nLEARNING_RATE = 1e-3\nWEIGHT_DECAY = 0.0\nDEVICE = \"cuda\""
+    },
+    {
+      "endLine": 21,
+      "file": "samples/image_classification/config.py",
+      "id": "ev-cfg-model",
+      "line": 17,
+      "quote": "TRAIN_SIZE = 45000\nVAL_SIZE = 5000\nNUM_CLASSES = 10\nWIDTH = 32\nDEPTH = 4"
+    },
+    {
+      "endLine": 15,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-train-transform",
+      "line": 10,
+      "quote": "TRAIN_TRANSFORM = transforms.Compose([\n    transforms.RandomCrop(32, padding=4),\n    transforms.RandomHorizontalFlip(),\n    transforms.ToTensor(),\n    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),\n])"
+    },
+    {
+      "endLine": 19,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-eval-transform",
+      "line": 16,
+      "quote": "EVAL_TRANSFORM = transforms.Compose([\n    transforms.ToTensor(),\n    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),\n])"
+    },
+    {
+      "endLine": 24,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-datasets",
+      "line": 21,
+      "quote": "full_train = torchvision.datasets.CIFAR10(root=DATA_ROOT, train=True, download=False,\n                                          transform=TRAIN_TRANSFORM)\ntest_ds = torchvision.datasets.CIFAR10(root=DATA_ROOT, train=False, download=False,\n                                       transform=EVAL_TRANSFORM)"
+    },
+    {
+      "endLine": 26,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-split",
+      "line": 26,
+      "quote": "train_ds, val_ds = random_split(full_train, [TRAIN_SIZE, VAL_SIZE])"
+    },
+    {
+      "endLine": 28,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-train-loader",
+      "line": 28,
+      "quote": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+    },
+    {
+      "endLine": 29,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-val-loader",
+      "line": 29,
+      "quote": "val_loader = DataLoader(val_ds, batch_size=EVAL_BATCH_SIZE, shuffle=False)"
+    },
+    {
+      "endLine": 30,
+      "file": "samples/image_classification/data.py",
+      "id": "ev-test-loader",
+      "line": 30,
+      "quote": "test_loader = DataLoader(test_ds, batch_size=EVAL_BATCH_SIZE, shuffle=True)"
+    },
+    {
+      "endLine": 20,
+      "file": "samples/image_classification/model.py",
+      "id": "ev-convblock",
+      "line": 13,
+      "quote": "    def __init__(self, cin: int, cout: int) -> None:\n        super().__init__()\n        self.conv = nn.Conv2d(cin, cout, kernel_size=3, padding=1)\n        self.norm = nn.BatchNorm2d(cout)\n        self.drop = nn.Dropout(0.1)\n\n    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        return self.drop(F.relu(self.norm(self.conv(x))))"
+    },
+    {
+      "endLine": 27,
+      "file": "samples/image_classification/model.py",
+      "id": "ev-model-defaults",
+      "line": 26,
+      "quote": "    def __init__(self, classes: int = NUM_CLASSES, width: int = WIDTH,\n                 depth: int = DEPTH) -> None:"
+    },
+    {
+      "endLine": 32,
+      "file": "samples/image_classification/model.py",
+      "id": "ev-model-init",
+      "line": 29,
+      "quote": "        self.stem = nn.Conv2d(3, width, kernel_size=3, padding=1)\n        self.blocks = [ConvBlock(width, width) for _ in range(depth)]\n        self.pool = nn.AdaptiveAvgPool2d(1)\n        self.head = nn.Linear(width, classes)"
+    },
+    {
+      "endLine": 38,
+      "file": "samples/image_classification/model.py",
+      "id": "ev-model-forward",
+      "line": 34,
+      "quote": "    def forward(self, x: torch.Tensor) -> torch.Tensor:\n        x = F.relu(self.stem(x))\n        for block in self.blocks:\n            x = block(x)\n        x = self.pool(x).flatten(1)"
+    },
+    {
+      "endLine": 39,
+      "file": "samples/image_classification/model.py",
+      "id": "ev-softmax",
+      "line": 39,
+      "quote": "        return F.softmax(self.head(x), dim=1)"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-backward-grads",
+        "e-grads-step"
+      ],
+      "evidence": [
+        "ev-backward-step",
+        "ev-epoch-loop"
+      ],
+      "id": "f-no-zero-grad",
+      "message": "The batch loop calls loss.backward() and optimizer.step() but never optimizer.zero_grad(). PyTorch adds to .grad on each backward, so by step k Adam sees the sum of all k batch gradients since training began (across epochs too). Updates then follow a stale running sum instead of the current batch, and training silently degrades or stalls. I searched all five files under samples/image_classification for zero_grad and found none.",
+      "nodeIds": [
+        "backward",
+        "grads",
+        "step"
+      ],
+      "severity": "high",
+      "suggestion": "Call optimizer.zero_grad() at the start of each batch iteration, before the forward pass or loss.backward().",
+      "title": "Gradients are never zeroed, so every step uses the sum of all past gradients"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-blocks-state",
+        "e-model-paramsreg"
+      ],
+      "evidence": [
+        "ev-model-init",
+        "ev-optimizer",
+        "ev-device-model"
+      ],
+      "id": "f-blocks-list",
+      "message": "SmallCNN keeps its four ConvBlocks in self.blocks = [ ... ], a Python list rather than nn.ModuleList. model.parameters() then yields only the stem and head, so Adam never updates the 4 conv and 4 BatchNorm layers: they stay at random initialization while gradients still flow through them. model.to(device) also leaves them on the CPU, and model.train()/eval() never reach their BatchNorm or Dropout. The result is a 'trained' model whose core feature extractor is random, with no error raised. On CUDA, once the input device move is fixed, the first forward pass hits a CPU/GPU mismatch inside the blocks.",
+      "nodeIds": [
+        "blocks",
+        "blocks-state",
+        "params-reg",
+        "optimizer"
+      ],
+      "severity": "high",
+      "suggestion": "Use self.blocks = nn.ModuleList([ConvBlock(width, width) for _ in range(depth)]) or nn.Sequential(...).",
+      "title": "ConvBlocks stored in a plain list are invisible to the optimizer, .to() and train/eval"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-validate-metric"
+      ],
+      "edgeIds": [
+        "e-forward-loss"
+      ],
+      "evidence": [
+        "ev-softmax",
+        "ev-criterion",
+        "ev-forward-loss"
+      ],
+      "id": "f-double-softmax",
+      "message": "SmallCNN.forward returns F.softmax(...), and train() passes that to nn.CrossEntropyLoss, which applies log_softmax internally. The loss is therefore computed on softmax(softmax(z)). It is bounded close to log(10), its gradients are heavily compressed, and the model learns slowly or plateaus. The printed loss is also not the true cross-entropy. Validation accuracy is not distorted by this choice, because argmax is unaffected by a softmax.",
+      "nodeIds": [
+        "head",
+        "loss",
+        "forward"
+      ],
+      "severity": "high",
+      "suggestion": "Return self.head(x) (raw logits) from forward, and apply softmax only where probabilities are needed.",
+      "title": "Softmax output is fed to CrossEntropyLoss, which expects logits"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-forward-fail",
+        "e-trainloader-forward"
+      ],
+      "evidence": [
+        "ev-device-model",
+        "ev-cfg-train",
+        "ev-forward-loss",
+        "ev-validate-loop"
+      ],
+      "id": "f-device",
+      "message": "DEVICE is \"cuda\" and the model is moved with model.to(device), but neither train() nor validate() moves images or labels. With CUDA available, the first forward pass is expected to raise a device-mismatch RuntimeError. Without CUDA, model.to(\"cuda\") fails before training starts. Either way training does not run as written. I searched the inspected files for .to( and found only the model move.",
+      "nodeIds": [
+        "forward",
+        "device-fail",
+        "validate",
+        "model"
+      ],
+      "severity": "medium",
+      "suggestion": "Add images, labels = images.to(device), labels.to(device) in both loops (pass device to validate), and fix the ModuleList issue so the blocks move with the model.",
+      "title": "Batches are never moved to the configured CUDA device"
+    },
+    {
+      "basis": "observed",
+      "edgeIds": [
+        "e-init-running",
+        "e-running-print"
+      ],
+      "evidence": [
+        "ev-running-init",
+        "ev-running-acc",
+        "ev-print"
+      ],
+      "id": "f-running-loss",
+      "message": "running_loss is set to 0.0 once, before the epoch loop, and never reset. The print divides the sum of every batch loss since epoch 0 by len(train_loader). Epoch e therefore reports roughly (e+1) times the average loss, so the printed curve rises even when per-batch loss falls, which hides real training progress. No other reset or assignment of running_loss exists in train.py.",
+      "nodeIds": [
+        "running-init",
+        "running-acc",
+        "print"
+      ],
+      "severity": "high",
+      "suggestion": "Reset running_loss = 0.0 at the start of each epoch and accumulate loss.item().",
+      "title": "Logged loss is a cumulative total, not the epoch mean"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-running-graph"
+      ],
+      "evidence": [
+        "ev-running-acc"
+      ],
+      "id": "f-graph-retain",
+      "message": "running_loss += loss adds the live loss tensor, so running_loss holds references to every batch's graph and saved activations across the whole run (about 352 batches x 20 epochs, a derived count). Memory is expected to grow steadily and can end in an out-of-memory failure in later epochs. The trigger is any run long enough to exhaust host or GPU memory.",
+      "nodeIds": [
+        "running-acc",
+        "graph-retain"
+      ],
+      "severity": "medium",
+      "suggestion": "Accumulate loss.item() (or loss.detach()).",
+      "title": "Accumulating the loss tensor keeps every autograd graph in memory"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-model-init"
+      ],
+      "edgeIds": [
+        "e-validate-mode",
+        "e-model-validate"
+      ],
+      "evidence": [
+        "ev-validate-loop",
+        "ev-running-init",
+        "ev-convblock"
+      ],
+      "id": "f-val-mode",
+      "message": "model.train() is called once before the loop, and validate() never calls model.eval() or uses torch.no_grad(). During validation, Dropout(0.1) randomly drops activations, and BatchNorm normalizes with each validation batch's statistics while updating its running statistics from validation data. The reported val_acc is noisy and biased relative to inference behaviour, and the BatchNorm state is touched by the validation set. Autograd graphs are also built for every validation batch. Bound: because the ConvBlocks are unregistered (f-blocks-list), adding model.eval() alone would not reach them until that is fixed.",
+      "nodeIds": [
+        "validate",
+        "val-mode",
+        "accuracy"
+      ],
+      "severity": "high",
+      "suggestion": "Wrap validate in torch.no_grad(), call model.eval() at its start and model.train() after it returns, and register the blocks with nn.ModuleList.",
+      "title": "Validation runs in training mode and with gradient tracking"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-eval-transform"
+      ],
+      "edgeIds": [
+        "e-split-valaug",
+        "e-valaug-loader"
+      ],
+      "evidence": [
+        "ev-split",
+        "ev-datasets",
+        "ev-val-loader"
+      ],
+      "id": "f-val-aug",
+      "message": "val_ds comes from random_split(full_train, ...), and full_train was built with TRAIN_TRANSFORM. Validation images are therefore randomly cropped and flipped each epoch, while EVAL_TRANSFORM is used only for the unused test set. Validation accuracy is measured on a different and nondeterministic input distribution, which makes epoch-to-epoch comparisons noisy. This is always triggered in the selected run. Its effect on the number is likely modest, which is why it is rated medium.",
+      "nodeIds": [
+        "val-aug",
+        "split",
+        "val-loader",
+        "eval-tf"
+      ],
+      "severity": "medium",
+      "suggestion": "Build a second CIFAR10(train=True, transform=EVAL_TRANSFORM) and take the validation indices from it, using the same split indices.",
+      "title": "Validation images get the random training augmentation"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-split"
+      ],
+      "evidence": [
+        "ev-train-loader"
+      ],
+      "id": "f-no-shuffle",
+      "message": "train_loader is built without shuffle=True. random_split permutes the indices once at import, so batches are random but identical in every epoch, and batch composition never changes. This can slow convergence and worsen generalization compared with per-epoch shuffling. The trigger is any multi-epoch run (20 here). This relies on DataLoader's default shuffle=False.",
+      "nodeIds": [
+        "train-loader"
+      ],
+      "severity": "medium",
+      "suggestion": "Pass shuffle=True to the training DataLoader.",
+      "title": "Training batches come in the same order every epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-imports",
+        "ev-return"
+      ],
+      "id": "f-no-entry",
+      "message": "train.py defines train() and validate() but has no if __name__ == \"__main__\" block, and no other inspected file calls train(). Running python train.py only imports config, data and model, which loads CIFAR-10 from data/cifar10 with download=False, then exits silently. The search covered the five files under samples/image_classification; an external caller outside the workspace may exist.",
+      "nodeIds": [
+        "entry"
+      ],
+      "severity": "medium",
+      "suggestion": "Add if __name__ == \"__main__\": train() (and save the returned model).",
+      "title": "Nothing calls train(): running train.py trains nothing"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-split"
+      ],
+      "id": "f-repro",
+      "message": "random_split is called without a generator, and no torch.manual_seed appears in the inspected files. The 45000/5000 split, the weight initialization and the augmentation differ on every run, so results cannot be reproduced or compared across runs.",
+      "nodeIds": [
+        "split"
+      ],
+      "severity": "low",
+      "suggestion": "Seed torch (and pass generator=torch.Generator().manual_seed(...) to random_split).",
+      "title": "Split and initialization are not seeded"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-return",
+        "ev-imports",
+        "ev-test-loader"
+      ],
+      "id": "f-no-save",
+      "message": "train() returns the final-epoch model with no checkpoint, best-epoch selection or test-set evaluation. test_loader is built but never used by train.py. A run leaves only printed lines behind.",
+      "nodeIds": [
+        "return",
+        "test-loader"
+      ],
+      "severity": "low",
+      "suggestion": "Save model.state_dict() (optionally the best by val_acc) and evaluate once on test_loader at the end.",
+      "title": "The model is only returned, never saved or test-evaluated"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Plain module constants: batch 128 (eval 256), 4 workers, 20 epochs, Adam lr 1e-3, weight decay 0.0, device \"cuda\", split 45000/5000, 10 classes, width 32, depth 4.",
+      "evidence": [
+        "ev-cfg-train",
+        "ev-cfg-model"
+      ],
+      "id": "cfg",
+      "kind": "config",
+      "label": "config.py constants",
+      "phase": "config"
+    },
+    {
+      "basis": "observed",
+      "detail": "Defines train() -> nn.Module and validate(). Importing train.py imports data.py, which builds the datasets and loaders at import time. No file in the inspected workspace calls train(), and train.py has no if __name__ == \"__main__\" block.",
+      "evidence": [
+        "ev-imports",
+        "ev-return"
+      ],
+      "id": "entry",
+      "kind": "entrypoint",
+      "label": "train() in train.py",
+      "phase": "config"
+    },
+    {
+      "basis": "observed",
+      "detail": "torchvision CIFAR10 with download=False: the files must already exist under DATA_ROOT relative to the working directory. The train split feeds training and validation; the test split goes to test_ds.",
+      "evidence": [
+        "ev-datasets"
+      ],
+      "id": "cifar",
+      "kind": "data",
+      "label": "CIFAR-10 on disk (data/cifar10)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "RandomCrop(32, padding=4), RandomHorizontalFlip, ToTensor, Normalize with CIFAR-10 channel means and stds.",
+      "evidence": [
+        "ev-train-transform"
+      ],
+      "id": "train-tf",
+      "kind": "operation",
+      "label": "TRAIN_TRANSFORM: random crop + flip, normalize",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "ToTensor plus the same Normalize. It is attached only to test_ds, not to the validation subset.",
+      "evidence": [
+        "ev-eval-transform",
+        "ev-datasets"
+      ],
+      "id": "eval-tf",
+      "kind": "operation",
+      "label": "EVAL_TRANSFORM: normalize only",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "CIFAR10(train=True) built with transform=TRAIN_TRANSFORM.",
+      "evidence": [
+        "ev-datasets"
+      ],
+      "id": "full-train",
+      "kind": "data",
+      "label": "full_train: 50k CIFAR-10 train images",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "Splits full_train into train_ds and val_ds. No generator is passed, so the split depends on the global RNG state at import time.",
+      "evidence": [
+        "ev-split",
+        "ev-cfg-model"
+      ],
+      "id": "split",
+      "kind": "operation",
+      "label": "random_split 45000 / 5000",
+      "phase": "data"
+    },
+    {
+      "basis": "inferred",
+      "detail": "random_split returns index subsets of the same full_train dataset, so each validation image is randomly cropped and flipped when loaded. This follows torch.utils.data semantics, which were not read.",
+      "evidence": [
+        "ev-split",
+        "ev-datasets"
+      ],
+      "id": "val-aug",
+      "kind": "state",
+      "label": "val_ds inherits TRAIN_TRANSFORM",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "DataLoader(train_ds, batch_size=128, num_workers=4). No shuffle argument is passed. It is used for training batches and for len(train_loader) in the log.",
+      "evidence": [
+        "ev-train-loader"
+      ],
+      "id": "train-loader",
+      "kind": "data",
+      "label": "train_loader (batch 128, no shuffle)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "DataLoader(val_ds, batch_size=256, shuffle=False), with the default worker count.",
+      "evidence": [
+        "ev-val-loader"
+      ],
+      "id": "val-loader",
+      "kind": "data",
+      "label": "val_loader (batch 256, shuffle=False)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "The CIFAR-10 test split with EVAL_TRANSFORM, batch 256, shuffle=True. train.py imports only train_loader and val_loader, so the test set is built at import time but never evaluated in this scenario.",
+      "evidence": [
+        "ev-datasets",
+        "ev-test-loader",
+        "ev-imports"
+      ],
+      "id": "test-loader",
+      "kind": "data",
+      "label": "test_ds / test_loader (unused by train.py)",
+      "phase": "data"
+    },
+    {
+      "basis": "observed",
+      "detail": "SmallCNN() is built with config defaults (10 classes, width 32, depth 4), then moved with model.to(torch.device(\"cuda\")). Its forward pass is stem conv -> ReLU -> 4 ConvBlocks -> global average pool -> Linear head -> softmax.",
+      "evidence": [
+        "ev-device-model",
+        "ev-model-defaults",
+        "ev-model-forward",
+        "ev-softmax"
+      ],
+      "id": "model",
+      "kind": "model",
+      "label": "SmallCNN model",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "Assigned as a module attribute.",
+      "evidence": [
+        "ev-model-init",
+        "ev-model-forward"
+      ],
+      "id": "stem",
+      "kind": "operation",
+      "label": "stem: Conv2d(3, 32, 3x3) + ReLU",
+      "parent": "model",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "Each ConvBlock is Conv2d(32, 32, 3x3) -> BatchNorm2d -> ReLU -> Dropout(0.1). They are stored in a plain list, not an nn.ModuleList.",
+      "evidence": [
+        "ev-model-init",
+        "ev-convblock"
+      ],
+      "id": "blocks",
+      "kind": "operation",
+      "label": "blocks: Python list of 4 ConvBlocks",
+      "parent": "model",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "AdaptiveAvgPool2d(1), flatten, Linear head, then F.softmax(dim=1). forward returns probabilities, not logits.",
+      "evidence": [
+        "ev-model-forward",
+        "ev-softmax",
+        "ev-model-init"
+      ],
+      "id": "head",
+      "kind": "operation",
+      "label": "pool -> Linear(32, 10) -> softmax",
+      "parent": "model",
+      "phase": "model"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Only the stem conv and head linear weights are registered submodules. model.parameters(), model.to() and model.train()/eval() therefore reach only these. This follows nn.Module registration rules, not project code.",
+      "evidence": [
+        "ev-model-init",
+        "ev-optimizer"
+      ],
+      "id": "params-reg",
+      "kind": "state",
+      "label": "Registered params: stem + head only",
+      "phase": "model"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Because the list is not registered, the 4 conv and BatchNorm layers keep their random initialization (they receive .grad but no optimizer owns them). They are not moved by model.to(device), and their BatchNorm and Dropout stay in their default training mode. Inferred from nn.Module semantics.",
+      "evidence": [
+        "ev-model-init",
+        "ev-optimizer",
+        "ev-device-model"
+      ],
+      "id": "blocks-state",
+      "kind": "state",
+      "label": "ConvBlock weights: never stepped, left on CPU, always in train mode",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "nn.CrossEntropyLoss() with default reduction (mean over the batch). It expects unnormalized logits.",
+      "evidence": [
+        "ev-criterion"
+      ],
+      "id": "criterion",
+      "kind": "objective",
+      "label": "CrossEntropyLoss",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "Owns exactly the parameters model.parameters() yields at construction time (see the registered-params node).",
+      "evidence": [
+        "ev-optimizer",
+        "ev-cfg-train"
+      ],
+      "id": "optimizer",
+      "kind": "optimizer",
+      "label": "Adam(model.parameters(), lr=1e-3, wd=0)",
+      "phase": "model"
+    },
+    {
+      "basis": "observed",
+      "detail": "Both run once, before the epoch loop. running_loss is never reset per epoch, and nothing later switches the mode.",
+      "evidence": [
+        "ev-running-init"
+      ],
+      "id": "running-init",
+      "kind": "state",
+      "label": "running_loss = 0.0; model.train() (once)",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "for epoch in range(EPOCHS): one pass over train_loader, then validate and print.",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "epoch-loop",
+      "kind": "loop",
+      "label": "Epoch loop (20 epochs)",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "for images, labels in train_loader: one pass over train_ds per epoch, in batches of BATCH_SIZE.",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "batch-loop",
+      "kind": "loop",
+      "label": "Batch loop over train_loader",
+      "parent": "epoch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "images come straight from the loader and are not moved to the device. The variable is named logits but holds softmax probabilities.",
+      "evidence": [
+        "ev-forward-loss",
+        "ev-softmax"
+      ],
+      "id": "forward",
+      "kind": "operation",
+      "label": "logits = model(images)",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "With DEVICE \"cuda\", the stem and head are on the GPU while images (and the unregistered blocks) are on the CPU, so the first forward pass is expected to raise a device-mismatch RuntimeError. If CUDA is unavailable, model.to(\"cuda\") fails first. Runtime- and framework-dependent.",
+      "evidence": [
+        "ev-device-model",
+        "ev-cfg-train",
+        "ev-forward-loss"
+      ],
+      "id": "device-fail",
+      "kind": "branch",
+      "label": "CUDA run: device mismatch at the first forward",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cross-entropy applied to softmax outputs, so log_softmax is taken of probabilities (a double softmax).",
+      "evidence": [
+        "ev-forward-loss",
+        "ev-criterion",
+        "ev-softmax"
+      ],
+      "id": "loss",
+      "kind": "objective",
+      "label": "loss = CrossEntropyLoss(probs, labels)",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "There is no optimizer.zero_grad() or model.zero_grad() anywhere in the inspected files.",
+      "evidence": [
+        "ev-backward-step"
+      ],
+      "id": "backward",
+      "kind": "operation",
+      "label": "loss.backward()",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Without zeroing, each backward adds to the existing .grad. By step k the gradient Adam sees is the sum of all k batch gradients so far. PyTorch accumulation semantics are inferred, not read.",
+      "evidence": [
+        "ev-backward-step",
+        "ev-epoch-loop"
+      ],
+      "id": "grads",
+      "kind": "state",
+      "label": ".grad buffers accumulate across every batch and epoch",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Updates the Adam-owned (stem and head) parameters in place from the current .grad.",
+      "evidence": [
+        "ev-backward-step",
+        "ev-optimizer"
+      ],
+      "id": "step",
+      "kind": "optimizer",
+      "label": "optimizer.step()",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Adds the loss tensor itself (no .item() or .detach()), so running_loss becomes a tensor that sums every batch loss since training began.",
+      "evidence": [
+        "ev-running-acc",
+        "ev-running-init"
+      ],
+      "id": "running-acc",
+      "kind": "state",
+      "label": "running_loss += loss",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Because running_loss is a non-detached sum of loss tensors, it references every batch's computation graph and saved activations, so memory grows over the run. Inferred from autograd semantics.",
+      "evidence": [
+        "ev-running-acc"
+      ],
+      "id": "graph-retain",
+      "kind": "state",
+      "label": "running_loss keeps every batch's autograd graph alive",
+      "parent": "batch-loop",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Called once per epoch after the batch loop. It iterates val_loader and runs model(images). There is no model.eval(), no torch.no_grad(), and no device move inside validate.",
+      "evidence": [
+        "ev-validate-call",
+        "ev-validate-loop"
+      ],
+      "id": "validate",
+      "kind": "evaluation",
+      "label": "validate(model, val_loader)",
+      "parent": "epoch-loop",
+      "phase": "eval"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Dropout(0.1) stays active and BatchNorm normalizes with each validation batch's statistics (updating its running stats from validation data). Graphs are also built for every validation forward pass. Inferred from module-mode semantics.",
+      "evidence": [
+        "ev-validate-loop",
+        "ev-running-init",
+        "ev-convblock"
+      ],
+      "id": "val-mode",
+      "kind": "state",
+      "label": "Validation runs in train mode with autograd on",
+      "parent": "epoch-loop",
+      "phase": "eval"
+    },
+    {
+      "basis": "observed",
+      "detail": "argmax over class probabilities compared with labels, summed over all validation batches and divided by the sample count (guarded by max(total, 1)).",
+      "evidence": [
+        "ev-validate-metric"
+      ],
+      "id": "accuracy",
+      "kind": "metric",
+      "label": "val accuracy = correct / total",
+      "parent": "epoch-loop",
+      "phase": "eval"
+    },
+    {
+      "basis": "observed",
+      "detail": "The printed loss is the cumulative sum of all batch losses since epoch 0 divided by the per-epoch batch count, not this epoch's mean.",
+      "evidence": [
+        "ev-print",
+        "ev-running-init"
+      ],
+      "id": "print",
+      "kind": "output",
+      "label": "print epoch, running_loss / len(train_loader), val_acc",
+      "parent": "epoch-loop",
+      "phase": "output"
+    },
+    {
+      "basis": "observed",
+      "detail": "The trained model is returned to the caller. Nothing is saved to disk, no checkpoint or best-epoch selection exists, and no test evaluation happens in train.py.",
+      "evidence": [
+        "ev-return"
+      ],
+      "id": "return",
+      "kind": "output",
+      "label": "return model",
+      "phase": "output"
+    }
+  ],
+  "phases": [
+    {
+      "id": "config",
+      "label": "Configuration and entry"
+    },
+    {
+      "id": "data",
+      "label": "Data entry and splitting"
+    },
+    {
+      "id": "model",
+      "label": "Model and optimizer construction"
+    },
+    {
+      "id": "train",
+      "label": "Training loop"
+    },
+    {
+      "id": "eval",
+      "label": "Per-epoch validation"
+    },
+    {
+      "id": "output",
+      "label": "Outputs"
+    }
+  ],
+  "producer": {
+    "host": "claude-code",
+    "kind": "host-llm",
+    "model": "claude-opus-5-5"
+  },
+  "request": {
+    "configuration": "Module-level constants in config.py with no override mechanism: BATCH_SIZE 128, EVAL_BATCH_SIZE 256, NUM_WORKERS 4, EPOCHS 20, LEARNING_RATE 1e-3, WEIGHT_DECAY 0.0, DEVICE \"cuda\", TRAIN_SIZE 45000, VAL_SIZE 5000, NUM_CLASSES 10, WIDTH 32, DEPTH 4, DATA_ROOT \"data/cifar10\". Assumes train() is called from some external caller (none exists in the inspected files) with samples/image_classification as the working directory or on sys.path, because the imports are flat (from config import ...).",
+    "entrypoints": [
+      "samples/image_classification/train.py"
+    ],
+    "question": "Explain the training that starts in train.py: where data enters, what the model is, and how training and validation work. Tell me what looks wrong.",
+    "scope": "The train() function in samples/image_classification/train.py, together with the module-level datasets and loaders in data.py, the SmallCNN in model.py and the constants in config.py that it imports. Covers data loading and splitting, model construction, the epoch/batch training loop, per-epoch validation, the printed log and the returned model. sklearn_baseline.py is a separate workflow that train.py does not import; it was read only to confirm that and is outside this scenario."
+  },
+  "revision": {
+    "id": "ic-r1"
+  },
+  "title": "SmallCNN CIFAR-10 training in train.py",
+  "verification": {
+    "files": {
+      "samples/image_classification/config.py": "699e51ac03a98ced5c36f4c7ea679f87cd1227dc4abb101917a050f62f886dba",
+      "samples/image_classification/data.py": "e037abcee57e0890937d60df6b25dd23c791382d1a7b0877099f426242ebaa5b",
+      "samples/image_classification/model.py": "f2349f2c22b2e3a914367134863d7f087a9a386585ea5a0dd4970137927f0173",
+      "samples/image_classification/sklearn_baseline.py": "d3f10d2cc0630afa931e50a057a74de148de68cf72d643923531ed252b7599ec",
+      "samples/image_classification/train.py": "cd3357e9600f3b2786cc55bbf33d95993796f77ba996188767c4f65c4b95881c"
+    },
+    "publishedAt": "2026-10-23T15:14:47.739250Z"
+  },
+  "workflowVersion": "1.0"
+}

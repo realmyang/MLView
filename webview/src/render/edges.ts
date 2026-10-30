@@ -1,0 +1,400 @@
+/**
+ * SVG edge layer. One <g> per routed edge: a wide transparent hit path, the
+ * visible stroke, an optional label and an optional severity marker at the
+ * midpoint. The arrowhead comes from one <marker> definition in <defs>.
+ *
+ * The stroke's dash encodes CERTAINTY, not kind: solid for an
+ * observed connection, dashed for inferred, dotted for unresolved (edge.css,
+ * keyed on `data-basis`). The kind stays in the class name (the flow layer's
+ * stream density reads it) and is told in words by the hover card, the
+ * Selection pane and the accessible name.
+ */
+
+import { svg, setAttrs } from '../dom.js';
+import { stampPhase } from './phase.js';
+import { edgeMarker, edgeMarkerRadius } from '../markers.js';
+import {
+  WEIGHT_BADGE_H,
+  WEIGHT_MIN,
+  weightBadgeAt,
+  weightBadgeText,
+  weightBadgeWidth,
+  weightStroke,
+} from './weight.js';
+import { labelTextOf } from '../layout/labels.js';
+import type { LabelPlacement } from '../layout/labels.js';
+import type { Point, RoutedEdge } from '../layout/routing.js';
+import type { Severity, WorkflowBasis } from '../types.js';
+
+/**
+ * The edge kinds that keep a class of their own (`mlv-edge--<kind>`, see
+ * `edgeKindClass`); every other kind is drawn with `mlv-edge--unknown`.
+ */
+export const KNOWN_EDGE_KINDS = ['data', 'call', 'control', 'config', 'state', 'loop', 'output'];
+
+/**
+ * Authored edge kind words (normalised: lower case, `-`/`_`/spaces collapsed
+ * to one space) that mean one of the styled kinds. The kind field is optional
+ * free text, so authors spell one kind in many ways; these are the common
+ * synonyms. Anything else keeps its authored text.
+ */
+const EDGE_SYNONYMS: Record<string, string> = {
+  data: 'data', dataflow: 'data', 'data flow': 'data', flow: 'data',
+  control: 'control', 'control flow': 'control', branch: 'control', 'conditional call': 'control', decision: 'control',
+  state: 'state', 'state update': 'state', update: 'state', 'state read': 'state', 'state copy': 'state',
+  gradient: 'state', 'gradient flow': 'state', optimizes: 'state', ownership: 'state', 'state ownership': 'state',
+  config: 'config', configuration: 'config', 'configuration flow': 'config',
+  call: 'call', calls: 'call', loop: 'loop', loops: 'loop', output: 'output', outputs: 'output',
+};
+
+/**
+ * The kind a WorkflowDocument edge is drawn as: a styled kind when the authored
+ * word is one or a synonym of one, the authored text itself otherwise (shown in
+ * the hover card, the Selection pane and the legend instead of `unknown`), and
+ * `unknown` only when the author gave no kind at all.
+ */
+export function normalizeEdgeKind(kind: string | undefined): string {
+  const raw = String(kind || '').trim();
+  if (!raw) return 'unknown';
+  const key = raw.toLowerCase().replace(/[\s_-]+/g, ' ');
+  return EDGE_SYNONYMS[key] || raw;
+}
+
+/** What a reader is told an edge's kind is: never the adapter's `unknown`. */
+export function edgeKindText(kind: string): string {
+  return kind && kind !== 'unknown' ? kind : 'kind not specified';
+}
+
+/**
+ * One serial per MOUNTED view, handed out here because this is where the ids it
+ * qualifies are written.
+ *
+ * The flow layer's charge rides its cable through a SMIL `<mpath href="#...">`,
+ * which is a DOCUMENT-wide reference: a page may mount more than one app, and an
+ * id built from the edge id alone would make two apps share a motion path and
+ * run one app's charge along the other's cable.
+ */
+let mountSerial = 0;
+
+export function nextMountSerial(): number {
+  mountSerial++;
+  return mountSerial;
+}
+
+/**
+ * `mlv-p-<mount serial>-<edge id as hex>` — the id of an edge's VISIBLE path,
+ * and the only thing `<mpath>` is allowed to point at.
+ *
+ * Each UTF-16 code unit becomes exactly four hex digits, so the mapping is
+ * injective by construction (a fixed-width code cannot alias) and the result is
+ * a bare `[0-9a-f]` token — always a valid id, a valid CSS identifier tail and a
+ * valid URL fragment, whatever characters the edge id holds.
+ */
+export function edgePathId(serial: number, edgeId: string): string {
+  let hex = '';
+  for (let i = 0; i < edgeId.length; i++) {
+    const unit = edgeId.charCodeAt(i).toString(16);
+    hex += '0000'.slice(unit.length) + unit;
+  }
+  return 'mlv-p-' + serial + '-' + hex;
+}
+
+export function edgeKindClass(kind: string): string {
+  return KNOWN_EDGE_KINDS.indexOf(kind) >= 0 ? kind : 'unknown';
+}
+
+function marker(id: string, cls: string, d: string, filled: boolean): SVGElement {
+  const m = svg('marker', {
+    id,
+    viewBox: '0 0 10 10',
+    refX: 8.5,
+    refY: 5,
+    markerWidth: 9,
+    markerHeight: 9,
+    markerUnits: 'userSpaceOnUse',
+    orient: 'auto',
+  });
+  const p = svg('path', { class: cls + (filled ? '' : ' mlv-arrow--open'), d });
+  if (!filled) setAttrs(p, { fill: 'none' });
+  m.appendChild(p);
+  return m;
+}
+
+/**
+ * The arrowhead: one filled triangle for every connection, whatever its kind;
+ * the kind is told in words.
+ *
+ * Two consumers: `buildDefs()` turns it into the scene's one <marker>, and the
+ * legend and the SVG export draw the same path inline — a <marker>
+ * id may exist only once per document, so the key cannot reuse the scene's.
+ */
+export const ARROW_HEAD = { d: 'M0.5 1 L9 5 L0.5 9 Z' };
+
+/** The id of the scene's arrowhead marker. */
+export const ARROW_MARKER_ID = 'mlv-arrow';
+
+export function buildDefs(): SVGElement {
+  const defs = svg('defs');
+  defs.appendChild(marker(ARROW_MARKER_ID, 'mlv-arrow', ARROW_HEAD.d, true));
+  return defs;
+}
+
+export interface EdgeVisual {
+  route: RoutedEdge;
+  severity: Severity | null;
+  /** The short labels (F1…Fn) of the findings on this cable, in document order. */
+  findings?: string[];
+  /** The SOURCE phase's document position, the key of its colour. */
+  phase?: number;
+  labelVisible: boolean;
+  /**
+   * The SOURCE node's stage, stamped on the <g> as `data-stage`. flow.css colours
+   * the charge of an edge so stamped by `--mlv-stage`, which the phase tone sets
+   * (`phase`) and the bare `[data-stage]` rule of node.css falls back on.
+   */
+  stage?: string;
+  /** Endpoint labels, so the accessible name can say which way the value flows. */
+  sourceLabel?: string;
+  targetLabel?: string;
+  /** The mounted view's serial, which makes this edge's path id unique. */
+  mountSerial: number;
+  /**
+   * Where this edge's label goes, and where its severity marker goes
+   * once nudged off the label box. Absent means "nobody planned one", and the
+   * label falls back to the route midpoint: a missing plan must not lose a label.
+   */
+  placement?: LabelPlacement;
+  /**
+   * How many connections this cable stands for (`render/plan.ts`, from the route's own merge).
+   * Absent or 1 draws an ordinary connection.
+   */
+  weight?: number;
+  /**
+   * A connection this cable stands for cites a file the host reported stale. Drawn
+   * as a small warning mark with a title; the DOM only (the SVG export is a snapshot without it).
+   */
+  stale?: boolean;
+  /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
+  staleElsewhere?: boolean;
+  /**
+   * The authored basis of the connection (the least certain one on a merged cable,
+   * `render/plan.ts` routeBasis). The accessible name says it when it is not `observed`.
+   */
+  basis?: WorkflowBasis;
+}
+
+/** The glyph size of a cable's severity marker, and the radius of its disc. */
+export const EDGE_MARKER_SIZE = 14;
+export const EDGE_MARKER_R = edgeMarkerRadius(EDGE_MARKER_SIZE);
+
+/**
+ * Where this cable's severity marker (or loop chevron) is drawn: the nudged
+ * point of its label placement, else the route midpoint. The hover resolver reads the same
+ * point, so the disc it answers to is the disc on screen.
+ */
+export function markerPoint(v: Pick<EdgeVisual, 'route' | 'placement'>): Point {
+  return v.placement ? v.placement.marker : v.route.mid;
+}
+
+export function buildEdge(v: EdgeVisual): SVGElement {
+  const r = v.route;
+  const kind = edgeKindClass(r.kind);
+  const weight = v.weight && v.weight > 1 ? Math.floor(v.weight) : 1;
+  const weighted = weight >= WEIGHT_MIN;
+  const g = svg('g', {
+    class:
+      'mlv-edge mlv-edge--' + kind + (r.count > 1 ? ' mlv-edge--merged' : '') +
+      (weighted ? ' mlv-edge--weighted' : '') + (r.back ? ' mlv-edge--back' : ''),
+    'data-edge-id': r.id,
+    'data-edge-kind': r.kind,
+  });
+  g.setAttribute('data-edge-ids', r.ids.join(' '));
+  if (weighted) {
+    // The thicker stroke is a CUSTOM PROPERTY on the group rather than
+    // an inline `stroke-width` on the path: hover, selection and the severity
+    // tint all set that property in CSS, and an inline style would win over all
+    // three, so a heavy cable would stop responding to the pointer.
+    g.setAttribute('data-edge-weight', String(weight));
+    g.style.setProperty('--mlv-edge-w', weightStroke(weight) + 'px');
+  }
+  // The attribute marks the SVG groups of the edge layer as well as node cards:
+  // flow.css reads --mlv-stage on such a group as --mlv-flow-color, and the
+  // bare [data-stage] rule in node.css gives it a value without a tone.
+  if (v.stage) g.setAttribute('data-stage', v.stage);
+  if (v.phase !== undefined) stampPhase(g, v.phase);
+  // edge.css dashes an inferred cable and dots an unresolved one; observed is solid.
+  if (v.basis) g.setAttribute('data-basis', v.basis);
+  if (v.severity) {
+    g.setAttribute('data-sev', v.severity);
+    g.classList.add('has-issue');
+  }
+  if (v.stale) {
+    g.classList.add('is-stale');
+    g.setAttribute('data-stale', '1');
+  }
+  const hit = svg('path', { class: 'mlv-edge__hit', d: r.d });
+  hit.setAttribute('tabindex', '-1');
+  hit.setAttribute('role', 'button');
+  const staleText = v.staleElsewhere ? ' Its evidence cites a file in another folder.' : ' Its evidence cites a changed or missing file.';
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, v.basis) + (v.stale ? staleText : ''));
+  g.appendChild(hit);
+
+  const path = svg('path', { class: 'mlv-edge__path', d: r.d });
+  path.setAttribute('marker-end', 'url(#' + ARROW_MARKER_ID + ')');
+  // The charge's `<mpath>` rides THIS element, so it needs a document-unique id.
+  // It is written for every edge, not only a flowing one:
+  // the flow layer is built lazily by a gesture and must never have
+  // to mutate the scene it is decorating.
+  path.setAttribute('id', edgePathId(v.mountSerial, r.id));
+  g.appendChild(path);
+
+  const placement = v.placement;
+  // A label whose declutter pass ran out of positions is NOT drawn, and the
+  // group says so (`data-label-hidden`) rather than leaving the reader to wonder
+  // which edge the missing name belonged to.
+  if (r.label && placement && placement.hidden) {
+    g.setAttribute('data-label-hidden', '1');
+  } else if (r.label) {
+    const x = placement ? placement.x : r.mid.x;
+    const y = placement ? placement.y : r.mid.y - 8;
+    const label = svg('text', { class: 'mlv-edge-label', x, y });
+    // A control back-edge is the loop return path; the glyph says so at a glance.
+    label.textContent = labelTextOf(r);
+    if (placement) {
+      label.setAttribute('data-label-axis', placement.axis);
+      if (placement.flipped) label.setAttribute('data-label-flipped', '1');
+      if (placement.laneId) label.setAttribute('data-label-lane', placement.laneId);
+    }
+    g.appendChild(label);
+    if (v.labelVisible) g.classList.add('has-label');
+  }
+
+  // The severity marker rides the nudged point, so a glyph and a name never sit
+  // centred on each other.
+  const mark = markerPoint(v);
+  if (v.severity) {
+    const m = edgeMarker(v.severity, EDGE_MARKER_SIZE, v.findings || []);
+    m.setAttribute('transform', 'translate(' + mark.x + ',' + mark.y + ')');
+    g.appendChild(m);
+  } else if (r.back) {
+    // A back-edge gets a small return chevron so the loop reads as a loop.
+    const chev = svg('path', {
+      class: 'mlv-edge__loopmark',
+      d: 'M4 -4 L0 0 L4 4',
+      fill: 'none',
+      stroke: 'var(--mlv-edge)',
+      'stroke-width': 1.3,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+      transform: 'translate(' + mark.x + ',' + mark.y + ')',
+    });
+    g.appendChild(chev);
+  }
+  // The weight badge goes LAST, so it sits over the stroke it counts.
+  // It is nudged along the route's own normal whenever the marker point is already
+  // occupied by a severity glyph or a loop chevron — a number drawn on top of a
+  // severity marker is two facts and one readable glyph.
+  if (weighted) g.appendChild(weightBadge(weight, mark, r.midAngle, !!v.severity || r.back));
+  if (v.stale) g.appendChild(staleEdgeMark(mark, !!v.severity || r.back || weighted));
+  return g;
+}
+
+/**
+ * The stale mark on a cable, beside the severity marker when there is one. A warning
+ * shape on a disc, with a title that says what it means.
+ */
+function staleEdgeMark(at: Point, occupied: boolean): SVGElement {
+  const x = at.x + (occupied ? EDGE_MARKER_R + 10 : 0);
+  const g = svg('g', { class: 'mlv-edge__stale', transform: 'translate(' + round(x) + ',' + round(at.y) + ')' });
+  g.setAttribute('data-stale', '1');
+  g.appendChild(svg('circle', { class: 'mlv-edge__stalebg', r: 7.5 }));
+  g.appendChild(svg('path', { class: 'mlv-edge__staleicon', d: 'M0 -4.6 4.9 3.9H-4.9ZM0 -1.5v2.6M0 2.7v.1', fill: 'none' }));
+  const title = svg('title');
+  title.textContent = 'This connection cites a file that changed or is missing since publishing. Its jumps are blocked.';
+  g.appendChild(title);
+  return g;
+}
+
+/**
+ * `×7` in a pill on the cable. It is drawn as a real `<rect>` + `<text>` rather
+ * than borrowed from the edge LABEL, because a label is decluttered away when
+ * it collides and the number of connections a merged cable stands for
+ * is not something the picture may quietly drop.
+ *
+ * Its geometry comes from `render/weight.ts`, so the SVG export puts the same
+ * pill in the same place: the two renderers must not be able to disagree about
+ * the picture.
+ */
+function weightBadge(weight: number, at: { x: number; y: number }, angle: number, occupied: boolean): SVGElement {
+  const text = weightBadgeText(weight);
+  const w = weightBadgeWidth(weight);
+  const point = weightBadgeAt(at, angle, occupied);
+  const g = svg('g', {
+    class: 'mlv-edge__weight',
+    transform: 'translate(' + round(point.x) + ',' + round(point.y) + ')',
+  });
+  g.setAttribute('data-weight', String(weight));
+  g.appendChild(
+    svg('rect', {
+      class: 'mlv-edge__weightbg',
+      x: -w / 2,
+      y: -WEIGHT_BADGE_H / 2,
+      width: w,
+      height: WEIGHT_BADGE_H,
+      rx: WEIGHT_BADGE_H / 2,
+    }),
+  );
+  const label = svg('text', { class: 'mlv-edge__weighttext', x: 0, y: 0 });
+  label.textContent = text;
+  g.appendChild(label);
+  const title = svg('title');
+  title.textContent = weight + ' connections merged into this edge.';
+  g.appendChild(title);
+  return g;
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * The accessible name carries the DIRECTION in words: the step the connection
+ * flows from and the step it flows to, when both labels are given.
+ */
+export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, basis?: WorkflowBasis): string {
+  // "connection", the word the diagram prints, never "edge".
+  const kind = r.back ? 'loop-back connection' : r.kind && r.kind !== 'unknown' ? r.kind + ' connection' : 'connection';
+  const label = r.label ? ' labelled ' + r.label : '';
+  const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
+  // The merged count is also the cable's drawn weight (`render/weight.ts`).
+  const merged = r.count > 1 ? ', ' + r.count + ' merged connections' : '';
+  return kind + label + flows + merged + basisSpoken(basis) + '. Press Enter to open the cited source.';
+}
+
+/**
+ * The basis in an accessible name, for the exceptions only. An observed claim is the
+ * common case and carries no mark, on the canvas or in its name.
+ */
+export function basisSpoken(basis: string | undefined): string {
+  if (basis === 'inferred') return ', inferred, not observed';
+  if (basis === 'unresolved') return ', unresolved';
+  return '';
+}
+
+/** A dotted numbered connector from a selected finding's first step to another step it names. */
+export function buildConnector(from: { x: number; y: number }, to: { x: number; y: number }, index: number, severity: Severity, label: string): SVGElement {
+  const g = svg('g', { class: 'mlv-connector-group', 'data-sev': severity });
+  const mx = (from.x + to.x) / 2;
+  const my = (from.y + to.y) / 2;
+  const d = 'M ' + from.x + ' ' + from.y + ' Q ' + mx + ' ' + (my - 28) + ' ' + to.x + ' ' + to.y;
+  g.appendChild(svg('path', { class: 'mlv-connector', d }));
+  const badge = svg('circle', { class: 'mlv-connector__badge', cx: mx, cy: my - 14, r: 8 });
+  g.appendChild(badge);
+  const text = svg('text', { class: 'mlv-connector__label', x: mx, y: my - 14 });
+  text.textContent = String(index);
+  g.appendChild(text);
+  const title = svg('title');
+  title.textContent = label;
+  g.appendChild(title);
+  return g;
+}

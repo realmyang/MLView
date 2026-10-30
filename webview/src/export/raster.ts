@@ -1,0 +1,184 @@
+/**
+ * SVG → PNG, at 2× where the canvas limits below allow (`rasterScale`).
+ *
+ * The PNG is drawn FROM the exported SVG, never from a second traversal of the
+ * scene: whatever the SVG says, the raster says, at up to twice the resolution. That
+ * is why the no-external-reference rule in `export/svg.ts` is load-bearing here
+ * too — an `<img>` carrying an SVG that fetches anything taints the canvas, and
+ * `toDataURL` then throws a SecurityError instead of returning bytes.
+ *
+ * The source is a `data:` URI rather than a `blob:` one on purpose: a VS Code
+ * webview's CSP is written per scheme, `img-src blob:` is not something this
+ * renderer may assume, and a data URI needs no revocation and no object-URL
+ * lifetime to get wrong.
+ *
+ * Everything degrades to `null`: jsdom has no canvas, an unsupported host has
+ * no `toDataURL`, and a caller that gets `null` says so rather than claiming a
+ * file it never produced.
+ */
+
+const SVG_MIME = 'image/svg+xml';
+const PNG_MIME = 'image/png';
+
+/**
+ * The largest canvas this renderer asks for. A browser refuses a bitmap past
+ * its own limits and then returns `data:,` instead of throwing, so the scale is
+ * clamped before allocating.
+ */
+export const MAX_CANVAS_SIDE = 16384;
+export const MAX_CANVAS_AREA = 16384 * 16384;
+
+/**
+ * The scale to draw at: `scale`, reduced until `max(w, h) * s <= 16384` and
+ * `w * h * s² <= 16384²`. `null` when even scale 1 does not fit, so the caller
+ * offers the SVG instead of claiming a PNG it cannot produce.
+ */
+export function rasterScale(width: number, height: number, scale: number): number | null {
+  let s = scale;
+  const side = Math.max(width, height);
+  if (side > 0 && side * s > MAX_CANVAS_SIDE) s = MAX_CANVAS_SIDE / side;
+  const area = width * height;
+  if (area > 0 && area * s * s > MAX_CANVAS_AREA) s = Math.sqrt(MAX_CANVAS_AREA / area);
+  return s >= 1 ? s : null;
+}
+
+export interface RasterResult {
+  /** Raw base64, with no `data:` prefix — the shape `exportFile` carries. */
+  base64: string;
+  width: number;
+  height: number;
+  scale: number;
+}
+
+/** The SVG as an inline image source. Contains no reference to anything. */
+export function svgDataUri(svg: string): string {
+  return 'data:' + SVG_MIME + ';charset=utf-8,' + encodeURIComponent(svg);
+}
+
+/**
+ * Rasterise. Every failure it sees resolves `null`, a malformed SVG (the
+ * image's own error event) among them; `safeRasterize` in `actions.ts` turns a
+ * rejection into `null` as well.
+ */
+export function rasterize(svg: string, width: number, height: number, requestedScale = 2): Promise<RasterResult | null> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined' || typeof Image === 'undefined') {
+      resolve(null);
+      return;
+    }
+    const clamped = rasterScale(width, height, requestedScale);
+    if (clamped === null) {
+      resolve(null);
+      return;
+    }
+    const scale = clamped;
+    let canvas: HTMLCanvasElement;
+    let ctx: CanvasRenderingContext2D | null;
+    try {
+      canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+    } catch (_e) {
+      resolve(null);
+      return;
+    }
+    if (!ctx || typeof canvas.toDataURL !== 'function') {
+      resolve(null);
+      return;
+    }
+    const image = new Image();
+    let settled = false;
+    const done = (value: RasterResult | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    image.onload = () => {
+      try {
+        ctx!.setTransform(scale, 0, 0, scale, 0, 0);
+        ctx!.drawImage(image, 0, 0, width, height);
+        const url = canvas.toDataURL(PNG_MIME);
+        const comma = url.indexOf(',');
+        const base64 = comma < 0 ? '' : url.slice(comma + 1);
+        // `data:,` (or any empty payload) is how a browser says it could not
+        // allocate the bitmap; that is a failure, never an empty PNG.
+        done(url === 'data:,' || !base64 ? null : { base64, width: canvas.width, height: canvas.height, scale });
+      } catch (_e) {
+        // A tainted canvas throws here. It should be unreachable — the SVG
+        // carries no external reference — so the honest answer is "no PNG".
+        done(null);
+      }
+    };
+    image.onerror = () => done(null);
+    try {
+      image.src = svgDataUri(svg);
+    } catch (_e) {
+      done(null);
+    }
+  });
+}
+
+/*
+ * Base64 and UTF-8, written out rather than borrowed.
+ *
+ * `TextEncoder` / `TextDecoder` are absent from more hosts than one would
+ * expect — jsdom 26 has neither on its window, which is where the tests run —
+ * and a viewer that silently produces an empty file on such a host is worse
+ * than one that never offered the button. `btoa` is used when the host has it
+ * because it is faster on a megabyte of markup, and the hand-written path below
+ * is the answer when it does not.
+ */
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/** UTF-8 encode without TextEncoder. Lone surrogates become U+FFFD. */
+export function utf8Bytes(text: string): Uint8Array {
+  const out: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    let code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
+        i++;
+      } else {
+        code = 0xfffd;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      code = 0xfffd;
+    }
+    if (code < 0x80) out.push(code);
+    else if (code < 0x800) out.push(0xc0 | (code >> 6), 0x80 | (code & 63));
+    else if (code < 0x10000) out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 63), 0x80 | (code & 63));
+    else out.push(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 63), 0x80 | ((code >> 6) & 63), 0x80 | (code & 63));
+  }
+  return new Uint8Array(out);
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  const g: any = typeof globalThis === 'undefined' ? {} : globalThis;
+  if (typeof g.btoa === 'function') {
+    let binary = '';
+    // Chunked: `apply` on a megabyte-long argument list overflows the stack.
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes.subarray(i, i + 0x8000)));
+    }
+    return g.btoa(binary);
+  }
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += B64.charAt(a >> 2) + B64.charAt(((a & 3) << 4) | (b >> 4));
+    out += i + 1 < bytes.length ? B64.charAt(((b & 15) << 2) | (c >> 6)) : '=';
+    out += i + 2 < bytes.length ? B64.charAt(c & 63) : '=';
+  }
+  return out;
+}
+
+/** UTF-8 text → base64, for the SVG arm of `exportFile`. */
+export function utf8ToBase64(text: string): string {
+  return bytesToBase64(utf8Bytes(text));
+}

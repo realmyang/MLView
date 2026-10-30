@@ -1,0 +1,163 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "pipeline/data.py",
+      "pipeline/config.json"
+    ],
+    "limitations": [
+      "This is a test fixture. It is not a sample diagram and no model wrote it."
+    ],
+    "status": "scoped",
+    "summary": "Written by contracts/conformance/documents/generate.py. Every claim is a placeholder."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "edge-01",
+      "kind": "data",
+      "label": "rows",
+      "source": "step-read-rows",
+      "target": "step-drop-empty-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-drop-empty-rows"
+      ],
+      "id": "edge-02",
+      "kind": "control",
+      "label": "kept",
+      "source": "step-drop-empty-rows",
+      "target": "step-shuffle-rows"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-shuffle-rows"
+      ],
+      "id": "edge-03",
+      "kind": "state",
+      "label": "shuffled",
+      "source": "step-shuffle-rows",
+      "target": "step-split-rows"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 6,
+      "file": "pipeline/data.py",
+      "id": "ev-read-rows",
+      "line": 4,
+      "quote": "def read_rows(source):\n    rows = transform(source, step=\"read_rows\")\n    return rows"
+    },
+    {
+      "endLine": 11,
+      "file": "pipeline/data.py",
+      "id": "ev-drop-empty-rows",
+      "line": 9,
+      "quote": "def drop_empty_rows(rows):\n    kept = transform(rows, step=\"drop_empty_rows\")\n    return kept"
+    },
+    {
+      "endLine": 16,
+      "file": "pipeline/data.py",
+      "id": "ev-shuffle-rows",
+      "line": 14,
+      "quote": "def shuffle_rows(rows):\n    shuffled = transform(rows, step=\"shuffle_rows\")\n    return shuffled"
+    },
+    {
+      "endLine": 21,
+      "file": "pipeline/data.py",
+      "id": "ev-split-rows",
+      "line": 19,
+      "quote": "def split_rows(rows):\n    parts = transform(rows, step=\"split_rows\")\n    return parts"
+    }
+  ],
+  "findings": [],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Test step 1 of 4. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "step-read-rows",
+      "kind": "data",
+      "label": "Read rows",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 2 of 4. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-drop-empty-rows"
+      ],
+      "id": "step-drop-empty-rows",
+      "kind": "control",
+      "label": "Drop empty rows",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 3 of 4. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-shuffle-rows"
+      ],
+      "id": "step-shuffle-rows",
+      "kind": "state",
+      "label": "Shuffle rows",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 4 of 4. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-split-rows"
+      ],
+      "id": "step-split-rows",
+      "kind": "output",
+      "label": "Split rows",
+      "phase": "phase-3"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "label": "Inputs"
+    },
+    {
+      "id": "phase-2",
+      "label": "Features"
+    },
+    {
+      "id": "phase-3",
+      "label": "Model"
+    }
+  ],
+  "producer": {
+    "host": "unknown",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "pipeline/config.json",
+    "entrypoints": [
+      "pipeline/data.py"
+    ],
+    "question": "Generated test document for the validator tests. It does not describe a real program.",
+    "scope": "The generated files of contracts/conformance/documents/workspace."
+  },
+  "revision": {
+    "id": "d01-minimal-r1"
+  },
+  "title": "Test document d01-minimal: 4 steps, 3 connections",
+  "verification": {
+    "files": {
+      "pipeline/config.json": "060b94c17a3afb605be66984ce9a1771d0e26f6ee2b99fb03faef5d21d6c70d0",
+      "pipeline/data.py": "3239ea0d4a072d2e067902bc3d95fd5befec209f4365e1a9cb1495475d90ee33"
+    },
+    "publishedAt": "2000-01-01T00:00:00Z"
+  },
+  "workflowVersion": "1.0"
+}

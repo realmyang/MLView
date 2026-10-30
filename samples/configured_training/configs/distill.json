@@ -1,0 +1,12 @@
+{
+  "student": "small",
+  "teacher": "wide",
+  "teacher_checkpoint": "external/teacher.pt",
+  "train_data": "external/train.pt",
+  "validation_data": "external/validation.pt",
+  "alpha": 0.6,
+  "temperature": 2.0,
+  "learning_rate": 0.001,
+  "epochs": 5,
+  "output": "student.pt"
+}

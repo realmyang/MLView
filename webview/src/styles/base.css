@@ -1,0 +1,333 @@
+/* Shell, typography and shared primitives. */
+
+/*
+ * The page-fill chain. `.mlv-root` is height:100%, which only
+ * resolves when its ancestors have a definite height — otherwise the shell
+ * collapses onto its own content and the status bar, the phase index and most
+ * of the canvas fall below the fold.
+ *
+ * The viewer must not own <html> unconditionally (it is a guest inside the VS
+ * Code webview and inside dev pages that tile components), so `claimPage`
+ * (ui/shell.ts) stamps `mlv-fills-page` on <html> and <body> ONLY when the mount
+ * root is a direct child of <body> — i.e. when the viewer really is the page. The
+ * VS Code host mounts exactly that way, into `<div id="mlview-root">`.
+ *
+ * `padding: 0` also neutralises the `body { padding: 0 20px }` VS Code injects
+ * into every webview, which otherwise gives the panel unintended gutters.
+ */
+html.mlv-fills-page,
+html.mlv-fills-page > body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+html.mlv-fills-page > body > .mlv-root {
+  height: 100%;
+}
+
+.mlv-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  font-family: var(--mlv-font);
+  font-size: var(--mlv-fs-13);
+  line-height: var(--mlv-lh-body);
+  color: var(--mlv-text);
+  background: var(--mlv-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.mlv-root *,
+.mlv-root *::before,
+.mlv-root *::after {
+  box-sizing: border-box;
+}
+
+.mlv-root button,
+.mlv-root input,
+.mlv-root select {
+  font: inherit;
+  color: inherit;
+}
+
+.mlv-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mlv-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.mlv-root :focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: 2px;
+  border-radius: var(--mlv-r-btn);
+}
+
+/* buttons */
+.mlv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  min-height: 24px;
+  padding: 3px var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  cursor: pointer;
+  transition: background var(--mlv-dur-1) var(--mlv-ease), border-color var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-btn:hover {
+  background: var(--mlv-surface-2);
+  border-color: var(--mlv-border-strong);
+}
+
+.mlv-btn--primary {
+  background: var(--mlv-accent-solid);
+  border-color: var(--mlv-accent-solid);
+  color: var(--mlv-on-accent);
+}
+
+/*
+ * The reset `.mlv-root button { color: inherit }` (0,1,1) outranks `.mlv-btn--primary`
+ * (0,1,0), and would draw the header's text colour on the accent of Refine…. This rule
+ * outranks the reset.
+ */
+.mlv-root .mlv-btn--primary {
+  color: var(--mlv-on-accent);
+}
+
+.mlv-btn--primary:hover {
+  background: var(--mlv-accent-solid);
+  filter: brightness(1.08);
+}
+
+/* In high contrast the accent is the background colour; the theme's button border draws the edge. */
+body.vscode-high-contrast .mlv-root .mlv-btn--primary,
+body.vscode-high-contrast-light .mlv-root .mlv-btn--primary,
+:root[data-theme="hc"] .mlv-root .mlv-btn--primary,
+.mlv-root[data-theme="hc"] .mlv-btn--primary {
+  border-color: var(--vscode-button-border, var(--vscode-contrastBorder, var(--mlv-text)));
+}
+
+.mlv-btn--icon {
+  min-width: 26px;
+  justify-content: center;
+  padding: 3px var(--mlv-s3);
+}
+
+.mlv-btn[aria-pressed="true"] {
+  background: var(--mlv-surface-2);
+  border-color: var(--mlv-border-strong);
+}
+
+.mlv-btn[hidden] {
+  display: none;
+}
+
+/* chips */
+.mlv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  min-height: 20px;
+  padding: 1px var(--mlv-s3);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-medium);
+  white-space: nowrap;
+}
+
+/*
+ * An author `display` beats the UA stylesheet's `[hidden] { display: none }`,
+ * so every component this codebase hides through the `hidden` PROPERTY needs
+ * its own rule -- exactly like .mlv-btn[hidden] above. Without it a chip that
+ * the code hid would still be drawn.
+ */
+.mlv-chip[hidden] {
+  display: none;
+}
+
+.mlv-chip--btn {
+  cursor: pointer;
+  min-height: 24px;
+  padding: 2px var(--mlv-s4);
+}
+
+/*
+ * A toggle that is off: struck through, with a dashed border. No opacity, which would take the
+ * count under 4.5:1; the count of hidden findings stays readable in its own colour.
+ */
+.mlv-chip--btn[aria-pressed="false"] {
+  border-style: dashed;
+  border-color: var(--mlv-text-3);
+  text-decoration: line-through;
+}
+
+.mlv-mono {
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-link {
+  color: var(--mlv-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A link inside a sentence (the search footer, the Selection pane's limitations line). */
+.mlv-link--inline {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mlv-link);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.mlv-input {
+  min-width: 0;
+  padding: 3px var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-input::placeholder {
+  color: var(--mlv-text-3);
+}
+
+.mlv-uicon,
+.mlv-icon {
+  flex: none;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mlv-root *,
+  .mlv-root *::before,
+  .mlv-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* VS Code's own signal. The webview body carries `vscode-reduce-motion` when the
+ * editor's "Reduce Motion" setting is on (or follows the OS), which the media query alone misses
+ * when VS Code's setting is on but the OS one is not. Same clamp. */
+body.vscode-reduce-motion .mlv-root *,
+body.vscode-reduce-motion .mlv-root *::before,
+body.vscode-reduce-motion .mlv-root *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* The same clamp while VS Code's screen-reader optimisation is on. */
+body.vscode-using-screen-reader .mlv-root *,
+body.vscode-using-screen-reader .mlv-root *::before,
+body.vscode-using-screen-reader .mlv-root *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/*
+ * The skip link — the document's FIRST tab stop.
+ *
+ * Off-screen until it takes the focus, which is the conventional shape: a
+ * sighted mouse user never sees it, and a keyboard user's first press reveals a
+ * real control that lands them on the diagram: one press and one Enter reach
+ * the canvas.
+ */
+.mlv-skiplink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: var(--mlv-s3) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  text-decoration: none;
+}
+
+.mlv-skiplink:focus,
+.mlv-skiplink:focus-visible {
+  left: var(--mlv-s4);
+  top: var(--mlv-s4);
+}
+
+/* The <main> landmark around the diagram, laid out as a column. */
+.mlv-main {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.mlv-main > .mlv-canvas {
+  min-height: 0;
+}
+
+/* One location, two halves: the path may be shortened, the cell reference
+ * (or, on a `.py` path, the `:line`) may not. The card, the hover card and the
+ * Findings list build a location with `dom.locSpan`, so a card too narrow for
+ * the whole label loses the directory rather than the answer; an ellipsis at
+ * the end would cut the cell reference or the line instead. The SVG export
+ * reserves the same tail out of its own text budget. */
+.mlv-loc {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mlv-loc__file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mlv-loc__at {
+  flex: 0 0 auto;
+  white-space: pre;
+}

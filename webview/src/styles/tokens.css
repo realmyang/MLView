@@ -1,0 +1,439 @@
+/* MLView design tokens.
+ *
+ * A token that follows the theme is `var(--vscode-*, <literal fallback>)`, so ONE
+ * stylesheet serves the VS Code webview and a plain browser untouched. The renderer
+ * stamps data-theme="light|dark|hc" on the element it mounts into; `body.vscode-*`
+ * classes are honoured as well.
+ *
+ * EVERY theme block is therefore keyed on BOTH `:root[data-theme=…]` (the page
+ * owning the theme) and `.mlv-root[data-theme=…]` (the element the renderer
+ * actually stamps). Keyed on `:root` alone, dark and high contrast would never
+ * apply when `setTheme()` or the `theme` host message stamps `.mlv-root`. The
+ * light branch is restated on `.mlv-root` too, so an explicit light choice wins
+ * over an inherited dark page.
+ *
+ * The `@contrast:` annotations below name the text pairs that must clear WCAG
+ * AA 4.5:1 in light and dark. They are notes for a reader, and no tool reads
+ * them: check a new colour against them by hand and keep them in sync.
+ *
+ * @contrast: --mlv-text on --mlv-bg
+ * @contrast: --mlv-text on --mlv-surface
+ * @contrast: --mlv-text on --mlv-surface-2
+ * @contrast: --mlv-text-2 on --mlv-surface
+ * @contrast: --mlv-text-2 on --mlv-bg
+ * @contrast: --mlv-text-2 on --mlv-surface-2
+ * @contrast: --mlv-text-3 on --mlv-surface
+ * @contrast: --mlv-text-3 on --mlv-bg
+ * @contrast: --mlv-text-3 on --mlv-surface-2
+ * @contrast: --mlv-link on --mlv-surface
+ * @contrast: --mlv-link on --mlv-bg
+ * @contrast: --mlv-on-accent on --mlv-accent-solid
+ * @contrast: --mlv-sev-high-ink on --mlv-sev-high
+ * @contrast: --mlv-sev-medium-ink on --mlv-sev-medium
+ * @contrast: --mlv-sev-low-ink on --mlv-sev-low
+ *
+ * Graphics (WCAG 1.4.11, 3:1), which test/stale-contrast.test.mjs checks against
+ * the Light Modern, 2026 Light, Dark Modern, 2026 Dark and both High Contrast
+ * themes:
+ *
+ * @contrast (3:1): --mlv-stale-ink on --mlv-surface
+ * @contrast (3:1): --mlv-stale-ink on --mlv-bg
+ *
+ * The focus ring of the review walk's bar, which test/focus-ring.test.mjs checks against the
+ * eight themes of the screenshot harness's table:
+ *
+ * @contrast (3:1): --mlv-focus-strong on --mlv-surface-2 over --mlv-bg, and on --mlv-surface
+ *
+ * Checked by test/calm-canvas.test.mjs against three themes of the screenshot
+ * harness's table (Dark Modern, Light Modern, Dark High Contrast;
+ * webview/tools/screenshots/themes.js):
+ *
+ * @contrast (3:1): --mlv-edge on --mlv-bg, on a lane and on --mlv-surface
+ * @contrast (3:1): --mlv-node-edge on --mlv-bg
+ * @contrast (3:1): --mlv-phase-0 … --mlv-phase-7 on --mlv-surface and on a lane
+ * @contrast (3:1): the basis border (--mlv-text-2) on --mlv-surface
+ * @contrast (4.5:1): card text on a faded (observed) card in exceptions mode
+ *
+ * Checked by test/muted-text.test.mjs against the harness table (Dark Modern, Dark+,
+ * Dark 2026, Light Modern, Light+, Light 2026 and both High Contrast themes), theme x token x
+ * every background the stylesheets paint under text (a census there classifies each one):
+ *
+ * @contrast (4.5:1): --mlv-text-2 on every background: the canvas, a lane, --mlv-surface, a
+ *   hatched card, --mlv-surface-2 on a surface, on the canvas and on a lane, a lane header, a
+ *   phase index row in view, the menu, the bundle badge, VS Code's key cap under a <kbd>, every
+ *   overview block, and a --mlv-surface-2 box (a chip, a group count) inside a hovered or
+ *   selected row or group header with the fill the stylesheet gives it there (none)
+ * @contrast (4.5:1): menu.selectionForeground on a hovered or focused ... menu item, its key
+ *   hint included (the key cap drops its fill there)
+ * @contrast (4.5:1): About's k=v tokens (<code>) in every theme, High Contrast included
+ * @contrast (4.5:1): --mlv-text-3 on the backgrounds its selectors sit on: the canvas,
+ *   --mlv-surface, a hatched card, --mlv-surface-2 on a surface and a lane header
+ * @contrast (4.5:1): the same for an engine without relative colour syntax (the light and dark
+ *   fallbacks)
+ * @order: --mlv-text at least as strong as --mlv-text-2, and --mlv-text-2 as --mlv-text-3, on
+ *   every background
+ * @hierarchy: on the L* line from --mlv-text to --mlv-surface, --mlv-text-3 at 80% or more of the
+ *   room the theme has there at 4.5:1, and where that room allows three levels, --mlv-text-3 at
+ *   25% or more and --mlv-text-2 at 12.5% or more, at 40% or more of its own room and 10% or more
+ *   short of --mlv-text-3; otherwise --mlv-text-2 equals --mlv-text-3 (Dark 2026)
+ * @hierarchy: the light rule (a mix lifted to L* 42) and the dark rule keep the order in any theme
+ *   (a sweep of the text's lightness, and of the card's in a light theme)
+ *
+ * The connection and card-border colours are the theme's own text colour
+ * mixed into its background, so they follow any theme, not only the defaults.
+ * The phase tones are literals per theme kind: VS Code's chart and terminal
+ * colours repeat or fall under 3:1 on Light Modern, so they cannot carry eight
+ * distinct phases.
+ */
+
+:root,
+.mlv-root[data-theme="light"] {
+  /* typography */
+  --mlv-font: var(--vscode-font-family, ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif);
+  --mlv-font-mono: var(--vscode-editor-font-family, "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace);
+  --mlv-fs-10: 10.5px;
+  --mlv-fs-11: 11px;
+  --mlv-fs-12: 12px;
+  --mlv-fs-13: 13px;
+  --mlv-fs-14: 14px;
+  --mlv-fs-16: 16px;
+  --mlv-fs-20: 20px;
+  /* A compact-level card title on screen (node.css); the --mlv-z bucket rounding keeps
+   * it between 10 and 12.5 px, and the cap to the card's height there can take it lower. */
+  --mlv-compact-title: 11.2px;
+  --mlv-lh-tight: 1.35;
+  --mlv-lh-body: 1.5;
+  --mlv-fw-regular: 450;
+  --mlv-fw-medium: 550;
+  --mlv-fw-semi: 650;
+  --mlv-track-caps: 0.04em;
+
+  /* spacing */
+  --mlv-s1: 2px;
+  --mlv-s2: 4px;
+  --mlv-s3: 6px;
+  --mlv-s4: 8px;
+  --mlv-s5: 12px;
+  --mlv-s6: 16px;
+  --mlv-s7: 20px;
+  --mlv-s8: 24px;
+  --mlv-s9: 32px;
+  --mlv-s10: 48px;
+
+  /* radii + elevation */
+  --mlv-r-chip: 4px;
+  --mlv-r-btn: 6px;
+  --mlv-r-node: 10px;
+  --mlv-r-lane: 14px;
+  --mlv-r-panel: 12px;
+  --mlv-r-pill: 999px;
+  --mlv-sh-1: 0 1px 2px rgba(16, 18, 24, 0.06), 0 0 0 1px var(--mlv-border);
+  --mlv-sh-2: 0 4px 12px rgba(16, 18, 24, 0.10), 0 0 0 1px var(--mlv-border-strong);
+  --mlv-sh-3: 0 16px 40px rgba(16, 18, 24, 0.18), 0 0 0 1px var(--mlv-border-strong);
+
+  /* motion */
+  --mlv-dur-1: 120ms;
+  --mlv-dur-2: 180ms;
+  --mlv-dur-3: 260ms;
+  --mlv-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* flow — the charge that travels a cable.
+   * The three stream durations ENCODE the 220 px/s speed: (head + gap) / speed.
+   * `--mlv-flow-head` / `--mlv-flow-gap` are the px INTENT; on a lit edge the
+   * flow layer rewrites them inline in the path's `pathLength="100"` space, so
+   * the apparent head, gap and speed are the same on a short stub and a long
+   * detour (see render/flow.ts). */
+  --mlv-flow-speed: 220;
+  --mlv-flow-pulse-speed: 320;
+  --mlv-flow-head: 12px;
+  --mlv-flow-gap: 34px;
+  --mlv-flow-gap-call: 96px;
+  --mlv-flow-gap-back: 24px;
+  --mlv-flow-dur-data: 210ms;
+  --mlv-flow-dur-call: 490ms;
+  --mlv-flow-dur-back: 165ms;
+  --mlv-flow-dur-min: 380ms;
+  --mlv-flow-dur-max: 2200ms;
+  --mlv-flow-hop: 90ms;
+  --mlv-flow-width: 3px;
+  --mlv-flow-port-r: 3.5px;
+  --mlv-flow-color: var(--mlv-accent);
+  /* the travelling DOT of a single hovered / latched cable.
+   * These are alphas and widths, never colours: the dot is painted in
+   * `--mlv-flow-color`, so it follows the stage / severity rules and the high
+   * contrast override for free. The radii live in `render/flow.ts` because SVG
+   * `r` is geometry the DOM has to carry, not a paint the cascade can supply. */
+  --mlv-flow-halo-opacity: 0.18;
+  --mlv-flow-glow-opacity: 0.42;
+  --mlv-flow-core-width: 1.6;
+  --mlv-flow-underlay-opacity: 0.28;
+
+  /* geometry */
+  --mlv-node-w: 216px;
+  --mlv-node-w-lg: 248px;
+  --mlv-node-w-sm: 176px;
+  --mlv-node-h: 72px;
+  --mlv-rail-w: 4px;
+  --mlv-group-header-h: 34px;
+  --mlv-lane-pad: 20px;
+  /* One header row and a status bar (ui/chrome.ts). */
+  --mlv-header-h: 36px;
+  --mlv-status-h: 22px;
+  --mlv-rail-width: 360px;
+
+  /* light surfaces */
+  --mlv-bg: var(--vscode-editor-background, #FBFBFD);
+  --mlv-surface: var(--vscode-editorWidget-background, #FFFFFF);
+  --mlv-surface-2: var(--vscode-list-hoverBackground, #F3F4F8);
+  --mlv-border: var(--vscode-widget-border, #E3E5EB);
+  --mlv-border-strong: var(--vscode-widget-border, #C9CDD6);
+  --mlv-text: var(--vscode-editor-foreground, #16181D);
+  /* Secondary (--mlv-text-2) and muted (--mlv-text-3) text are derived from the theme's
+   * own text colour, never from descriptionForeground: Light Modern sets that to its text colour,
+   * and in Light+ and Dark 2026 it is under 4.5:1 on some of the backgrounds the viewer paints. In
+   * a light theme muted text is the text mixed into the card surface in CIE Lab at 74% (26% of the
+   * L* distance to the card), lifted to L* 42 by the rule below the dark blocks, and secondary text
+   * is halfway between the text and muted text in Lab, so the order text > secondary > muted holds
+   * in any theme. These two lines are the whole rule for an engine without relative colour syntax.
+   * The dark rule is below the dark blocks too (test/muted-text.test.mjs). */
+  --mlv-text-2: color-mix(in lab, var(--mlv-text) 50%, var(--mlv-text-3));
+  --mlv-text-3: color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface));
+  --mlv-link: var(--vscode-textLink-foreground, #2B57C4);
+  --mlv-accent: var(--vscode-focusBorder, #3B6CF6);
+  --mlv-accent-solid: var(--vscode-button-background, #2B57C4);
+  --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
+  --mlv-focus: var(--vscode-focusBorder, #3B6CF6);
+  --mlv-canvas-dot: var(--vscode-widget-border, #E6E9F0);
+  /* Connections and card borders at about 3:1 or better against the canvas, as the
+   * theme's text mixed into its background. */
+  --mlv-edge: color-mix(in srgb, var(--mlv-text) 64%, var(--mlv-bg));
+  --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 58%, var(--mlv-bg));
+  --mlv-scrim: rgba(16, 18, 24, 0.36);
+  /* Phase colour by document ORDER, never by id (render/phase.ts). Eight low-chroma
+   * hues that leave red, yellow and orange to severity; drawn as thin marks (the lane's accent
+   * rule, the card's left edge, the phase swatches, a lit cable's charge) and as a phase
+   * overview block's border and tint, never as a lane's or a card's fill. No tone is within 30
+   * degrees of hue of the stale-warning amber or the error red (test/calm-canvas.test.mjs). */
+  --mlv-phase-0: #00796B;
+  --mlv-phase-1: #6A4FB3;
+  --mlv-phase-2: #0A693C;
+  --mlv-phase-3: #A0388F;
+  --mlv-phase-4: #558B2F;
+  --mlv-phase-5: #0B7F99;
+  --mlv-phase-6: #546E7A;
+  --mlv-phase-7: #1F6FB2;
+  --mlv-stage-unknown: #7A8090;
+  /* a lane's neutral wash: the text colour at this share over the background, never a phase hue */
+  --mlv-lane-tint: 0.025;
+  --mlv-group-tint: 0;
+
+  /* severity */
+  --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #D0342C));
+  --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #E8A317));
+  --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #2F5FD0));
+  --mlv-sev-high-ink: var(--vscode-editor-background, #FFFFFF);
+  --mlv-sev-medium-ink: #3A2500;
+  --mlv-sev-low-ink: var(--vscode-editor-background, #FFFFFF);
+}
+
+/* dark — the default-theme branch (system preference, no explicit choice) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="hc"]),
+  .mlv-root:not([data-theme="light"]):not([data-theme="hc"]) {
+    --mlv-bg: var(--vscode-editor-background, #131417);
+    --mlv-surface: var(--vscode-editorWidget-background, #1A1C21);
+    --mlv-surface-2: var(--vscode-list-hoverBackground, #22252C);
+    --mlv-border: var(--vscode-widget-border, #2C3038);
+    --mlv-border-strong: var(--vscode-widget-border, #3B414C);
+    --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
+    /* the fallback for an engine without relative colours; the rule is in the @supports below */
+    --mlv-text-2: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
+    --mlv-text-3: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
+    --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
+    --mlv-accent: var(--vscode-focusBorder, #6E96FF);
+    --mlv-accent-solid: var(--vscode-button-background, #3355C4);
+    --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
+    --mlv-focus: var(--vscode-focusBorder, #6E96FF);
+    --mlv-canvas-dot: var(--vscode-widget-border, #23262D);
+    --mlv-edge: color-mix(in srgb, var(--mlv-text) 54%, var(--mlv-bg));
+    --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 46%, var(--mlv-bg));
+    --mlv-scrim: rgba(0, 0, 0, 0.5);
+    --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
+    --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
+    --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
+    --mlv-phase-0: #4DB6AC;
+    --mlv-phase-1: #A48BE0;
+    --mlv-phase-2: #4CA871;
+    --mlv-phase-3: #D684C5;
+    --mlv-phase-4: #9CCC65;
+    --mlv-phase-5: #4FC3D9;
+    --mlv-phase-6: #90A4AE;
+    --mlv-phase-7: #6FA8DC;
+    --mlv-stage-unknown: #8B93A7;
+    --mlv-lane-tint: 0.035;
+    --mlv-group-tint: 0;
+    --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #FF6169));
+    --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #F2B03C));
+    --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #6E96FF));
+    --mlv-sev-high-ink: #1A0405;
+    --mlv-sev-medium-ink: #2A1A00;
+    --mlv-sev-low-ink: #0B1020;
+  }
+}
+
+/* dark — the explicit choice, and the VS Code body class */
+body.vscode-dark,
+:root[data-theme="dark"],
+.mlv-root[data-theme="dark"] {
+  --mlv-bg: var(--vscode-editor-background, #131417);
+  --mlv-surface: var(--vscode-editorWidget-background, #1A1C21);
+  --mlv-surface-2: var(--vscode-list-hoverBackground, #22252C);
+  --mlv-border: var(--vscode-widget-border, #2C3038);
+  --mlv-border-strong: var(--vscode-widget-border, #3B414C);
+  --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
+  --mlv-text-2: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
+  --mlv-text-3: color-mix(in lab, var(--mlv-text) 80%, var(--mlv-surface));
+  --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
+  --mlv-accent: var(--vscode-focusBorder, #6E96FF);
+  --mlv-accent-solid: var(--vscode-button-background, #3355C4);
+  --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
+  --mlv-focus: var(--vscode-focusBorder, #6E96FF);
+  --mlv-canvas-dot: var(--vscode-widget-border, #23262D);
+  --mlv-edge: color-mix(in srgb, var(--mlv-text) 54%, var(--mlv-bg));
+  --mlv-node-edge: color-mix(in srgb, var(--mlv-text) 46%, var(--mlv-bg));
+  --mlv-scrim: rgba(0, 0, 0, 0.5);
+  --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
+  --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
+  --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
+  --mlv-phase-0: #4DB6AC;
+  --mlv-phase-1: #A48BE0;
+  --mlv-phase-2: #4CA871;
+  --mlv-phase-3: #D684C5;
+  --mlv-phase-4: #9CCC65;
+  --mlv-phase-5: #4FC3D9;
+  --mlv-phase-6: #90A4AE;
+  --mlv-phase-7: #6FA8DC;
+  --mlv-stage-unknown: #8B93A7;
+  --mlv-lane-tint: 0.035;
+  --mlv-group-tint: 0;
+  --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #FF6169));
+  --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #F2B03C));
+  --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #6E96FF));
+  --mlv-sev-high-ink: #1A0405;
+  --mlv-sev-medium-ink: #2A1A00;
+  --mlv-sev-low-ink: #0B1020;
+}
+
+/*
+ * Muted text in a light theme, never darker than L* 42. A share of the way to the card
+ * gives a near-black text colour near-black steps, which read as black beside the titles. So
+ * muted text is the 74% Lab mix or L* 42, whichever is lighter, with the mix's a and b, and
+ * secondary text stays halfway to it (the light block above). L* 42 clears 4.5:1 on every
+ * background the default light themes paint under muted text. It is a fixed lightness, not
+ * measured against a third-party theme's backgrounds, so a light theme with darker cards or rows
+ * can take muted text under 4.5:1. An engine without relative colour syntax keeps the plain mix.
+ */
+@supports (color: lab(from color-mix(in lab, #000 74%, #fff) max(l, 42) a b)) {
+  :root,
+  .mlv-root[data-theme="light"] {
+    --mlv-text-3: lab(from color-mix(in lab, var(--mlv-text) 74%, var(--mlv-surface)) max(l, 42) a b);
+  }
+}
+
+/*
+ * Secondary and muted text in a dark theme. One share toward the card cannot serve the
+ * dark themes: a dim text colour (Dark 2026's) leaves muted text little of the L* distance to its
+ * card before a hovered row (list.hoverBackground) takes it under 4.5:1, where Dark Modern and
+ * Dark+ have more. So each level is a step below the text's own L*, kept above a floor and never
+ * above the text, with the text's a and b:
+ *
+ *   muted text      L* = min(L, max(64.5, L - 18))
+ *   secondary text  L* = min(L, max(64.5, L - 9)), and the floor where L is under 79.5
+ *
+ * L* 64.5 clears 4.5:1 on every background VS Code's default dark themes paint under secondary or
+ * muted text. Under L* 79.5 a secondary step 9 below the text would sit less than 6 L* above that
+ * floor, nearly muted text and barely quieter than the text, so secondary text is muted text: two
+ * levels. Never above the text: a theme whose text is under L* 64.5 keeps its text colour for
+ * both. CSS cannot compare two run-time colours, so the rule reads only the text: the floor is an
+ * absolute level, not measured against the theme's own backgrounds. Relative colour syntax with
+ * math on the channels is tested by `@supports` on the exact expression; an engine without it
+ * keeps the two-level mix in the blocks above (20% of the way). No per-theme rule: one rule for
+ * every dark theme (test/muted-text.test.mjs).
+ */
+@supports (color: lab(from #000 min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100))) a b)) {
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not([data-theme="hc"]),
+    .mlv-root:not([data-theme="light"]):not([data-theme="hc"]) {
+      --mlv-text-2: lab(from var(--mlv-text) min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100))) a b);
+      --mlv-text-3: lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b);
+    }
+  }
+
+  body.vscode-dark,
+  :root[data-theme="dark"],
+  .mlv-root[data-theme="dark"] {
+    --mlv-text-2: lab(from var(--mlv-text) min(l, max(64.5, l - 9 - clamp(0, (79.5 - l) * 100, 100))) a b);
+    --mlv-text-3: lab(from var(--mlv-text) min(l, max(64.5, l - 18)) a b);
+  }
+}
+
+/* high contrast: fills drop to strokes, the glyph letter is retained */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light,
+:root[data-theme="hc"],
+.mlv-root[data-theme="hc"] {
+  --mlv-surface: var(--vscode-editor-background, #000000);
+  --mlv-surface-2: var(--vscode-editor-background, #000000);
+  --mlv-bg: var(--vscode-editor-background, #000000);
+  --mlv-text: var(--vscode-editor-foreground, #FFFFFF);
+  --mlv-text-2: var(--vscode-editor-foreground, #FFFFFF);
+  --mlv-text-3: var(--vscode-editor-foreground, #FFFFFF);
+  --mlv-link: var(--vscode-textLink-foreground, #6BB7FF);
+  --mlv-border: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-border-strong: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-edge: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-node-edge: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-canvas-dot: transparent;
+  --mlv-lane-tint: 0;
+  --mlv-group-tint: 0;
+  /* High contrast has no phase hues: every tone is the contrast border. */
+  --mlv-phase-0: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-1: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-2: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-3: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-4: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-5: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-6: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-phase-7: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-sh-1: 0 0 0 1px var(--mlv-border);
+  --mlv-sh-2: 0 0 0 2px var(--mlv-border);
+  --mlv-sh-3: 0 0 0 2px var(--mlv-border);
+  /* high contrast has no hues: the charge and the boundary stub are ink. This
+   * is the INHERITED value; an edge carrying `data-stage` or `.has-issue` sets
+   * the property on itself, so the hc override for those lives at element level
+   * in flow.css. */
+  --mlv-flow-color: var(--mlv-text);
+  --mlv-flow-width: 4px;
+  /* High contrast has no hues, so the dot cannot lean on one: the ring thickens
+   * and the wash under it strengthens, which is the same trade the 4 px cable
+   * above makes. The alphas stay as they are: in high contrast the halo is drawn
+   * as an outline (flow.css), which keeps the three rings apart. */
+  --mlv-flow-core-width: 2.2;
+  --mlv-flow-underlay-opacity: 0.45;
+}
+
+/*
+ * The stale mark's colour. editorWarning.foreground alone is under the 3:1 a graphic needs on
+ * the Light Modern widget background; mixed 30 % toward the text colour it is darker in light
+ * themes and lighter in dark ones. Declared on `.mlv-root`, where `data-theme` is stamped, so the
+ * theme's own values resolve here (a custom property declared on :root alone would keep the light
+ * values under a dark theme).
+ *
+ * The focus ring where it lies on --mlv-surface-2 (the review walk's bar). focusBorder alone is
+ * under the 3:1 a focus indicator needs against what is next to it there, in Light+ and in Dark
+ * 2026; mixed 15 % toward the text colour it clears 3:1 there in the harness's eight themes.
+ */
+.mlv-root {
+  --mlv-stale-ink: color-mix(in srgb, var(--mlv-sev-medium) 70%, var(--mlv-text));
+  --mlv-focus-strong: color-mix(in srgb, var(--mlv-focus) 85%, var(--mlv-text));
+}

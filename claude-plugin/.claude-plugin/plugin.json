@@ -1,0 +1,9 @@
+{
+  "name": "mlview",
+  "displayName": "MLView",
+  "version": "0.4.0",
+  "description": "A skill for Claude Code: read an ML project, write a workflow diagram that cites its source lines, and check and publish it with a local helper.",
+  "author": { "name": "MLView" },
+  "license": "MIT",
+  "keywords": ["machine-learning", "pytorch", "visualization", "llm-analysis"]
+}

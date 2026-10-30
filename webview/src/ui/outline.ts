@@ -1,0 +1,379 @@
+/**
+ * The Outline tab — the screen-reader-complete path through the graph.
+ *
+ * Three rules this file exists to keep:
+ *
+ * 1. It walks the DRAWN hierarchy (`laneChildren`), never the document's lexical
+ *    `parent`. A node whose lexical parent sits in another stage is promoted to a
+ *    root of its own lane by `GraphIndex` (layout/model.ts), so walking `children()`
+ *    here would emit it twice — once as a lane root and once inside its lexical
+ *    parent's subtree — and the "complete" path would contradict itself about
+ *    where the step lives. Every node appears exactly once.
+ * 2. It is a real ARIA tree: the `treeitem` itself takes focus with a roving
+ *    tabindex, Arrow/Home/End navigate, Left/Right collapse and expand, and a
+ *    printable key is type-ahead.
+ * 3. `aria-expanded` and the child list's visibility are driven by the canvas's
+ *    own collapsed set, so collapsing here collapses there and vice versa.
+ */
+
+import { add, el, on } from '../dom.js';
+import { uiIcon } from '../icons.js';
+import { severityGlyph, countsTotal, highestSeverity } from '../markers.js';
+import { basisSpoken } from '../render/edges.js';
+import { basisTagText, phaseFindingsSpoken, phaseFindingsText } from '../render/nodes.js';
+import type { Severity } from '../types.js';
+import type { GraphIndex, IssuePredicate } from '../layout/model.js';
+import { changeOf, changeSentence, changeSpoken, changeTagText } from '../revisiondiff.js';
+import type { ItemChange, RevisionDiff } from '../revisiondiff.js';
+
+export interface OutlineCallbacks {
+  /**
+   * A node row was clicked or Space was pressed: select it and centre the canvas on it. A click
+   * passes its event, so the second click of a double-click can open the step.
+   */
+  onSelectNode(id: string, ev?: MouseEvent): void;
+  /**
+   * Enter on a node row: select it and open its cited source beside the panel, focus
+   * kept here; `focusEditor` (Alt+Enter) moves focus to the editor.
+   */
+  onOpenNode(id: string, focusEditor: boolean): void;
+  /** A textual relationship row was activated. */
+  onSelectEdge(id: string): void;
+  onRelationMode(mode: RelationMode): void;
+  /** A lane row was activated: jump to that stage. */
+  onSelectLane(laneId: string): void;
+  /** Left/Right on a group row: collapse or expand it in the canvas too. */
+  onToggleCollapse(id: string): void;
+}
+
+export interface OutlineState {
+  index: GraphIndex;
+  keep: IssuePredicate;
+  selectedNodeId: string | null;
+  collapsed: Set<string>;
+  relationMode: RelationMode;
+  /**
+   * What changed since the revision this panel showed before. A step or
+   * connection added or changed there carries a "new" or "changed" tag, said with its name.
+   */
+  changes?: RevisionDiff | null;
+}
+
+const TREEITEM = '[role="treeitem"]';
+
+export function renderOutlineTree(panel: HTMLElement, s: OutlineState, cb: OutlineCallbacks): HTMLElement {
+  const tree = add(panel, el('ul', 'mlv-outline'));
+  tree.setAttribute('role', 'tree');
+  tree.setAttribute('aria-label', 'Pipeline outline');
+
+  for (const lane of s.index.lanes) {
+    const item = add(tree, el('li', 'mlv-outline__item'));
+    item.setAttribute('role', 'treeitem');
+    item.setAttribute('data-outline-lane', lane.id);
+    item.tabIndex = -1;
+    const row = add(item, el('div', 'mlv-outline__row mlv-outline__row--lane'));
+    // Numbered as the canvas lane and the Selection pane number it.
+    add(row, el('span', 'mlv-outline__label', (s.index.phaseIndexOf(lane.id) + 1) + ' · ' + (lane.label || lane.id)));
+    const counts = s.index.laneCounts(lane.id, s.keep);
+    if (countsTotal(counts) > 0) {
+      row.appendChild(severityGlyph(highestSeverity(counts) as Severity, 12, ''));
+      // The count names its unit. A finding touching two phases counts in each,
+      // so these rows do not add up to the document's total.
+      const total = countsTotal(counts);
+      // Under the name, so the name is never cut to make room.
+      const count = add(row, el('span', 'mlv-outline__stage mlv-outline__phasecount', phaseFindingsText(total)));
+      count.title = phaseFindingsSpoken(counts);
+    }
+    on(row, 'click', () => cb.onSelectLane(lane.id));
+    const kids = s.index.roots(lane.id);
+    item.setAttribute('aria-expanded', kids.length ? 'true' : 'false');
+    if (kids.length) item.appendChild(branch(kids, s, cb));
+  }
+
+  renderRelationships(panel, s, cb);
+
+  wireTree(tree, cb);
+  setRoving(tree, preferredFocus(tree, s.selectedNodeId));
+  return tree;
+}
+
+export type RelationMode = 'all' | 'incoming' | 'outgoing' | 'unresolved';
+
+/**
+ * A complete path through the graph's connections, off the canvas. For a
+ * selected node, Incoming and Outgoing answer the common impact questions
+ * directly; All lists every connection of the document in its order, and
+ * Unresolved every connection that is unresolved or ends at an unresolved step.
+ */
+function renderRelationships(panel: HTMLElement, s: OutlineState, cb: OutlineCallbacks): void {
+  const section = add(panel, el('section', 'mlv-relations'));
+  add(section, el('h4', 'mlv-rail__heading', 'Text relationships'));
+  const selected = s.selectedNodeId && s.index.nodeById.has(s.selectedNodeId) ? s.selectedNodeId : null;
+  if (selected) add(section, el('p', 'mlv-relations__context', 'For ' + (s.index.nodeById.get(selected)?.label || selected)));
+  const controls = add(section, el('div', 'mlv-relations__views'));
+  controls.setAttribute('role', 'group');
+  controls.setAttribute('aria-label', 'Relationship direction');
+  const listHost = add(section, el('div'));
+
+  const show = (mode: RelationMode, focusList = false) => {
+    for (const control of Array.from(controls.querySelectorAll('button'))) {
+      control.setAttribute('aria-pressed', control.getAttribute('data-relation-view') === mode ? 'true' : 'false');
+    }
+    while (listHost.firstChild) listHost.removeChild(listHost.firstChild);
+    const edges = mode === 'unresolved'
+      ? s.index.graph.edges.filter((edge) =>
+          edge.basis === 'unresolved' ||
+          s.index.nodeById.get(edge.source)?.basis === 'unresolved' ||
+          s.index.nodeById.get(edge.target)?.basis === 'unresolved')
+      : !selected || mode === 'all'
+        ? s.index.graph.edges
+        : mode === 'incoming'
+          ? s.index.inEdges.get(selected) || []
+          : s.index.outEdges.get(selected) || [];
+    const list = add(listHost, el('ul', 'mlv-relations__list'));
+    list.setAttribute('aria-label', mode[0].toUpperCase() + mode.slice(1) + ' relationships');
+    if (!edges.length) {
+      add(list, el('li', 'mlv-empty-note', 'No ' + mode + ' relationships in this view.'));
+      return;
+    }
+    for (const edge of edges) {
+      const source = s.index.nodeById.get(edge.source);
+      const target = s.index.nodeById.get(edge.target);
+      const item = add(list, el('li', 'mlv-relations__item'));
+      const row = add(item, el('button', 'mlv-relations__row')) as HTMLButtonElement;
+      row.type = 'button';
+      row.setAttribute('data-relation-id', edge.id);
+      const direction = selected
+        ? edge.target === selected ? 'Incoming' : edge.source === selected ? 'Outgoing' : 'Related'
+        : 'Directed';
+      // The basis is said once, and only for the exceptions; the label carries none.
+      const basis = basisSpoken(edge.basis);
+      // Added or changed since the revision this panel showed before.
+      const change = changeOf(s.changes, 'edge', edge.id);
+      row.setAttribute('aria-label', `${direction}: ${source?.label || edge.source} to ${target?.label || edge.target}; ${edge.label || edge.kind}${basis ? ';' + basis.slice(1) : ''}${change ? '; ' + changeSpoken(change) : ''}`);
+      add(row, el('span', 'mlv-relations__path', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+      const detail = add(row, el('span', 'mlv-relations__detail', (edge.label || edge.kind || 'connection') + (basisTagText(edge.basis) ? ' · ' + basisTagText(edge.basis) : '')));
+      if (change) {
+        detail.appendChild(document.createTextNode(' '));
+        detail.appendChild(changeTag(change, s.changes!.since));
+      }
+      on(row, 'click', () => cb.onSelectEdge(edge.id));
+    }
+    if (focusList) (list.querySelector('button') as HTMLButtonElement | null)?.focus();
+  };
+
+  const modes: { id: RelationMode; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'incoming', label: 'Incoming' },
+    { id: 'outgoing', label: 'Outgoing' },
+    { id: 'unresolved', label: 'Unresolved' },
+  ];
+  for (const mode of modes) {
+    const control = add(controls, el('button', 'mlv-btn', mode.label)) as HTMLButtonElement;
+    control.type = 'button';
+    control.setAttribute('data-relation-view', mode.id);
+    control.disabled = !selected && mode.id !== 'all' && mode.id !== 'unresolved';
+    on(control, 'click', () => { cb.onRelationMode(mode.id); show(mode.id, true); });
+  }
+  const initial = !selected && (s.relationMode === 'incoming' || s.relationMode === 'outgoing') ? 'all' : s.relationMode;
+  show(initial);
+}
+
+/** One `role="group"` level of the drawn hierarchy. */
+function branch(ids: string[], s: OutlineState, cb: OutlineCallbacks): HTMLElement {
+  const ul = el('ul');
+  ul.setAttribute('role', 'group');
+  for (const id of ids) {
+    const node = s.index.nodeById.get(id);
+    if (!node) continue;
+    const item = add(ul, el('li', 'mlv-outline__item'));
+    item.setAttribute('role', 'treeitem');
+    item.setAttribute('data-outline-id', id);
+    item.tabIndex = -1;
+
+    // The DRAWN children, matching the canvas and every other consumer.
+    const kids = s.index.laneChildren(id);
+    const collapsed = kids.length > 0 && s.collapsed.has(id);
+    if (kids.length) item.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+
+    const row = add(item, el('div', 'mlv-outline__row'));
+    const selected = s.selectedNodeId === id;
+    item.setAttribute('aria-selected', selected ? 'true' : 'false');
+    if (selected) row.classList.add('is-selected');
+    if (kids.length) {
+      const chev = uiIcon('chevron', 12);
+      chev.setAttribute('class', 'mlv-uicon mlv-outline__chevron');
+      row.appendChild(chev);
+    } else {
+      add(row, el('span', 'mlv-outline__chevron mlv-outline__chevron--none'));
+    }
+    add(row, el('span', 'mlv-outline__label', node.label || node.qualname));
+    // An inferred or unresolved step says so; an observed one carries no mark.
+    const tag = basisTagText(node.basis);
+    if (tag) add(row, el('span', 'mlv-outline__stage', tag)).setAttribute('data-basis', node.basis || '');
+    // Added or changed since the revision this panel showed before, shown and said.
+    const change = changeOf(s.changes, 'node', id);
+    if (change) {
+      row.appendChild(changeTag(change, s.changes!.since));
+      add(row, el('span', 'mlv-sr', ', ' + changeSpoken(change)));
+    }
+    const glyph = severityFor(s, id);
+    if (glyph) row.appendChild(glyph);
+    on(row, 'click', (ev: MouseEvent) => cb.onSelectNode(id, ev));
+
+    if (kids.length) {
+      const sub = branch(kids, s, cb);
+      sub.hidden = collapsed;
+      item.appendChild(sub);
+    }
+  }
+  return ul;
+}
+
+/** The visible "new" or "changed" tag of a row; the row's name says it in words. */
+function changeTag(change: ItemChange, since: string): HTMLElement {
+  const tag = el('span', 'mlv-rev-tag mlv-rev-tag--row', changeTagText(change));
+  tag.setAttribute('data-change', change.status);
+  tag.setAttribute('aria-hidden', 'true');
+  tag.title = changeSentence(change, since);
+  return tag;
+}
+
+function severityFor(s: OutlineState, id: string): SVGElement | null {
+  const top = highestSeverity(s.index.subtreeCounts(id, s.keep));
+  return top ? severityGlyph(top, 12, '') : null;
+}
+
+/* ── The tree's keyboard model ───────────────────────────────────────────── */
+
+/** Treeitems the user can actually reach: nothing inside a collapsed group. */
+function visibleItems(tree: HTMLElement): HTMLElement[] {
+  const all = Array.prototype.slice.call(tree.querySelectorAll(TREEITEM)) as HTMLElement[];
+  return all.filter((item) => {
+    let cur: HTMLElement | null = item.parentElement;
+    while (cur && cur !== tree) {
+      if (cur.hidden) return false;
+      cur = cur.parentElement;
+    }
+    return true;
+  });
+}
+
+/** Exactly one treeitem is in the tab order (ARIA roving tabindex). */
+function setRoving(tree: HTMLElement, active: HTMLElement | null): void {
+  const items = visibleItems(tree);
+  const target = active && items.indexOf(active) >= 0 ? active : items[0] || null;
+  for (const item of items) item.tabIndex = item === target ? 0 : -1;
+}
+
+function preferredFocus(tree: HTMLElement, selectedNodeId: string | null): HTMLElement | null {
+  if (!selectedNodeId) return null;
+  const items = visibleItems(tree);
+  for (const item of items) {
+    if (item.getAttribute('data-outline-id') === selectedNodeId) return item;
+  }
+  return null;
+}
+
+function focusItem(tree: HTMLElement, item: HTMLElement | null | undefined): void {
+  if (!item) return;
+  setRoving(tree, item);
+  item.focus();
+}
+
+function parentItem(tree: HTMLElement, item: HTMLElement): HTMLElement | null {
+  let cur: HTMLElement | null = item.parentElement;
+  while (cur && cur !== tree) {
+    if (cur.getAttribute('role') === 'treeitem') return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function firstChildItem(item: HTMLElement): HTMLElement | null {
+  const group = item.querySelector('[role="group"]') as HTMLElement | null;
+  if (!group || group.hidden) return null;
+  return group.querySelector(TREEITEM) as HTMLElement | null;
+}
+
+function activate(item: HTMLElement, cb: OutlineCallbacks): void {
+  const nodeId = item.getAttribute('data-outline-id');
+  if (nodeId) {
+    cb.onSelectNode(nodeId);
+    return;
+  }
+  const lane = item.getAttribute('data-outline-lane');
+  if (lane) cb.onSelectLane(lane);
+}
+
+function labelOf(item: HTMLElement): string {
+  const label = item.querySelector('.mlv-outline__label');
+  return (label ? label.textContent || '' : '').toLowerCase();
+}
+
+function wireTree(tree: HTMLElement, cb: OutlineCallbacks): void {
+  on(tree, 'keydown', (ev: KeyboardEvent) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target || typeof target.closest !== 'function') return;
+    const item = target.closest(TREEITEM) as HTMLElement | null;
+    if (!item || !tree.contains(item)) return;
+    const items = visibleItems(tree);
+    const at = items.indexOf(item);
+    if (at < 0) return;
+    const expanded = item.getAttribute('aria-expanded');
+    const nodeId = item.getAttribute('data-outline-id');
+
+    switch (ev.key) {
+      case 'ArrowDown':
+        ev.preventDefault();
+        focusItem(tree, items[Math.min(items.length - 1, at + 1)]);
+        return;
+      case 'ArrowUp':
+        ev.preventDefault();
+        focusItem(tree, items[Math.max(0, at - 1)]);
+        return;
+      case 'Home':
+        ev.preventDefault();
+        focusItem(tree, items[0]);
+        return;
+      case 'End':
+        ev.preventDefault();
+        focusItem(tree, items[items.length - 1]);
+        return;
+      case 'ArrowRight':
+        ev.preventDefault();
+        if (expanded === 'false' && nodeId) cb.onToggleCollapse(nodeId);
+        else if (expanded === 'true') focusItem(tree, firstChildItem(item));
+        return;
+      case 'ArrowLeft':
+        ev.preventDefault();
+        if (expanded === 'true' && nodeId) cb.onToggleCollapse(nodeId);
+        else focusItem(tree, parentItem(tree, item));
+        return;
+      case 'Enter':
+        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+        ev.preventDefault();
+        if (nodeId) cb.onOpenNode(nodeId, ev.altKey);
+        else activate(item, cb);
+        return;
+      case ' ':
+        ev.preventDefault();
+        activate(item, cb);
+        return;
+      default:
+        break;
+    }
+
+    // Type-ahead: a printable key jumps to the next row whose label starts with it.
+    if (ev.key.length !== 1 || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    const ch = ev.key.toLowerCase();
+    for (let step = 1; step <= items.length; step++) {
+      const candidate = items[(at + step) % items.length];
+      if (labelOf(candidate).indexOf(ch) === 0) {
+        ev.preventDefault();
+        focusItem(tree, candidate);
+        return;
+      }
+    }
+  });
+}

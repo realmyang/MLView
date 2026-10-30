@@ -1,0 +1,39 @@
+# dependencies and build output
+node_modules/
+vscode-extension/out/
+*.vsix
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Published workflow artifacts and packaged skill ZIPs.
+.mlview/
+webview/.mlview/
+
+# local scratch
+*.log
+.DS_Store
+Thumbs.db
+
+# local virtual environment
+.venv/
+
+# local credentials and environment overrides; keep shareable templates trackable
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# editor and OS scratch that no checkout should carry
+.idea/
+*.swp
+*~
+
+# coverage output (`pytest --cov`, `c8`/`nyc`)
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+.nyc_output/

@@ -1,0 +1,311 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "notebooks/explore.ipynb",
+      "pipeline/data.py",
+      "pipeline/config.json"
+    ],
+    "limitations": [
+      "This is a test fixture. It is not a sample diagram and no model wrote it."
+    ],
+    "status": "scoped",
+    "summary": "Written by contracts/conformance/documents/generate.py. Every claim is a placeholder."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-load"
+      ],
+      "id": "edge-01",
+      "kind": "data",
+      "label": "load",
+      "source": "step-cell-load",
+      "target": "step-cell-inspect"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-inspect"
+      ],
+      "id": "edge-02",
+      "kind": "control",
+      "label": "inspect",
+      "source": "step-cell-inspect",
+      "target": "step-cell-split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-split"
+      ],
+      "id": "edge-03",
+      "kind": "state",
+      "label": "split",
+      "source": "step-cell-split",
+      "target": "step-cell-features"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-features"
+      ],
+      "id": "edge-04",
+      "kind": "output",
+      "label": "features",
+      "source": "step-cell-features",
+      "target": "step-cell-fit"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-cell-fit"
+      ],
+      "id": "edge-05",
+      "kind": "data",
+      "label": "fit",
+      "source": "step-cell-fit",
+      "target": "step-cell-score"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-score"
+      ],
+      "id": "edge-06",
+      "kind": "control",
+      "label": "score",
+      "source": "step-cell-score",
+      "target": "step-read-rows"
+    }
+  ],
+  "evidence": [
+    {
+      "cell": 1,
+      "endLine": 2,
+      "file": "notebooks/explore.ipynb",
+      "id": "ev-cell-load",
+      "line": 1,
+      "quote": "rows = read_rows('rows.csv')\nlen(rows)"
+    },
+    {
+      "cell": 2,
+      "endLine": 2,
+      "file": "notebooks/explore.ipynb",
+      "id": "ev-cell-inspect",
+      "line": 1,
+      "quote": "first = rows[:5]\nfirst"
+    },
+    {
+      "cell": 3,
+      "endLine": 2,
+      "file": "notebooks/explore.ipynb",
+      "id": "ev-cell-split",
+      "line": 1,
+      "quote": "train_rows, test_rows = split_rows(rows)\nlen(train_rows), len(test_rows)"
+    },
+    {
+      "cell": 4,
+      "endLine": 2,
+      "file": "notebooks/explore.ipynb",
+      "id": "ev-cell-features",
+      "line": 1,
+      "quote": "features = join_features([train_rows])\nfeatures[:2]"
+    },
+    {
+      "cell": 5,
+      "endLine": 2,
+      "file": "notebooks/explore.ipynb",
+      "id": "ev-cell-fit",
+      "line": 1,
+      "quote": "history = fit({'epochs': 2})\nhistory"
+    },
+    {
+      "cell": 6,
+      "endLine": 2,
+      "file": "notebooks/explore.ipynb",
+      "id": "ev-cell-score",
+      "line": 1,
+      "quote": "report = evaluate(history)\nreport"
+    },
+    {
+      "endLine": 6,
+      "file": "pipeline/data.py",
+      "id": "ev-read-rows",
+      "line": 4,
+      "quote": "def read_rows(source):\n    rows = transform(source, step=\"read_rows\")\n    return rows"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-inspect"
+      ],
+      "id": "finding-1",
+      "message": "Placeholder finding on notebook cell: inspect. It states nothing about a real program.",
+      "nodeIds": [
+        "step-cell-inspect"
+      ],
+      "severity": "low",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 1"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-cell-score"
+      ],
+      "edgeIds": [
+        "edge-02"
+      ],
+      "evidence": [
+        "ev-cell-fit"
+      ],
+      "id": "finding-2",
+      "message": "Placeholder finding on notebook cell: fit. It states nothing about a real program.",
+      "nodeIds": [
+        "step-cell-fit"
+      ],
+      "severity": "medium",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 2"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-load"
+      ],
+      "id": "finding-3",
+      "message": "Placeholder finding on notebook cell: load. It states nothing about a real program.",
+      "nodeIds": [
+        "step-cell-load"
+      ],
+      "severity": "high",
+      "suggestion": "None. This is a test fixture.",
+      "title": "Test finding 3"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Test step 1 of 7. It cites notebooks/explore.ipynb.",
+      "evidence": [
+        "ev-cell-load"
+      ],
+      "id": "step-cell-load",
+      "kind": "data",
+      "label": "Notebook cell: load",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 2 of 7. It cites notebooks/explore.ipynb.",
+      "evidence": [
+        "ev-cell-inspect"
+      ],
+      "id": "step-cell-inspect",
+      "kind": "control",
+      "label": "Notebook cell: inspect",
+      "phase": "phase-1"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 3 of 7. It cites notebooks/explore.ipynb.",
+      "evidence": [
+        "ev-cell-split"
+      ],
+      "id": "step-cell-split",
+      "kind": "state",
+      "label": "Notebook cell: split",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 4 of 7. It cites notebooks/explore.ipynb.",
+      "evidence": [
+        "ev-cell-features"
+      ],
+      "id": "step-cell-features",
+      "kind": "output",
+      "label": "Notebook cell: features",
+      "phase": "phase-2"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 5 of 7. It cites notebooks/explore.ipynb.",
+      "evidence": [
+        "ev-cell-fit"
+      ],
+      "id": "step-cell-fit",
+      "kind": "data",
+      "label": "Notebook cell: fit",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Test step 6 of 7. It cites notebooks/explore.ipynb.",
+      "evidence": [
+        "ev-cell-score"
+      ],
+      "id": "step-cell-score",
+      "kind": "control",
+      "label": "Notebook cell: score",
+      "phase": "phase-3"
+    },
+    {
+      "basis": "observed",
+      "detail": "Test step 7 of 7. It cites pipeline/data.py.",
+      "evidence": [
+        "ev-read-rows"
+      ],
+      "id": "step-read-rows",
+      "kind": "state",
+      "label": "Read rows",
+      "phase": "phase-4"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "label": "Inputs"
+    },
+    {
+      "id": "phase-2",
+      "label": "Features"
+    },
+    {
+      "id": "phase-3",
+      "label": "Model"
+    },
+    {
+      "id": "phase-4",
+      "label": "Optimisation"
+    }
+  ],
+  "producer": {
+    "host": "unknown",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "pipeline/config.json",
+    "entrypoints": [
+      "notebooks/explore.ipynb"
+    ],
+    "question": "Generated test document for the validator tests. It does not describe a real program.",
+    "scope": "The generated files of contracts/conformance/documents/workspace."
+  },
+  "revision": {
+    "id": "d02-notebook-r1"
+  },
+  "title": "Test document d02-notebook: 7 steps, 6 connections",
+  "verification": {
+    "files": {
+      "notebooks/explore.ipynb": "1c30309b077558e45396aee753868d45cf4242d60325cbb1d85d7b6c76168d4c",
+      "pipeline/config.json": "060b94c17a3afb605be66984ce9a1771d0e26f6ee2b99fb03faef5d21d6c70d0",
+      "pipeline/data.py": "3239ea0d4a072d2e067902bc3d95fd5befec209f4365e1a9cb1495475d90ee33"
+    },
+    "publishedAt": "2000-01-01T00:00:00Z"
+  },
+  "workflowVersion": "1.0"
+}

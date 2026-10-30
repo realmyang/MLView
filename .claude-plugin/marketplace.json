@@ -1,0 +1,24 @@
+{
+  "name": "mlview-local",
+  "owner": { "name": "MLView" },
+  "metadata": {
+    "description": "MLView's marketplace: the plugin from this checkout, and the same plugin fetched from GitHub.",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "mlview",
+      "source": "./claude-plugin",
+      "description": "A skill for Claude Code: read an ML project, write a workflow diagram that cites its source lines, and check and publish it with a local helper."
+    },
+    {
+      "name": "mlview-github",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/realmyang/MLView.git",
+        "path": "claude-plugin"
+      },
+      "description": "The same MLView plugin, installed from the repository on GitHub."
+    }
+  ]
+}

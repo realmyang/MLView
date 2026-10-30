@@ -1,0 +1,4 @@
+# Development checks only; the installed skill has no Python dependencies.
+# Exact pins keep local runs and CI on one toolchain.
+pytest==9.1.1
+jsonschema==4.26.0

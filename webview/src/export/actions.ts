@@ -1,0 +1,212 @@
+/**
+ * What the export items of the ... menu actually do.
+ *
+ * Save SVG, save PNG and copy SVG, each of the whole diagram. The region is pure
+ * geometry over the `LayoutFrame`, the outputs all descend from ONE
+ * `buildExportSvg` call, and the bytes leave the viewer through exactly two doors:
+ *
+ *   - `exportFile` — the host writes the file. The VS Code webview cannot open
+ *     a save dialog and must not try.
+ *   - the async clipboard API, tried here first for Copy SVG. A failure (no API,
+ *     a denied permission) falls back to the host's `copy` message.
+ *
+ * Nothing here throws at a caller: an export that could not happen says so in a
+ * toast or the live region, which is the whole difference between this and a
+ * button that appears to work.
+ */
+
+import { buildExportSvg, ExportSvgResult } from './svg.js';
+import { rasterize, utf8ToBase64 } from './raster.js';
+import type { Palette } from './palette.js';
+import type { ScenePlan } from '../render/plan.js';
+import type { Rect } from '../render/canvas.js';
+import type { ActionResult, MLGraph, ThemeKind, UiToHost } from '../types.js';
+
+/** The PNG asks for twice the SVG's user units; `rasterScale` draws less past the canvas limits. */
+export const PNG_SCALE = 2;
+
+export interface ExportHost {
+  post(msg: UiToHost): void;
+  /**
+   * Post a request the host answers with one `actionResult`. The
+   * handler runs when that answer arrives; nothing is claimed before it.
+   */
+  request(msg: UiToHost, onResult: (result: ActionResult) => void): void;
+  toast(text: string): void;
+  announce(text: string): void;
+}
+
+export interface ExportRequest {
+  plan: ScenePlan;
+  palette: Palette;
+  theme: ThemeKind;
+  graph: MLGraph;
+  generatedAt?: string;
+}
+
+/**
+ * The world rectangle the export draws: the whole frame, every lane and card at natural size.
+ * The ... menu offers this one region; the host calls it `all`, this renderer `diagram`.
+ */
+export function regionRect(request: ExportRequest): Rect {
+  const frame = request.plan.frame;
+  return { x: 0, y: 0, w: frame.width, h: frame.height };
+}
+
+/** Build the picture. Everything downstream is a delivery of this one result. */
+export function renderExport(request: ExportRequest): ExportSvgResult {
+  const graph = request.graph;
+  const title = 'MLView — ' + subjectOf(graph) + ' — whole diagram';
+  const desc =
+    graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
+    ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha +
+    (request.generatedAt ? ' · exported ' + request.generatedAt : '');
+  return buildExportSvg({
+    plan: request.plan,
+    palette: request.palette,
+    theme: request.theme,
+    region: regionRect(request),
+    title,
+    desc,
+  });
+}
+
+/** A title of `Train/eval loop` gives `mlview-train-eval-loop-diagram.svg`: nothing a shell hates. */
+export function exportFileName(request: ExportRequest, ext: string): string {
+  const bits = ['mlview', subjectOf(request.graph)];
+  bits.push('diagram');
+  return bits.map(slug).filter((s) => !!s).join('-') + '.' + ext;
+}
+
+/**
+ * What the picture is of: the document's TITLE, used whole (`workflow.ts` keeps
+ * it in `workspace.root`). A title such as `Train/eval loop` is not a path.
+ */
+function subjectOf(graph: MLGraph): string {
+  return String(graph.workspace.root || '') || 'workflow';
+}
+
+function slug(value: string): string {
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+/* ── delivery ───────────────────────────────────────────────────────────── */
+
+/**
+ * The one frame the viewer hands its host, in BOTH field spellings:
+ * `name === suggestedName` and `base64 === data`, always, so a reader of either
+ * spelling decodes the same bytes. The extension reads `data` and
+ * `suggestedName` (`vscode-extension/src/exportDiagram.ts`).
+ */
+function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string): UiToHost {
+  return {
+    v: 1,
+    type: 'exportFile',
+    kind,
+    name,
+    base64,
+    data: base64,
+    suggestedName: name,
+    scope: 'all',
+  };
+}
+
+/**
+ * What the viewer says once the host has answered an export. Success
+ * is announced only: the host's own notification is the visible message, and
+ * nothing claims a file before the host reports one.
+ */
+function exportAnswer(host: ExportHost, done: (name: string) => string, suggested: string) {
+  return (answer: ActionResult) => {
+    if (answer.outcome === 'done') {
+      host.announce(done(answer.name || suggested));
+      return;
+    }
+    if (answer.outcome === 'cancelled') {
+      host.announce('Export cancelled.');
+      return;
+    }
+    const said = 'Export failed: ' + (answer.message || 'the host did not say why');
+    host.toast(said);
+    host.announce(said);
+  };
+}
+
+export function saveSvg(host: ExportHost, result: ExportSvgResult, name: string): void {
+  const base64 = utf8ToBase64(result.svg);
+  if (!base64) {
+    host.toast('This browser could not encode the SVG.');
+    return;
+  }
+  const cards = result.nodeIds.length;
+  const connections = result.edgeIds.length;
+  host.announce('Saving SVG…');
+  host.request(
+    exportFileMessage('svg', name, base64),
+    exportAnswer(host, (saved) => 'Exported ' + cards + ' cards and ' + connections + ' connections as ' + saved + '.', name),
+  );
+}
+
+export async function savePng(host: ExportHost, result: ExportSvgResult, name: string): Promise<boolean> {
+  const raster = await safeRasterize(result);
+  if (!raster) {
+    host.toast('Could not draw the PNG here — save the SVG instead.');
+    host.announce('PNG export is not available in this host.');
+    return false;
+  }
+  // The size actually drawn, which `rasterize` may have scaled down.
+  const size = raster.width + '×' + raster.height;
+  host.announce('Saving PNG…');
+  host.request(
+    exportFileMessage('png', name, raster.base64),
+    exportAnswer(host, (saved) => 'Exported ' + size + ' PNG as ' + saved + '.', name),
+  );
+  return true;
+}
+
+export async function copySvgText(host: ExportHost, result: ExportSvgResult): Promise<boolean> {
+  const ok = await writeText(result.svg);
+  if (ok) {
+    const said = 'SVG copied — ' + result.nodeIds.length + ' cards, ' + result.edgeIds.length + ' connections.';
+    host.toast(said);
+    host.announce(said);
+    return true;
+  }
+  // The host's clipboard, which answers with an `actionResult`:
+  // success is claimed only once the host has written the text.
+  const cards = result.nodeIds.length;
+  const connections = result.edgeIds.length;
+  host.request({ v: 1, type: 'copy', text: result.svg }, (answer) => {
+    if (answer.outcome === 'done') {
+      const said = 'SVG copied — ' + cards + ' cards, ' + connections + ' connections.';
+      host.toast(said);
+      host.announce(said);
+    } else {
+      host.announce('The SVG could not be copied.');
+    }
+  });
+  return false;
+}
+
+async function safeRasterize(result: ExportSvgResult) {
+  try {
+    return await rasterize(result.svg, result.width, result.height, PNG_SCALE);
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function writeText(value: string): Promise<boolean> {
+  const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+  if (!nav || !nav.clipboard || typeof nav.clipboard.writeText !== 'function') return false;
+  try {
+    await nav.clipboard.writeText(value);
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
